@@ -3313,7 +3313,10 @@ public sealed partial class Engine : IDisposable
 
             case PromiseRejectionNotification.Outstanding:
                 // Already announced, so the pair is worth completing: leave the weak set and owe a
-                // rejectionhandled, which HTML also queues as a task rather than firing here.
+                // rejectionhandled, which HTML also queues as a task rather than firing here. HTML queues that
+                // task now, before any task the script queues after attaching the handler, so the host is told
+                // now; the web API's own event still waits for the checkpoint.
+                _tasks?.RaisePromiseRejectionTracker(promise, PromiseRejectionOperation.Handle);
                 promise.RejectionNotification = PromiseRejectionNotification.HandledNotificationPending;
                 (_rejectionNotifications ??= new List<JsPromise>()).Add(promise);
                 break;
@@ -3381,7 +3384,8 @@ public sealed partial class Engine : IDisposable
 
             if (state == PromiseRejectionNotification.HandledNotificationPending)
             {
-                RaisePromiseRejectionNotification(promise, PromiseRejectionOperation.Handle);
+                // The host was told when the handler was attached.
+                ReportPromiseRejectionToWebApi(promise, PromiseRejectionOperation.Handle);
                 continue;
             }
 
@@ -3413,9 +3417,17 @@ public sealed partial class Engine : IDisposable
         // subscribed to the event, so materializing it here would allocate on a path that has nothing to
         // raise — and a rejection with no handler is exactly the path a host under load is already on.
         _tasks?.RaisePromiseRejectionTracker(promise, operation);
+        return ReportPromiseRejectionToWebApi(promise, operation);
+    }
 
+    /// <summary>
+    /// The web API's half of <see cref="RaisePromiseRejectionNotification"/>: its global events and its
+    /// diagnostics sink. Returns HTML's <i>notHandled</i>.
+    /// </summary>
+    private bool ReportPromiseRejectionToWebApi(JsPromise promise, PromiseRejectionOperation operation)
+    {
 #if NET8_0_OR_GREATER
-        // Additively, and strictly after the event above: a host that wired both channels must see the
+        // Additively, and strictly after the host event: a host that wired both channels must see the
         // pre-existing one behave exactly as it always did, which it cannot if a sink can run first. Null on
         // every engine whose host set no diagnostics sink, which is one predictable null test on a path that
         // only runs when a rejection had no handler.

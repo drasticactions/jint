@@ -79,6 +79,24 @@ public class PromiseRejectionNotificationTests
     }
 
     [Test]
+    public void AHandlerAttachedToAnAnnouncedRejectionIsReportedWhenItIsAttached()
+    {
+        var (engine, reports) = Tracked();
+        engine.SetValue("reportCount", new Func<int>(() => reports.Count));
+
+        engine.Execute("var p = Promise.reject(new Error('boom'));");
+
+        // HTML queues the rejectionhandled task inside the "handle" operation, ahead of any task the script
+        // queues after attaching the handler, so the host hears of it before the script goes on.
+        engine.Evaluate("p.catch(function () {}); reportCount()").AsNumber().Should().Be(2);
+        engine.Tasks.ProcessTasks();
+
+        reports.Select(r => r.Operation).Should().Equal(
+            PromiseRejectionOperation.Reject,
+            PromiseRejectionOperation.Handle);
+    }
+
+    [Test]
     public void AnAwaitedAsyncFunctionThatThrowsIsNeverReported()
     {
         var (engine, reports) = Tracked();
