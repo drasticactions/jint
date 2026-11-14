@@ -16,7 +16,18 @@ namespace Jint.Native.Function;
 public sealed class ScriptFunction : Function, IConstructor
 {
     internal bool _isClassConstructor;
-    internal JsValue? _classFieldInitializerName;
+
+    internal JsValue? _classFieldInitializerName
+    {
+        get => _rare?.ClassFieldInitializerName;
+        set
+        {
+            if (_rare is not null || value is not null)
+            {
+                Rare.ClassFieldInitializerName = value;
+            }
+        }
+    }
 
     // Whether this function's code is strict, resolved once at creation. Normally that is a static
     // property of the AST: the parser marks the FunctionBody, propagating an enclosing "use strict"
@@ -34,8 +45,69 @@ public sealed class ScriptFunction : Function, IConstructor
     // or deleted); a deleted-then-redefined property goes to the dictionary, which preserves the
     // previous key order after resurrection. Enumeration order (length, name, prototype,
     // arguments, caller) matches the old ctor-time dictionary inserts.
-    internal PropertyDescriptor? _argumentsDescriptor;
-    internal PropertyDescriptor? _callerDescriptor;
+    //
+    // Each is a state byte here: absent, pending (the sentinel) or materialized, the descriptor then being held in
+    // the rare data, so that a sloppy closure does not carry two descriptor references nothing reads.
+    private byte _argumentsState;
+    private byte _callerState;
+
+    private const byte RestrictedAbsent = 0;
+    private const byte RestrictedPending = 1;
+    private const byte RestrictedMaterialized = 2;
+
+    internal PropertyDescriptor? _argumentsDescriptor
+    {
+        get => _argumentsState switch
+        {
+            RestrictedAbsent => null,
+            RestrictedPending => _pendingDescriptor,
+            _ => _rare!.ArgumentsDescriptor,
+        };
+        set
+        {
+            if (value is null || ReferenceEquals(value, _pendingDescriptor))
+            {
+                if (_rare is not null)
+                {
+                    _rare.ArgumentsDescriptor = null;
+                }
+
+                _argumentsState = value is null ? RestrictedAbsent : RestrictedPending;
+            }
+            else
+            {
+                Rare.ArgumentsDescriptor = value;
+                _argumentsState = RestrictedMaterialized;
+            }
+        }
+    }
+
+    internal PropertyDescriptor? _callerDescriptor
+    {
+        get => _callerState switch
+        {
+            RestrictedAbsent => null,
+            RestrictedPending => _pendingDescriptor,
+            _ => _rare!.CallerDescriptor,
+        };
+        set
+        {
+            if (value is null || ReferenceEquals(value, _pendingDescriptor))
+            {
+                if (_rare is not null)
+                {
+                    _rare.CallerDescriptor = null;
+                }
+
+                _callerState = value is null ? RestrictedAbsent : RestrictedPending;
+            }
+            else
+            {
+                Rare.CallerDescriptor = value;
+                _callerState = RestrictedMaterialized;
+            }
+        }
+    }
 
     // Reuse cache for this function's call environments, populated on a pool-eligible call's return.
     // Interpreted via State.IsDirectRecursive: a FunctionEnvironment (the next call reuses it directly)
@@ -45,11 +117,37 @@ public sealed class ScriptFunction : Function, IConstructor
     // no engine references and stay shared on State._cachedSlots.
     internal object? _envReuse;
 
+    // Whether a call of this instance has returned its environment. The first one is not kept: a closure made for
+    // every object (a method a constructor defines) is mostly called once, and its kept environment would live
+    // as long as the closure for nothing. The second and later calls keep theirs for the next.
+    private bool _returnedEnvironment;
+
     // [[PrivateMethods]] and [[Fields]] of a class constructor, both lists even when empty; an ordinary function has
     // neither. A class whose decorators added instance initializers keeps its fields in its private-methods list, a
     // DecoratedInstanceElements, and has no fields list: ObjectInstance.InitializeInstanceElements relies on all three.
-    internal List<PrivateElement>? _privateMethods;
-    internal List<ClassFieldDefinition>? _fields;
+    internal List<PrivateElement>? _privateMethods
+    {
+        get => _rare?.PrivateMethods;
+        set
+        {
+            if (_rare is not null || value is not null)
+            {
+                Rare.PrivateMethods = value;
+            }
+        }
+    }
+
+    internal List<ClassFieldDefinition>? _fields
+    {
+        get => _rare?.Fields;
+        set
+        {
+            if (_rare is not null || value is not null)
+            {
+                Rare.Fields = value;
+            }
+        }
+    }
 
     // Allocation-site feedback for shaping `new T()` instances. A constructor's first
     // CtorShapePromoteThreshold instances build dictionaries (so a constructor called once or twice — the
@@ -69,10 +167,30 @@ public sealed class ScriptFunction : Function, IConstructor
     // all. Combines the AST-pure State.CtorBodyShapeEligibility with the per-function class-fields
     // check; the combined verdict cannot live on the shared State because the shared
     // empty-constructor AST serves classes with different fields.
-    private byte _ctorStaticEligibility;
-    private int _ctorSampleCount;
-    private Shape? _ctorEmptyShape;
-    private ObjectInstance? _ctorEmptyShapeProto;
+    // These four live in the rare data: only a function used as a constructor has them.
+    private byte _ctorStaticEligibility
+    {
+        get => _rare?.CtorStaticEligibility ?? 0;
+        set => Rare.CtorStaticEligibility = value;
+    }
+
+    private int _ctorSampleCount
+    {
+        get => _rare?.CtorSampleCount ?? 0;
+        set => Rare.CtorSampleCount = value;
+    }
+
+    private Shape? _ctorEmptyShape
+    {
+        get => _rare?.CtorEmptyShape;
+        set => Rare.CtorEmptyShape = value;
+    }
+
+    private ObjectInstance? _ctorEmptyShapeProto
+    {
+        get => _rare?.CtorEmptyShapeProto;
+        set => Rare.CtorEmptyShapeProto = value;
+    }
 
     /// <summary>
     /// http://www.ecma-international.org/ecma-262/5.1/#sec-13.2
@@ -425,10 +543,14 @@ public sealed class ScriptFunction : Function, IConstructor
                 // environment (CreateDynamicFunction), which the realm holds for its own lifetime.
                 Interlocked.Exchange(ref state._dynamicCachedEnv, funcEnv);
             }
-            else
+            else if (_returnedEnvironment)
             {
                 // Cache the env itself so the next call to this function avoids the allocation.
                 _envReuse = funcEnv;
+            }
+            else
+            {
+                _returnedEnvironment = true;
             }
         }
     }

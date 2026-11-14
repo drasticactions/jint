@@ -32,6 +32,12 @@ public abstract partial class Function : ObjectInstance, ICallable
     // The sentinel must never escape — its value accessors throw to make any leak loud.
     private protected static readonly PropertyDescriptor _pendingDescriptor = new PendingPropertyDescriptor();
 
+    // The same deferral for an empty own "name": an anonymous function expression gets one from SetFunctionName,
+    // and a closure made for every object (a method a constructor defines) would otherwise carry a descriptor
+    // nothing reads. Unlike _pendingDescriptor it stands for the empty string, so SetFunctionName may still
+    // replace it.
+    private protected static readonly PropertyDescriptor _pendingEmptyNameDescriptor = new PendingPropertyDescriptor();
+
     private sealed class PendingPropertyDescriptor : PropertyDescriptor
     {
         public PendingPropertyDescriptor() : base(PropertyFlag.CustomJsValue)
@@ -52,12 +58,41 @@ public abstract partial class Function : ObjectInstance, ICallable
     internal Environment? _environment;
     internal readonly JintFunctionDefinition? _functionDefinition;
     internal readonly FunctionThisMode _thisMode;
-    internal JsValue _homeObject = Undefined;
     internal ConstructorKind _constructorKind = ConstructorKind.Base;
 
     internal Realm _realm;
-    internal PrivateEnvironment? _privateEnvironment;
     internal readonly IScriptOrModule? _scriptOrModule;
+
+    // Created by the first store of anything it holds; see FunctionRareData.
+    internal FunctionRareData? _rare;
+
+    internal FunctionRareData Rare => _rare ??= new FunctionRareData();
+
+    internal JsValue _homeObject
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _rare?.HomeObject ?? Undefined;
+        set
+        {
+            if (_rare is not null || !value.IsUndefined())
+            {
+                Rare.HomeObject = value;
+            }
+        }
+    }
+
+    internal PrivateEnvironment? _privateEnvironment
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _rare?.PrivateEnvironment;
+        set
+        {
+            if (_rare is not null || value is not null)
+            {
+                Rare.PrivateEnvironment = value;
+            }
+        }
+    }
 
     /// <summary>
     /// Coerces a built-in's callback argument, raising the TypeError from this function's own
@@ -304,6 +339,10 @@ public abstract partial class Function : ObjectInstance, ICallable
             {
                 nameDescriptor = MaterializeNameDescriptor();
             }
+            else if (ReferenceEquals(nameDescriptor, _pendingEmptyNameDescriptor))
+            {
+                nameDescriptor = _nameDescriptor = new PropertyDescriptor(JsString.Empty, PropertyFlag.Configurable);
+            }
             return nameDescriptor ?? PropertyDescriptor.Undefined;
         }
 
@@ -415,7 +454,8 @@ public abstract partial class Function : ObjectInstance, ICallable
     {
         var nameDescriptor = _nameDescriptor;
         if (!force && nameDescriptor != null
-            // a pending descriptor stands for the definition's own (never empty) name
+            // a pending descriptor stands for the definition's own (never empty) name, the pending empty one for ""
+            && !ReferenceEquals(nameDescriptor, _pendingEmptyNameDescriptor)
             && (ReferenceEquals(nameDescriptor, _pendingDescriptor) || UnwrapJsValue(nameDescriptor) != JsString.Empty))
         {
             return;
@@ -437,7 +477,9 @@ public abstract partial class Function : ObjectInstance, ICallable
             name = PrefixName(prefix!, name, _engine._evaluationContext);
         }
 
-        _nameDescriptor = new PropertyDescriptor(name, PropertyFlag.Configurable);
+        _nameDescriptor = name is JsString { Length: 0 }
+            ? _pendingEmptyNameDescriptor
+            : new PropertyDescriptor(name, PropertyFlag.Configurable);
     }
 
     // The three prefixes SetFunctionName is ever called with, each already carrying the separating
@@ -738,7 +780,7 @@ public abstract partial class Function : ObjectInstance, ICallable
     {
         var nameDescriptor = _nameDescriptor;
         JsValue nameValue;
-        if (nameDescriptor is null)
+        if (nameDescriptor is null || ReferenceEquals(nameDescriptor, _pendingEmptyNameDescriptor))
         {
             nameValue = JsString.Empty;
         }
@@ -770,7 +812,7 @@ public abstract partial class Function : ObjectInstance, ICallable
     internal string? GetOwnFunctionNameForDisplay()
     {
         var descriptor = _nameDescriptor;
-        if (descriptor is null)
+        if (descriptor is null || ReferenceEquals(descriptor, _pendingEmptyNameDescriptor))
         {
             return string.Empty;
         }
@@ -805,6 +847,11 @@ public abstract partial class Function : ObjectInstance, ICallable
     internal string GetOwnFunctionNameForMessage()
     {
         var descriptor = _nameDescriptor;
+        if (ReferenceEquals(descriptor, _pendingEmptyNameDescriptor))
+        {
+            return string.Empty;
+        }
+
         if (descriptor is null || (descriptor.Flags & PropertyFlag.CustomJsValue) != PropertyFlag.None)
         {
             return GetType().Name;
