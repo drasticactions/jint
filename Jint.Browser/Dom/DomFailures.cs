@@ -207,7 +207,7 @@ internal static class DomFailures
             ? intrinsics.QuotaExceededError.CreateException(message)
             : intrinsics.DomException.CreateException(name, message);
 
-        Throw.JavaScriptException(engine, error, engine.GetLastSyntaxElement()?.Location ?? default);
+        Throw.JavaScriptException(engine, error, engine.LastSyntaxLocation);
         return JsValue.Undefined;
     }
 

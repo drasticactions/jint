@@ -513,7 +513,7 @@ internal sealed class JintMemberExpression : JintExpression
                 TypeConverter.CheckObjectCoercible(engine, baseValue, _memberExpression.Property, Throw.SafeToDisplayString(determinedProperty));
             }
 
-            context.LastSyntaxElement = _expression;
+            context.PrepareFor(_expression);
 
             if (baseValue.IsObject())
             {
@@ -640,7 +640,7 @@ internal sealed class JintMemberExpression : JintExpression
         {
             var baseValue = _objectExpression.GetValue(context);
             var property = _determinedProperty ?? _propertyExpression!.GetValue(context);
-            context.LastSyntaxElement = _expression;
+            context.PrepareFor(_expression);
 
             if (baseValue is JsArray fastArray
                 && fastArray.CanUseFastAccess
@@ -837,7 +837,7 @@ internal sealed class JintMemberExpression : JintExpression
     {
         var determinedProperty = (JsString) _determinedProperty!;
 
-        context.LastSyntaxElement = _expression;
+        context.PrepareFor(_expression);
 
         // Object receivers take the own-property/prototype cache path below; primitive string receivers
         // take the prototype-only string-method cache further down. Other primitive receivers
@@ -1499,7 +1499,7 @@ internal sealed class JintMemberExpression : JintExpression
         var baseValue = _objectExpression.GetValue(context);
         var rval = right.GetValue(context);
 
-        context.LastSyntaxElement = _expression;
+        context.PrepareFor(_expression);
 
         StoreOnBase(context, baseValue, rval);
         result = rval;
@@ -1678,7 +1678,7 @@ internal sealed class JintMemberExpression : JintExpression
     /// </summary>
     internal bool TryReadOwnDataForCompound(EvaluationContext context, JsValue baseValue, out JsValue value)
     {
-        context.LastSyntaxElement = _expression;
+        context.PrepareFor(_expression);
 
         if (baseValue.IsObject())
         {

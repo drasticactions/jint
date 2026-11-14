@@ -197,6 +197,16 @@ internal sealed class JintFunctionDefinition
     }
 
     /// <summary>
+    /// The built statement list of a body that is a single <c>return &lt;expression&gt;;</c> (see
+    /// <see cref="JintStatementList.ExecuteSingleReturnBody"/>), or null — also until the body is first built.
+    /// </summary>
+    internal JintStatementList? SingleReturnBody
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _bodyStatementList is { IsSingleReturnBody: true } list ? list : null;
+    }
+
+    /// <summary>
     /// Body evaluation for env-less leaf calls (<see cref="State.SupportsLeafCall"/>): FDI is a
     /// no-op by the flag's gate and the body is a plain synchronous statement list, so nothing
     /// remains but executing it.

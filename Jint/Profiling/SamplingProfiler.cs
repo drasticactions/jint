@@ -120,7 +120,7 @@ internal sealed class SamplingProfiler
 
         // The node an error would be reported against, which is the finest-grained position the engine
         // maintains: the line executing inside the innermost script frame.
-        var innermost = engine._lastSyntaxElement?.Location ?? default;
+        var innermost = engine.LastSyntaxLocation;
 
         // The program's own executing position is the call site of the outermost function on the stack,
         // and the innermost position when there is none because the program itself is what is running.

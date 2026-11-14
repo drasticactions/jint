@@ -147,7 +147,7 @@ internal static class XPathEvaluation
                 runtime.Engine._mainRealm.Intrinsics.DomException.CreateException(
                     DomExceptionNames.Syntax,
                     "Failed to execute '" + member + "': " + exception.Message),
-                runtime.Engine.GetLastSyntaxElement()?.Location ?? default);
+                runtime.Engine.LastSyntaxLocation);
             return JsValue.Undefined;
         }
 
@@ -171,7 +171,7 @@ internal static class XPathEvaluation
                 runtime.Engine._mainRealm.Intrinsics.DomException.CreateException(
                     DomExceptionNames.Syntax,
                     "Failed to execute '" + member + "': The string '" + source + "' is not a valid XPath expression."),
-                runtime.Engine.GetLastSyntaxElement()?.Location ?? default);
+                runtime.Engine.LastSyntaxLocation);
             return null!;
         }
     }

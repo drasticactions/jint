@@ -147,15 +147,20 @@ internal sealed class JintStackProbeExpression : JintExpression
     internal override void EnableShortCircuitPropagation() => _operator.EnableShortCircuitPropagation();
 
     /// <summary>
-    /// <see cref="JintCallExpression"/>'s probe: whether the stack-hopping lane wants a fresh stack, after which the
-    /// backstop throws if the stack is still too low.
+    /// <see cref="JintCallExpression"/>'s probe: whether the stack-hopping lane wants a fresh stack, or, with the lane
+    /// off, the backstop, which throws if the stack is too low.
     /// </summary>
+    /// <remarks>
+    /// With the lane on, its answer is the runtime's for this very stack, so the backstop is not asked as well: it
+    /// probes from a frame further down, and on a stack whose reserve ends between the two it threw where the lane
+    /// had just decided to stay — which of them a recursion meets first moved with the JIT's frame sizes.
+    /// </remarks>
     internal static bool MustMoveToFreshStack(EvaluationContext context)
     {
         var stackGuard = context.Engine._stackGuard;
-        if (!stackGuard.TryEnterOnCurrentStack())
+        if (stackGuard.HopsToFreshStack)
         {
-            return true;
+            return !stackGuard.TryEnterOnCurrentStack();
         }
 
         stackGuard.EnsureNativeStackHeadroom();

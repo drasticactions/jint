@@ -233,7 +233,7 @@ internal sealed class JsFetchEvent : JsEvent
             DomExceptionNames.InvalidState,
             $"Failed to execute '{operationName}' on 'FetchEvent': {detail}");
 
-        var location = _engine._lastSyntaxElement?.Location ?? default;
+        var location = _engine.LastSyntaxLocation;
         Throw.JavaScriptException(_engine, exception, in location);
     }
 }

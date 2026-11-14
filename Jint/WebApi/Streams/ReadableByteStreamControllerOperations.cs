@@ -903,7 +903,7 @@ internal static class ReadableByteStreamControllerOperations
     [DoesNotReturn]
     private static void ThrowValue(Engine engine, JsValue error)
     {
-        var location = engine._lastSyntaxElement?.Location ?? default;
+        var location = engine.LastSyntaxLocation;
         Throw.JavaScriptException(engine, error, in location);
     }
 }

@@ -282,7 +282,7 @@ internal sealed partial class PerformanceObserverPrototype : Prototype
     private void ThrowInvalidModification(string message)
     {
         var exception = _realm.Intrinsics.DomException.CreateException(DomExceptionNames.InvalidModification, message);
-        var location = _engine._lastSyntaxElement?.Location ?? default;
+        var location = _engine.LastSyntaxLocation;
         Throw.JavaScriptException(_engine, exception, in location);
     }
 

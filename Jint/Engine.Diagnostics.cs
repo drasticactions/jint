@@ -88,13 +88,12 @@ public partial class Engine
             get
             {
                 using var ownership = _engine.EnterHostCall();
-                var lastSyntaxElement = _engine._lastSyntaxElement;
-                if (lastSyntaxElement is null)
+                if (!_engine.HasLastSyntaxElement)
                 {
                     return string.Empty;
                 }
 
-                return _engine.CallStack.BuildCallStackString(_engine, lastSyntaxElement.Location);
+                return _engine.CallStack.BuildCallStackString(_engine, _engine.LastSyntaxLocation);
             }
         }
 

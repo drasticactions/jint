@@ -326,7 +326,7 @@ internal sealed class JsPerformance : JsEventTarget
             DomExceptionNames.Syntax,
             context + ": the mark '" + name + "' does not exist.");
 
-        var location = _engine._lastSyntaxElement?.Location ?? default;
+        var location = _engine.LastSyntaxLocation;
         Throw.JavaScriptException(_engine, exception, in location);
         return 0;
     }

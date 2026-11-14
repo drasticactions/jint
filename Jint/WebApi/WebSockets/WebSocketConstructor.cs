@@ -264,14 +264,14 @@ internal sealed partial class WebSocketConstructor : Constructor
     private void ThrowDomException(string name, string message)
     {
         var exception = _realm.Intrinsics.DomException.CreateException(name, message);
-        var location = _engine._lastSyntaxElement?.Location ?? default;
+        var location = _engine.LastSyntaxLocation;
         Throw.JavaScriptException(_engine, exception, in location);
     }
 
     private void ThrowQuotaExceededError(string message, double quota, double requested)
     {
         var exception = _realm.Intrinsics.QuotaExceededError.CreateException(message, quota, requested);
-        var location = _engine._lastSyntaxElement?.Location ?? default;
+        var location = _engine.LastSyntaxLocation;
         Throw.JavaScriptException(_engine, exception, in location);
     }
 }

@@ -111,7 +111,7 @@ internal static class FormSubmission
                 DomExceptionNames.NotFound,
                 "Failed to execute 'requestSubmit' on 'HTMLFormElement': The specified element is not owned by this form element.");
 
-            var location = realm.Engine._lastSyntaxElement?.Location ?? default;
+            var location = realm.Engine.LastSyntaxLocation;
             Throw.JavaScriptException(realm.Engine, exception, in location);
             return;
         }

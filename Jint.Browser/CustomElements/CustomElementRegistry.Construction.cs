@@ -159,7 +159,7 @@ internal sealed partial class CustomElementRegistry
                     DomExceptionNames.NotSupported,
                     "Failed to execute 'createElement' on 'Document': the constructor of '" + definition.Name
                     + "' did not produce a new, empty '" + localName + "' element.");
-                var location = engine._lastSyntaxElement?.Location ?? default;
+                var location = engine.LastSyntaxLocation;
                 Throw.JavaScriptException(engine, error, in location);
             }
 

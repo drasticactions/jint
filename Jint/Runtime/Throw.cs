@@ -121,7 +121,7 @@ internal static class Throw
     [DoesNotReturn]
     public static void ReferenceError(Realm realm, string? message)
     {
-        var location = realm.GlobalObject.Engine.GetLastSyntaxElement()?.Location ?? default;
+        var location = realm.GlobalObject.Engine.LastSyntaxLocation;
         throw new JavaScriptException(realm.Intrinsics.ReferenceError, message).SetJavaScriptLocation(in location);
     }
 
@@ -140,7 +140,7 @@ internal static class Throw
     [DoesNotReturn]
     public static void TypeError(Realm realm, string? message = null)
     {
-        var location = realm.GlobalObject.Engine.GetLastSyntaxElement()?.Location ?? default;
+        var location = realm.GlobalObject.Engine.LastSyntaxLocation;
         throw new JavaScriptException(realm.Intrinsics.TypeError, message).SetJavaScriptLocation(in location);
     }
 
@@ -163,7 +163,7 @@ internal static class Throw
         MethodDescriptor[]? candidates)
     {
         var engine = realm.GlobalObject.Engine;
-        var location = engine.GetLastSyntaxElement()?.Location ?? default;
+        var location = engine.LastSyntaxLocation;
 
         var error = realm.Intrinsics.TypeError.Construct(message);
 
@@ -187,14 +187,14 @@ internal static class Throw
     [DoesNotReturn]
     public static void RangeError(Realm realm, string? message = null)
     {
-        var location = realm.GlobalObject.Engine.GetLastSyntaxElement()?.Location ?? default;
+        var location = realm.GlobalObject.Engine.LastSyntaxLocation;
         throw new JavaScriptException(realm.Intrinsics.RangeError, message).SetJavaScriptLocation(in location);
     }
 
     [DoesNotReturn]
     public static void UriError(Realm realm, string? message = null)
     {
-        var location = realm.GlobalObject.Engine.GetLastSyntaxElement()?.Location ?? default;
+        var location = realm.GlobalObject.Engine.LastSyntaxLocation;
         throw new JavaScriptException(realm.Intrinsics.UriError, message).SetJavaScriptLocation(in location);
     }
 
@@ -376,7 +376,7 @@ internal static class Throw
         var error = CreateClrError(engine, clrException, message);
 
         var jsException = new JavaScriptException(error);
-        var location = engine._lastSyntaxElement?.Location ?? default;
+        var location = engine.LastSyntaxLocation;
         if (location != default)
         {
             // overwriteExisting:false preserves a "stack" property a decorator may have written

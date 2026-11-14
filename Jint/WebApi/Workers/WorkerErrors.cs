@@ -17,7 +17,7 @@ internal static class WorkerErrors
     internal static void ThrowQuotaExceededError(Engine engine, Realm realm, string message, double quota, double requested)
     {
         var exception = realm.Intrinsics.QuotaExceededError.CreateException(message, quota, requested);
-        var location = engine._lastSyntaxElement?.Location ?? default;
+        var location = engine.LastSyntaxLocation;
         Throw.JavaScriptException(engine, exception, in location);
     }
 
@@ -29,7 +29,7 @@ internal static class WorkerErrors
     internal static void ThrowDomException(Engine engine, Realm realm, string name, string message)
     {
         var exception = realm.Intrinsics.DomException.CreateException(name, message);
-        var location = engine._lastSyntaxElement?.Location ?? default;
+        var location = engine.LastSyntaxLocation;
         Throw.JavaScriptException(engine, exception, in location);
     }
 }

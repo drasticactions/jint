@@ -973,7 +973,7 @@ internal sealed class WebApiEngineState
         {
             // The location the engine last saw, which for a call from script is the reportError call site —
             // the same fallback every web API that has to place a failure uses.
-            var location = _engine._lastSyntaxElement?.Location ?? default;
+            var location = _engine.LastSyntaxLocation;
             FireErrorAndPropagate(realm, ErrorEventDetails.FromReportedValue(value, in location));
         }
 

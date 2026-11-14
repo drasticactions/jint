@@ -88,7 +88,7 @@ internal sealed partial class AbortSignalPrototype : Prototype
 
         // The reason is thrown as it is — it is whatever the aborter chose, and only defaults to an
         // AbortError DOMException when nobody chose anything.
-        var location = _engine._lastSyntaxElement?.Location ?? default;
+        var location = _engine.LastSyntaxLocation;
         Throw.JavaScriptException(_engine, signal.Reason, in location);
         return Undefined;
     }

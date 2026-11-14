@@ -104,7 +104,7 @@ internal sealed class Base64Function : Native.Function.Function
     private void ThrowInvalidCharacterError(string message)
     {
         var error = _realm.Intrinsics.DomException.CreateException(DomExceptionNames.InvalidCharacter, message);
-        Throw.JavaScriptException(_engine, error, _engine.GetLastSyntaxElement()?.Location ?? default);
+        Throw.JavaScriptException(_engine, error, _engine.LastSyntaxLocation);
     }
 }
 #endif

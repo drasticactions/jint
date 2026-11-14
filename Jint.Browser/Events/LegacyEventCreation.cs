@@ -73,7 +73,7 @@ internal static class LegacyEventCreation
                 DomExceptionNames.NotSupported,
                 "Failed to execute 'createEvent' on 'Document': the provided event type ('" + alias + "') is invalid.");
 
-            var location = dom.Engine._lastSyntaxElement?.Location ?? default;
+            var location = dom.Engine.LastSyntaxLocation;
             Throw.JavaScriptException(dom.Engine, notSupported, in location);
         }
 

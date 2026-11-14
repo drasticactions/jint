@@ -138,5 +138,5 @@ internal static class WindowOpen
     internal static void ThrowDom(PageRuntime runtime, string name, string message)
         => Throw.JavaScriptException(runtime.Engine,
             runtime.Engine._mainRealm.Intrinsics.DomException.CreateException(name, message),
-            runtime.Engine.GetLastSyntaxElement()?.Location ?? default);
+            runtime.Engine.LastSyntaxLocation);
 }

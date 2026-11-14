@@ -65,7 +65,7 @@ internal static class FormDataConstruction
             {
                 var exception = realm.Intrinsics.DomException.CreateException(
                     DomExceptionNames.NotFound, "The submitter is not owned by this form");
-                var location = runtime.Engine._lastSyntaxElement?.Location ?? default;
+                var location = runtime.Engine.LastSyntaxLocation;
                 Throw.JavaScriptException(runtime.Engine, exception, in location);
                 return null!;
             }
@@ -76,7 +76,7 @@ internal static class FormDataConstruction
         {
             var exception = realm.Intrinsics.DomException.CreateException(
                 DomExceptionNames.InvalidState, "The form's entry list is already being constructed");
-            var location = runtime.Engine._lastSyntaxElement?.Location ?? default;
+            var location = runtime.Engine.LastSyntaxLocation;
             Throw.JavaScriptException(runtime.Engine, exception, in location);
             return null!;
         }

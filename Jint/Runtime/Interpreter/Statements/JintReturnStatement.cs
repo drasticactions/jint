@@ -17,6 +17,9 @@ internal sealed class JintReturnStatement : JintStatement<ReturnStatement>
             : null;
     }
 
+    /// <summary>The returned expression, or null for a bare <c>return;</c>.</summary>
+    internal JintExpression? Argument => _argument;
+
     protected override Completion ExecuteInternal(EvaluationContext context)
     {
         var value = _argument is not null ? _argument.GetValue(context) : JsValue.Undefined;

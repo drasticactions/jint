@@ -115,7 +115,7 @@ internal sealed class JsStorage : ObjectInstance
             // report — both null unless it used the constructor that takes them, which is what the interface
             // says an unstated quota reads as. The provider validated the pair when it built the exception.
             var exception = _realm.Intrinsics.QuotaExceededError.CreateException(quota.Message, quota.Quota, quota.Requested);
-            var location = _engine._lastSyntaxElement?.Location ?? default;
+            var location = _engine.LastSyntaxLocation;
             Throw.JavaScriptException(_engine, exception, in location);
         }
     }

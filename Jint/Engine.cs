@@ -53,13 +53,13 @@ public sealed partial class Engine : IDisposable
 
     private readonly ExecutionContextStack _executionContexts;
 
-    // Invariant for engine-level ambient mutable fields (e.g. _lastSyntaxElement): they must
+    // Invariant for engine-level ambient mutable fields (e.g. the last syntax element): they must
     // not hold an in-flight result across a call that can re-enter the engine (anything that may run
     // RunAvailableContinuations, or a CLR callback that calls Evaluate/Execute/Invoke). Either
     // save-and-restore around the re-entrant region, or carry the value out-of-band rather than in a
     // field. A script's completion value used to live here as a field and was clobbered by a
     // re-entrant drain (https://github.com/sebastienros/jint/issues/2492); it is now returned from
-    // ScriptEvaluation as a per-frame local. _lastSyntaxElement is safe because it is produced and
+    // ScriptEvaluation as a per-frame local. The last syntax element is safe because it is produced and
     // consumed synchronously with no re-entrant drain in between.
 
     /// <summary>
@@ -2210,7 +2210,13 @@ public sealed partial class Engine : IDisposable
     // having a proper execution context established
     internal Realm? _realmInConstruction;
 
-    internal Node? _lastSyntaxElement;
+    // The location of the last syntax element, the node an error would be reported against: a copy of the node's
+    // location rather than a reference to the node, because the interpreter records it at nearly every node it
+    // evaluates and a reference stored into the engine pays a GC write barrier each time. The two positions are
+    // plain moves, and the source file, the one reference in a location, changes only between scripts, so it is
+    // written only then. Start.Line is NoSyntaxElementLine until an element is recorded. See SetLastSyntaxElement.
+    private const int NoSyntaxElementLine = int.MinValue;
+    internal SourceLocation _lastSyntaxLocation = NoSyntaxElement();
 
     // Bumped when a binding is injected into a PRE-EXISTING environment mid-execution (sloppy
     // direct eval var/function hoisting, AnnexB block-function var-scope copies). Nested-scope
@@ -4708,11 +4714,74 @@ public sealed partial class Engine : IDisposable
     }
 
     /// <summary>
-    /// Gets the last evaluated <see cref="Node"/>.
+    /// Records <paramref name="node"/> as the last syntax element: the node an error raised from here on is
+    /// reported against, until the next one is recorded.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal void SetLastSyntaxElement(Node node) => RestoreLastSyntaxElement(in node.LocationRef);
+
+    /// <summary>
+    /// The last syntax element as it is now, for <see cref="RestoreLastSyntaxElement"/> to put back.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal SourceLocation MarkLastSyntaxElement() => _lastSyntaxLocation;
+
+    /// <summary>
+    /// Makes <paramref name="location"/> the last syntax element's: a location <see cref="MarkLastSyntaxElement"/>
+    /// returned, or a node's.
+    /// </summary>
+    /// <remarks>
+    /// Written field by field in place, as <see cref="ExecutionContextStack"/> writes its top context: the positions
+    /// are plain moves, and the source file is compared first so that only a change of script pays the write barrier.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal void RestoreLastSyntaxElement(in SourceLocation location)
+    {
+        ref var target = ref _lastSyntaxLocation;
+        // MA0168 (net472/netstandard2.0 only): the older Unsafe.AsRef(in T) overload flags this intentional
+        // in-place write of the location's readonly fields.
+#pragma warning disable MA0168
+        Unsafe.AsRef(in target.Start) = location.Start;
+        Unsafe.AsRef(in target.End) = location.End;
+        var source = location.SourceFile;
+        if (!ReferenceEquals(source, target.SourceFile))
+        {
+            Unsafe.AsRef(in target.SourceFile) = source;
+        }
+#pragma warning restore MA0168
+    }
+
+    /// <summary>
+    /// Forgets the last syntax element, as if none had been recorded.
+    /// </summary>
+    internal void ClearLastSyntaxElement() => _lastSyntaxLocation = NoSyntaxElement();
+
+    private static SourceLocation NoSyntaxElement()
+    {
+        var location = default(SourceLocation);
+#pragma warning disable MA0168
+        Unsafe.AsRef(in location.Start.Line) = NoSyntaxElementLine;
+#pragma warning restore MA0168
+        return location;
+    }
+
+    /// <summary>
+    /// Whether a syntax element has been recorded.
+    /// </summary>
+    internal bool HasLastSyntaxElement => _lastSyntaxLocation.Start.Line != NoSyntaxElementLine;
+
+    /// <summary>
+    /// The location of the last syntax element, or the default location when none has been recorded.
+    /// </summary>
+    internal SourceLocation LastSyntaxLocation => HasLastSyntaxElement ? _lastSyntaxLocation : default;
+
+    /// <summary>
+    /// A node at the location of the last syntax element, or null when none has been recorded. The node is made
+    /// for the caller, so a caller that wants the location asks for <see cref="LastSyntaxLocation"/> instead.
     /// </summary>
     internal Node GetLastSyntaxElement()
     {
-        return _lastSyntaxElement!;
+        return HasLastSyntaxElement ? AstExtensions.CreateLocationNode(_lastSyntaxLocation) : null!;
     }
 
     /// <summary>
@@ -5781,7 +5850,7 @@ public sealed partial class Engine : IDisposable
     [DoesNotReturn]
     internal void ThrowError(ErrorDispatchInfo error)
     {
-        var location = GetLastSyntaxElement()?.Location ?? default;
+        var location = LastSyntaxLocation;
         throw new JavaScriptException(error.ErrorConstructor, error.Message).SetJavaScriptLocation(in location);
     }
 

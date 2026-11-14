@@ -16,7 +16,7 @@ internal sealed class JintThisExpression : JintExpression
     public override JsValue GetValue(EvaluationContext context)
     {
         // need to notify correct node when taking shortcut
-        context.LastSyntaxElement = _expression;
+        context.PrepareFor(_expression);
         return context.Engine.ResolveThisBinding();
     }
 }

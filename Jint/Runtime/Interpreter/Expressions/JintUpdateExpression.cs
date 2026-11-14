@@ -52,7 +52,7 @@ internal sealed class JintUpdateExpression : JintExpression
 
     internal override void EvaluateAndDiscard(EvaluationContext context)
     {
-        var oldSyntaxElement = context.LastSyntaxElement;
+        var oldSyntaxElement = context.Engine.MarkLastSyntaxElement();
         context.PrepareFor(_expression);
 
         if (!TryUpdateUnboxed(context))
@@ -60,7 +60,7 @@ internal sealed class JintUpdateExpression : JintExpression
             EvaluateInternal(context);
         }
 
-        context.LastSyntaxElement = oldSyntaxElement;
+        context.Engine.RestoreLastSyntaxElement(in oldSyntaxElement);
     }
 
     /// <summary>

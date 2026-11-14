@@ -95,7 +95,7 @@ internal sealed class IdleCallbackFunctions
                 quota: _timers.RefusalQuota,
                 requested: _timers.RefusalRequested);
 
-            var location = _engine._lastSyntaxElement?.Location ?? default;
+            var location = _engine.LastSyntaxLocation;
             Throw.JavaScriptException(_engine, quotaExceeded, in location);
         }
 

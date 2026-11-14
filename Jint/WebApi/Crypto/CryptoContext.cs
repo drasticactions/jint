@@ -76,7 +76,7 @@ internal readonly struct CryptoContext
     private void ThrowDomException(string name, string message)
     {
         var exception = Realm.Intrinsics.DomException.CreateException(name, message);
-        var location = Engine._lastSyntaxElement?.Location ?? default;
+        var location = Engine.LastSyntaxLocation;
         Throw.JavaScriptException(Engine, exception, in location);
     }
 }

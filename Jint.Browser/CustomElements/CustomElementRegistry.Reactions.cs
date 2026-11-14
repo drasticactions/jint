@@ -397,7 +397,7 @@ internal sealed partial class CustomElementRegistry
                     var error = engine._mainRealm.Intrinsics.DomException.CreateException(
                         DomExceptionNames.NotSupported,
                         "The custom element '" + definition.Name + "' disabled shadow, so an element that already has a shadow root cannot be upgraded.");
-                    var location = engine._lastSyntaxElement?.Location ?? default;
+                    var location = engine.LastSyntaxLocation;
                     Throw.JavaScriptException(engine, error, in location);
                 }
 

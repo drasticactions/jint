@@ -121,13 +121,6 @@ internal sealed class EvaluationContext
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsSuspended() => Engine?.ExecutionContext.IsSuspended == true;
 
-    public Node LastSyntaxElement
-    {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => Engine.GetLastSyntaxElement();
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        set => Engine._lastSyntaxElement = value;
-    }
 
     /// <summary>
     /// Whether an operand may have a CLR operator behind it
@@ -168,6 +161,34 @@ internal sealed class EvaluationContext
         }
 
         RunAmortizedConstraintChecks();
+    }
+
+    /// <summary>
+    /// <c>PrepareFor(node)</c> followed by <see cref="RunBeforeExecuteStatementChecks"/>, for a
+    /// caller whose next step stores another node before anything can read the location: the store of
+    /// <paramref name="node"/> is then dead unless one of the checks runs, so it is made only on the
+    /// branches that run one. Each check sees the location the eager store would have given it.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal void RunBeforeExecuteStatementChecksDeferringLocation(StatementOrExpression node)
+    {
+        if (_shouldRunPerStatementChecks)
+        {
+            PrepareFor(node);
+            Engine.RunPerStatementChecks(node);
+        }
+        else if (_statementCounter is not null)
+        {
+            PrepareFor(node);
+            _statementCounter.Check();
+        }
+
+        if (_runsAmortizedChecks && --Engine._amortizedConstraintCountdown <= 0)
+        {
+            PrepareFor(node);
+            Engine._amortizedConstraintCountdown = AmortizedConstraintCheckInterval;
+            Engine.CheckAmortizedConstraints();
+        }
     }
 
     /// <summary>
@@ -216,5 +237,5 @@ internal sealed class EvaluationContext
     /// to reset.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void PrepareFor(Node node) => LastSyntaxElement = node;
+    public void PrepareFor(Node node) => Engine.SetLastSyntaxElement(node);
 }

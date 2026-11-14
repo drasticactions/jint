@@ -99,7 +99,7 @@ internal sealed class FileReadOperation
                 DomExceptionNames.InvalidState,
                 context + ": the reader is already loading.");
 
-            var location = engine._lastSyntaxElement?.Location ?? default;
+            var location = engine.LastSyntaxLocation;
             Throw.JavaScriptException(engine, exception, in location);
         }
 

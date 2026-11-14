@@ -215,6 +215,13 @@ internal sealed class StackGuard
         Throw.RangeError(_engine.Realm, "Maximum call stack size exceeded");
     }
 
+    /// <summary>
+    /// Whether <see cref="Options.ConstraintOptions.MaxExecutionStackCount"/> is set, so that
+    /// <see cref="TryEnterOnCurrentStack"/> asks the runtime about the stack and moves a call that finds it low to a
+    /// fresh one.
+    /// </summary>
+    internal bool HopsToFreshStack => _enabled;
+
     public bool TryEnterOnCurrentStack()
     {
         if (!_enabled)

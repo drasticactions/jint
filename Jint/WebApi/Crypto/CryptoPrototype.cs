@@ -249,7 +249,7 @@ internal sealed partial class CryptoPrototype : Prototype
     private void ThrowDomException(string name, string message)
     {
         var exception = _realm.Intrinsics.DomException.CreateException(name, message);
-        var location = _engine._lastSyntaxElement?.Location ?? default;
+        var location = _engine.LastSyntaxLocation;
         Throw.JavaScriptException(_engine, exception, in location);
     }
 
@@ -257,7 +257,7 @@ internal sealed partial class CryptoPrototype : Prototype
     private void ThrowQuotaExceededError(string message)
     {
         var exception = _realm.Intrinsics.QuotaExceededError.CreateException(message);
-        var location = _engine._lastSyntaxElement?.Location ?? default;
+        var location = _engine.LastSyntaxLocation;
         Throw.JavaScriptException(_engine, exception, in location);
     }
 }

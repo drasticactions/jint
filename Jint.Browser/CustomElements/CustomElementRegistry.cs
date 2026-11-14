@@ -459,7 +459,7 @@ internal sealed partial class CustomElementRegistry : ObjectInstance
             name,
             "Failed to execute '" + member + "' on 'CustomElementRegistry': " + detail);
 
-        var location = engine._lastSyntaxElement?.Location ?? default;
+        var location = engine.LastSyntaxLocation;
         Throw.JavaScriptException(engine, exception, in location);
     }
 

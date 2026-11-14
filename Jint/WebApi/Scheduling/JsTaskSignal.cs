@@ -96,7 +96,7 @@ internal sealed class JsTaskSignal : JsAbortSignal
                 DomExceptionNames.NotAllowed,
                 "Failed to execute 'setPriority' on 'TaskController': the signal's priority is already changing.");
 
-            var location = _engine._lastSyntaxElement?.Location ?? default;
+            var location = _engine.LastSyntaxLocation;
             Throw.JavaScriptException(_engine, exception, in location);
         }
 

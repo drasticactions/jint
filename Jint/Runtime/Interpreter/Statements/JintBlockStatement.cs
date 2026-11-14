@@ -320,8 +320,8 @@ internal sealed class JintBlockStatement : JintStatement<NestedBlockStatement>
             }
             else
             {
-                var locationNode = (Node?) context.Engine._lastSyntaxElement ?? _singleStatement!._statement;
-                ExceptionDataHelper.TryAttachJavaScriptLocation(ex, context.Engine, locationNode.Location);
+                var location = context.Engine.HasLastSyntaxElement ? context.Engine.LastSyntaxLocation : _singleStatement!._statement.Location;
+                ExceptionDataHelper.TryAttachJavaScriptLocation(ex, context.Engine, location);
                 throw;
             }
         }

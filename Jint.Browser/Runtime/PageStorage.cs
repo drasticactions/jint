@@ -163,7 +163,7 @@ internal static class PageStorage
             "Failed to read the '" + member + "' property: storage requires a non-opaque document origin "
             + "and permission from the context's storage partition.");
 
-        var location = engine._lastSyntaxElement?.Location ?? default;
+        var location = engine.LastSyntaxLocation;
         Throw.JavaScriptException(engine, exception, in location);
         return JsValue.Undefined;
     }

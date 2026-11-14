@@ -264,7 +264,7 @@ internal sealed class JsIntersectionObserver : ObjectInstance
             Jint.WebApi.DomException.DomExceptionNames.Syntax,
             "Failed to construct 'IntersectionObserver': " + what + ".");
 
-        Throw.JavaScriptException(engine, error, engine.GetLastSyntaxElement()?.Location ?? default);
+        Throw.JavaScriptException(engine, error, engine.LastSyntaxLocation);
     }
 
     /// <summary>

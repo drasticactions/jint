@@ -34,6 +34,13 @@ internal sealed class JintStatementList
     // resume positions live on the suspendable (SuspendDataDictionary), not here.
     private readonly Pair[] _jintStatements;
 
+    // A function body whose first statement stores its own node as the last syntax element before anything
+    // can read it: the body's own store is then made only where a check could report it.
+    private readonly bool _firstStatementStoresLocation;
+
+    // A function body that is a single `return <expression>;`, run by ExecuteSingleReturnBody.
+    private readonly JintReturnStatement? _singleReturn;
+
     // exposed so enclosing loop fast paths can iterate the exact handler instances of this list
     internal int Count => _jintStatements.Length;
     internal JintStatement GetStatement(int index) => _jintStatements[index].Statement;
@@ -106,7 +113,23 @@ internal sealed class JintStatementList
         }
 
         _jintStatements = jintStatements;
+
+        if (statement is FunctionBody && jintStatements.Length > 0 && jintStatements[0].Value is null)
+        {
+            var first = jintStatements[0].Statement;
+            _firstStatementStoresLocation = first._statement.Type != NodeType.BlockStatement;
+            if (jintStatements.Length == 1 && first is JintReturnStatement { Argument: not null } returnStatement)
+            {
+                _singleReturn = returnStatement;
+            }
+        }
     }
+
+    /// <summary>
+    /// Whether <see cref="ExecuteSingleReturnBody"/> can run this list: a function body that is a single
+    /// <c>return &lt;expression&gt;;</c>.
+    /// </summary>
+    internal bool IsSingleReturnBody => _singleReturn is not null;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | (MethodImplOptions) 512)]
     public Completion Execute(EvaluationContext context)
@@ -114,7 +137,7 @@ internal sealed class JintStatementList
 
         if (_statement is not null)
         {
-            context.LastSyntaxElement = _statement;
+            context.PrepareFor(_statement);
             context.RunBeforeExecuteStatementChecks(_statement);
         }
 
@@ -233,8 +256,8 @@ internal sealed class JintStatementList
             }
             else
             {
-                var locationNode = (Node?) context.Engine._lastSyntaxElement ?? temp[i].Statement._statement;
-                ExceptionDataHelper.TryAttachJavaScriptLocation(ex, context.Engine, locationNode.Location);
+                var location = context.Engine.HasLastSyntaxElement ? context.Engine.LastSyntaxLocation : temp[i].Statement._statement.Location;
+                ExceptionDataHelper.TryAttachJavaScriptLocation(ex, context.Engine, location);
                 throw;
             }
         }
@@ -266,8 +289,15 @@ internal sealed class JintStatementList
         Debug.Assert(context.Engine.ExecutionContext.Suspendable is null);
 
         var statement = _statement!;
-        context.LastSyntaxElement = statement;
-        context.RunBeforeExecuteStatementChecks(statement);
+        if (_firstStatementStoresLocation)
+        {
+            context.RunBeforeExecuteStatementChecksDeferringLocation(statement);
+        }
+        else
+        {
+            context.PrepareFor(statement);
+            context.RunBeforeExecuteStatementChecks(statement);
+        }
 
         var oldCompletionValuesObservable = context.CompletionValuesObservable;
         context.CompletionValuesObservable = false;
@@ -307,8 +337,8 @@ internal sealed class JintStatementList
             }
             else
             {
-                var locationNode = (Node?) context.Engine._lastSyntaxElement ?? temp[i].Statement._statement;
-                ExceptionDataHelper.TryAttachJavaScriptLocation(ex, context.Engine, locationNode.Location);
+                var location = context.Engine.HasLastSyntaxElement ? context.Engine.LastSyntaxLocation : temp[i].Statement._statement.Location;
+                ExceptionDataHelper.TryAttachJavaScriptLocation(ex, context.Engine, location);
                 throw;
             }
         }
@@ -318,6 +348,64 @@ internal sealed class JintStatementList
         }
 
         return c.UpdateEmpty(lastValue).UpdateEmpty(JsValue.Undefined);
+    }
+
+    /// <summary>
+    /// <see cref="ExecuteSynchronousFunctionBody"/> for a body that is a single <c>return &lt;expression&gt;;</c>,
+    /// with the completion the caller would unwrap already unwrapped: the returned value, or the throw a Throw
+    /// completion stands for. The body's checks, the return statement's checks and the exception handling are
+    /// those of <see cref="ExecuteSynchronousFunctionBody"/>, whose loop would run the one statement the same way.
+    /// </summary>
+    /// <remarks>
+    /// The function environment of such a body holds no disposable resources (only a <c>using</c> declaration
+    /// of the body itself registers one there), so the caller's DisposeResources step has nothing to do either.
+    /// </remarks>
+    internal JsValue ExecuteSingleReturnBody(EvaluationContext context)
+    {
+        Debug.Assert(_statement is FunctionBody && _singleReturn is not null);
+        Debug.Assert(context.Engine.ExecutionContext.Suspendable is null);
+
+        var returnStatement = _singleReturn!;
+        var returnNode = returnStatement._statement;
+
+        // The return statement stores its own node next, so the body's is needed only by the checks.
+        context.RunBeforeExecuteStatementChecksDeferringLocation(_statement!);
+
+        var oldCompletionValuesObservable = context.CompletionValuesObservable;
+        context.CompletionValuesObservable = false;
+
+        Completion c;
+        try
+        {
+            context.PrepareFor(returnNode);
+            context.RunBeforeExecuteStatementChecks(returnNode);
+            return returnStatement.Argument!.GetValue(context);
+        }
+        // Keep in step with the catch in ExecuteSynchronousFunctionBody.
+        catch (Exception ex) when (ShouldCatch(ex))
+        {
+            if (ex is JintException)
+            {
+                c = HandleException(context, ex, returnStatement);
+            }
+            else
+            {
+                var location = context.Engine.HasLastSyntaxElement ? context.Engine.LastSyntaxLocation : returnNode.Location;
+                ExceptionDataHelper.TryAttachJavaScriptLocation(ex, context.Engine, location);
+                throw;
+            }
+        }
+        finally
+        {
+            context.CompletionValuesObservable = oldCompletionValuesObservable;
+        }
+
+        if (c.Type == CompletionType.Throw)
+        {
+            Throw.JavaScriptException(context.Engine, c.Value, in c);
+        }
+
+        return c.Value;
     }
 
     /// <summary>
@@ -346,8 +434,8 @@ internal sealed class JintStatementList
                 return HandleException(context, ex, statement);
             }
 
-            var locationNode = (Node?) context.Engine._lastSyntaxElement ?? statement._statement;
-            ExceptionDataHelper.TryAttachJavaScriptLocation(ex, context.Engine, locationNode.Location);
+            var location = context.Engine.HasLastSyntaxElement ? context.Engine.LastSyntaxLocation : statement._statement.Location;
+            ExceptionDataHelper.TryAttachJavaScriptLocation(ex, context.Engine, location);
             throw;
         }
         finally

@@ -78,7 +78,7 @@ internal sealed class JintUnaryExpression : JintExpression
         public override JsValue GetValue(EvaluationContext context)
         {
             // need to notify correct node when taking shortcut
-            context.LastSyntaxElement = _expression;
+            context.PrepareFor(_expression);
             return (JsValue) EvaluateInternal(context);
         }
 
@@ -156,7 +156,7 @@ internal sealed class JintUnaryExpression : JintExpression
     public override JsValue GetValue(EvaluationContext context)
     {
         // need to notify correct node when taking shortcut
-        context.LastSyntaxElement = _expression;
+        context.PrepareFor(_expression);
         return EvaluateJsValue(context);
     }
 

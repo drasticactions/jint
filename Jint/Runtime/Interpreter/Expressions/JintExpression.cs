@@ -84,21 +84,21 @@ internal abstract class JintExpression
             return Unsafe.As<JsValue>(result);
         }
 
-        // Set LastSyntaxElement for proper error location if GetValue throws
-        context.LastSyntaxElement = _expression;
+        // Record this node as the last syntax element for the error location if GetValue throws
+        context.PrepareFor(_expression);
         return context.Engine.GetValue(reference, returnReferenceToPool: true);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | (MethodImplOptions) 512)]
     public object Evaluate(EvaluationContext context)
     {
-        var oldSyntaxElement = context.LastSyntaxElement;
+        var oldSyntaxElement = context.Engine.MarkLastSyntaxElement();
         context.PrepareFor(_expression);
 
         var result = EvaluateInternal(context);
         AssertEvaluationResult(result);
 
-        context.LastSyntaxElement = oldSyntaxElement;
+        context.Engine.RestoreLastSyntaxElement(in oldSyntaxElement);
 
         return result;
     }

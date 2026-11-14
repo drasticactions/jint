@@ -23,7 +23,7 @@ internal static class DomDocumentMetadata
         // would neither relax the actual origin nor implement the cross-origin WindowProxy.
         Throw.JavaScriptException(realm.Engine,
             realm.OwningRealm.Intrinsics.DomException.CreateException(DomExceptionNames.NotSupported,
-                "Changing document.domain is not supported."), realm.Engine.GetLastSyntaxElement()?.Location ?? default);
+                "Changing document.domain is not supported."), realm.Engine.LastSyntaxLocation);
         return JsValue.Undefined;
     }
 

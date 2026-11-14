@@ -184,7 +184,7 @@ internal static class HistoryInstaller
             DomExceptionNames.Security,
             "Failed to execute '" + member + "' on 'History': " + detail);
 
-        var location = engine._lastSyntaxElement?.Location ?? default;
+        var location = engine.LastSyntaxLocation;
         Throw.JavaScriptException(engine, exception, in location);
     }
 }

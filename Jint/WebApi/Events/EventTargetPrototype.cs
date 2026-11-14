@@ -189,7 +189,7 @@ internal static class EventTargetArguments
                     ? "Failed to execute 'dispatchEvent' on 'EventTarget': the event is already being dispatched."
                     : "Failed to execute 'dispatchEvent' on 'EventTarget': the event has not been initialized.");
 
-            var location = engine._lastSyntaxElement?.Location ?? default;
+            var location = engine.LastSyntaxLocation;
             Throw.JavaScriptException(engine, invalidState, in location);
         }
 

@@ -32,7 +32,7 @@ internal sealed class JintSequenceExpression : JintExpression
             return;
         }
 
-        var oldSyntaxElement = context.LastSyntaxElement;
+        var oldSyntaxElement = context.Engine.MarkLastSyntaxElement();
         context.PrepareFor(_expression);
 
         var expressions = _expressions;
@@ -41,7 +41,7 @@ internal sealed class JintSequenceExpression : JintExpression
             expressions[i].EvaluateAndDiscard(context);
         }
 
-        context.LastSyntaxElement = oldSyntaxElement;
+        context.Engine.RestoreLastSyntaxElement(in oldSyntaxElement);
     }
 
     protected override object EvaluateInternal(EvaluationContext context)

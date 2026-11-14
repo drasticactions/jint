@@ -649,8 +649,16 @@ public sealed class ScriptFunction : Function, IConstructor
 
             // actual call
             var context = _engine._evaluationContext;
+            var definition = _functionDefinition!;
 
-            var result = _functionDefinition!.EvaluateBodyFast(context, in args, state);
+            if (definition.SingleReturnBody is { } singleReturnBody)
+            {
+                // EvaluateBodyFast's statement-body arm, with the completion unwrapped by the list.
+                _engine.FunctionDeclarationInstantiationFast(state, in args);
+                return singleReturnBody.ExecuteSingleReturnBody(context);
+            }
+
+            var result = definition.EvaluateBodyFast(context, in args, state);
 
             // Not async by the gate, so disposal is never deferred to AsyncBlockStart.
             result = calleeContext.LexicalEnvironment.DisposeResources(result);
@@ -890,7 +898,12 @@ public sealed class ScriptFunction : Function, IConstructor
         try
         {
             var context = engine._evaluationContext;
-            var result = _functionDefinition!.EvaluateLeafBody(context);
+            if (_functionDefinition!.SingleReturnBody is { } singleReturnBody)
+            {
+                return singleReturnBody.ExecuteSingleReturnBody(context);
+            }
+
+            var result = _functionDefinition.EvaluateLeafBody(context);
 
             if (result.Type == CompletionType.Throw)
             {

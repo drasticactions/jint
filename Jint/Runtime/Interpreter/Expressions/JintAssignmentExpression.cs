@@ -578,7 +578,7 @@ internal sealed class JintAssignmentExpression : JintExpression
 
     internal override void EvaluateAndDiscard(EvaluationContext context)
     {
-        var oldSyntaxElement = context.LastSyntaxElement;
+        var oldSyntaxElement = context.Engine.MarkLastSyntaxElement();
         context.PrepareFor(_expression);
 
         if (!TryCompoundUnboxed(context)
@@ -589,7 +589,7 @@ internal sealed class JintAssignmentExpression : JintExpression
             EvaluateMaterialized(context);
         }
 
-        context.LastSyntaxElement = oldSyntaxElement;
+        context.Engine.RestoreLastSyntaxElement(in oldSyntaxElement);
     }
 
     /// <summary>
@@ -1328,8 +1328,8 @@ internal sealed class JintAssignmentExpression : JintExpression
                 return rval;
             }
 
-            // Set LastSyntaxElement for proper error location if PutValue throws
-            context.LastSyntaxElement = _left._expression;
+            // Record the target as the last syntax element for the error location if PutValue throws
+            context.PrepareFor(_left._expression);
             engine.PutValue(lref, rval);
             engine._referencePool.Return(lref);
             return rval;

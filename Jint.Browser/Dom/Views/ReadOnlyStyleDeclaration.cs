@@ -64,6 +64,6 @@ internal sealed class ReadOnlyStyleDeclaration : NativeCssDeclaration
         var error = engine._mainRealm.Intrinsics.DomException.CreateException(
             DomExceptionNames.NoModificationAllowed,
             "Failed to execute '" + member + "' on 'CSSStyleDeclaration': These styles are computed, and therefore read-only.");
-        Throw.JavaScriptException(engine, error, engine.GetLastSyntaxElement()?.Location ?? default);
+        Throw.JavaScriptException(engine, error, engine.LastSyntaxLocation);
     }
 }

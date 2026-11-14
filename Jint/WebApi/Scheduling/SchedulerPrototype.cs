@@ -308,7 +308,7 @@ internal sealed partial class SchedulerPrototype : Prototype
             quota: timers.RefusalQuota,
             requested: timers.RefusalRequested);
 
-        var location = _engine._lastSyntaxElement?.Location ?? default;
+        var location = _engine.LastSyntaxLocation;
         Throw.JavaScriptException(_engine, exception, in location);
     }
 

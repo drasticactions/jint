@@ -53,7 +53,7 @@ internal sealed class JintNewExpression : JintExpression
         {
             // Error objects cannot be produced, but a custom .NET-level failure would still
             // resolve its script location from the last syntax element.
-            context.LastSyntaxElement = _expression;
+            context.PrepareFor(_expression);
             return ((IConstructor) jsValue).Construct(Arguments.Empty, jsValue);
         }
 
@@ -66,7 +66,7 @@ internal sealed class JintNewExpression : JintExpression
 
         // Reset the location to the "new" keyword so that if an Error object is
         // constructed below, the stack trace will capture the correct location.
-        context.LastSyntaxElement = _expression;
+        context.PrepareFor(_expression);
 
         if (context.IsSuspended())
         {
@@ -150,7 +150,7 @@ internal sealed class JintSuspendableNewExpression : JintExpression
 
         // Reset the location to the "new" keyword so that if an Error object is
         // constructed below, the stack trace will capture the correct location.
-        context.LastSyntaxElement = _expression;
+        context.PrepareFor(_expression);
 
         if (suspendable is not null && suspendable.IsSuspended)
         {

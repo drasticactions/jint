@@ -76,7 +76,8 @@ internal sealed class JintSwitchBlock
     private Completion Execute(EvaluationContext context, JsValue input, int startIndex, bool hit, int defaultCaseIndex, JsValue initialValue)
     {
         var v = initialValue;
-        var l = context.LastSyntaxElement;
+        // The node of the Normal completion this returns, which nothing reads a location from: the last clause's.
+        Node? l = null;
 
         var i = startIndex;
         Environment? oldEnv = null;
@@ -183,7 +184,7 @@ start:
         }
 
         context.Engine.ExecutionContext.Suspendable?.Data.Clear(this);
-        return new Completion(CompletionType.Normal, v, l);
+        return new Completion(CompletionType.Normal, v, l ?? Completion.Empty()._source);
     }
 
     private void SaveSuspendData(

@@ -93,14 +93,13 @@ public sealed partial class ErrorConstructor : Constructor
     /// <remarks>Returns <see langword="null"/> when there is no active script location.</remarks>
     internal static ErrorStackCapture? BuildStackTraceCapture(Engine engine, int excludeTop)
     {
-        var lastSyntaxNode = engine.GetLastSyntaxElement();
-        if (lastSyntaxNode == null)
+        if (!engine.HasLastSyntaxElement)
         {
             return null;
         }
 
         var frames = engine.CallStack.SnapshotFrames(excludeTop);
-        return new ErrorStackCapture(engine, lastSyntaxNode.Location, frames);
+        return new ErrorStackCapture(engine, engine.LastSyntaxLocation, frames);
     }
 
     /// <summary>

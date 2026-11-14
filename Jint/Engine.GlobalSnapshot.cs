@@ -363,7 +363,7 @@ public partial class Engine
         AbandonHostStreamBridges();
 #endif
 
-        _lastSyntaxElement = null;
+        ClearLastSyntaxElement();
 
         // RegExp legacy statics: every successful match writes them, so RegExp.$1 in the next
         // evaluation would read the previous one's subject text. Reached through the field rather than

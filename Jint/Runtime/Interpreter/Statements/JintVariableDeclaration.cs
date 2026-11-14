@@ -126,7 +126,7 @@ internal sealed class JintVariableDeclaration : JintStatement<VariableDeclaratio
     internal override void ExecuteDiscarded(EvaluationContext context)
     {
         context.ChargeStatement();
-        context.LastSyntaxElement = _statement;
+        context.PrepareFor(_statement);
         ExecuteInternal(context);
     }
 
