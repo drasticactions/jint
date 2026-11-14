@@ -150,6 +150,28 @@ public sealed class MemoryLimitConstraint : Constraint
     }
 
     /// <summary>
+    /// Takes <paramref name="bytes"/> off what the running operation has been charged, for a host that has measured that
+    /// much of what the operation allocated to be garbage already. A host that releases what the collector reclaimed turns
+    /// the allocation budget into a bound on what the operation keeps: a long loop that allocates and drops short-lived
+    /// values then runs to its end, while one that keeps what it allocates still fails at the limit.
+    /// </summary>
+    /// <remarks>
+    /// Does nothing when no operation is running or the running one has already exceeded the limit, and never takes the
+    /// operation below zero. The engine does not measure what is garbage itself: what the host releases is trusted.
+    /// </remarks>
+    public void Release(long bytes)
+    {
+        using var ownership = EnterHostCall();
+        var state = _activeState;
+        if (bytes <= 0 || state is null || !state.Enabled || state.Exceeded)
+        {
+            return;
+        }
+
+        state.AllocatedBytes -= Math.Min(bytes, GetUsage(state));
+    }
+
+    /// <summary>
     /// Never amortizable: allocation between two checks is irreversible and unbounded per statement.
     /// </summary>
     public override bool IsAmortizable => false;
@@ -427,7 +449,8 @@ public sealed class MemoryLimitConstraint : Constraint
             usage = SaturatingAdd(usage, current - _segmentStart);
         }
 
-        return usage;
+        // A release can take the total below zero until the running segment's own allocations are added in.
+        return Math.Max(usage, 0);
     }
 
     private void StartSegment()

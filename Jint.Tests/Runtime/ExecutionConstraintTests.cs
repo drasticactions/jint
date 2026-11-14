@@ -113,6 +113,32 @@ public class ExecutionConstraintTests
             .Should().ThrowExactly<PlatformNotSupportedException>();
     }
 
+    private sealed class ReleaseGarbageConstraint(Func<Engine> engine) : Constraint
+    {
+        public override void Check()
+        {
+            // Stands for a host that measured everything allocated so far to be garbage.
+            var memoryLimit = engine().Constraints.Find<MemoryLimitConstraint>()!;
+            memoryLimit.Release(memoryLimit.AllocatedBytes);
+        }
+
+        public override void Reset()
+        {
+        }
+    }
+
+    [Test]
+    public void ReleasedBytesNoLongerCountAgainstTheMemoryLimit()
+    {
+        const string Garbage = "var n = 0; for (var i = 0; i < 20000; i++) { var a = [i, i, i, i]; n += a.length; } n";
+        Invoking(() => new Engine(cfg => cfg.LimitMemory(100_000)).Evaluate(Garbage)).Should().ThrowExactly<MemoryLimitExceededException>();
+
+        Engine engine = null!;
+        engine = new Engine(cfg => cfg.LimitMemory(100_000).AddConstraint(new ReleaseGarbageConstraint(() => engine)));
+        engine.Evaluate(Garbage).AsNumber().Should().Be(80000);
+        engine.Constraints.Find<MemoryLimitConstraint>()!.AllocatedBytes.Should().BeLessThan(100_000);
+    }
+
     [Test]
     public void MemoryLimitConstraintResetIsTotal()
     {
