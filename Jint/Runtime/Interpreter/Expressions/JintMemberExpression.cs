@@ -47,6 +47,11 @@ internal sealed class JintMemberExpression : JintExpression
     private Shape? _cachedShape;
     private int _cachedShapeSlot;
 
+    // The last shape found to have no own slot of this name, so that a member read off the prototype (a method
+    // call on an instance, above all) does not search the receiver's shape again on every evaluation. A Shape is
+    // immutable, so the miss holds for every object of that shape.
+    private Shape? _cachedOwnMissShape;
+
     // Prototype-member inline cache: resolves `obj.member` where `member` lives anywhere on obj's prototype
     // chain (arr.push, date.getTime, and — since the chain form below — a getter or method a
     // `class C extends B extends A` declares on A.prototype, or a DOM member declared on Node.prototype and
@@ -535,12 +540,17 @@ internal sealed class JintMemberExpression : JintExpression
                         return shapeObj.GetSlot(_cachedShapeSlot);
                     }
 
-                    if (shape.TryGetSlot(determinedProperty.ToString(), out var slot))
+                    if (!ReferenceEquals(shape, _cachedOwnMissShape))
                     {
-                        DropReceiverEntries();
-                        _cachedShape = shape;
-                        _cachedShapeSlot = slot;
-                        return shapeObj.GetSlot(slot);
+                        if (shape.TryGetSlot(determinedProperty.ToString(), out var slot))
+                        {
+                            DropReceiverEntries();
+                            _cachedShape = shape;
+                            _cachedShapeSlot = slot;
+                            return shapeObj.GetSlot(slot);
+                        }
+
+                        _cachedOwnMissShape = shape;
                     }
 
                     // Slot miss ⇒ no own string property (any non-shapeable property would have deopted).
@@ -860,13 +870,18 @@ internal sealed class JintMemberExpression : JintExpression
                     return true;
                 }
 
-                if (shape.TryGetSlot(determinedProperty.ToString(), out var slot))
+                if (!ReferenceEquals(shape, _cachedOwnMissShape))
                 {
-                    DropReceiverEntries();
-                    _cachedShape = shape;
-                    _cachedShapeSlot = slot;
-                    callee = shapeObj.GetSlot(slot);
-                    return true;
+                    if (shape.TryGetSlot(determinedProperty.ToString(), out var slot))
+                    {
+                        DropReceiverEntries();
+                        _cachedShape = shape;
+                        _cachedShapeSlot = slot;
+                        callee = shapeObj.GetSlot(slot);
+                        return true;
+                    }
+
+                    _cachedOwnMissShape = shape;
                 }
 
                 // Slot miss ⇒ no own string property (any non-shapeable property would have deopted).
