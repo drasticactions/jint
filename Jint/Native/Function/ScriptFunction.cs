@@ -551,6 +551,11 @@ public sealed class ScriptFunction : Function, IConstructor
             else
             {
                 _returnedEnvironment = true;
+                if (state.ReusesEnvironmentAcrossInstances)
+                {
+                    // the first call of another instance can have it
+                    _engine.ParkEnvironment(state, funcEnv);
+                }
             }
         }
     }

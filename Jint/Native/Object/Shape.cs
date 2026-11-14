@@ -53,6 +53,14 @@ internal sealed class Shape
     // Add-property transitions: key -> child shape. Lazily allocated; this is what interns layouts.
     private Dictionary<Key, Shape>? _transitions;
 
+    // The largest SlotCount of this shape and every shape interned below it: how many slots an object at this
+    // layout has gone on to fill so far. An object growing past its in-object slots sizes its overflow array from
+    // it, so a constructor that adds a dozen members allocates the array once instead of doubling it up.
+    private int _maxDescendantSlotCount;
+
+    /// <summary>The largest slot count reached by this shape or a shape interned below it.</summary>
+    internal int MaxDescendantSlotCount => _maxDescendantSlotCount;
+
     // Lazily-built key -> slot index, only for wide shapes (SlotCount >= LinearScanLimit).
     private Dictionary<Key, int>? _index;
 
@@ -98,6 +106,11 @@ internal sealed class Shape
         Parent = parent;
         AddedKey = addedKey;
         SlotCount = parent.SlotCount + 1;
+        _maxDescendantSlotCount = SlotCount;
+        for (var ancestor = parent; ancestor is not null && ancestor._maxDescendantSlotCount < SlotCount; ancestor = ancestor.Parent)
+        {
+            ancestor._maxDescendantSlotCount = SlotCount;
+        }
     }
 
     /// <summary>

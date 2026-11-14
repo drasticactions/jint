@@ -1464,6 +1464,9 @@ public sealed partial class Engine : IDisposable
         _functionDefinitions.Clear();
         _scriptStatementLists = null;
 
+        // A parked call environment still names the function that last ran in it.
+        _parkedEnvironments = null;
+
         // _evaluatedScripts is kept on purpose: it holds only ASTs, and it is what makes the next run of a
         // script cache its rebuilt tree straight away instead of going through the uncached first evaluation.
         //
@@ -2215,6 +2218,46 @@ public sealed partial class Engine : IDisposable
     // identity alone cannot see a name added to a pinned env. Creates into fresh environments
     // never bump: a fresh environment cannot appear in a previously pinned chain.
     internal int _envBindingInjectionEpoch;
+
+    // Call environments of functions whose environment nothing can capture
+    // (JintFunctionDefinition.State.ReusesEnvironmentAcrossInstances), parked after a call by an instance that does not
+    // keep its own, for the next call of any instance of the same definition: the methods a constructor makes for each
+    // object would otherwise allocate one per object. One slot per definition hash; a collision only loses the reuse.
+    // Held by the engine, never by the shared State, so a prepared script run by several engines pins none of them.
+    internal const int ParkedEnvironmentCount = 64;
+    private ParkedEnvironment[]? _parkedEnvironments;
+
+    private struct ParkedEnvironment
+    {
+        internal JintFunctionDefinition.State? State;
+        internal FunctionEnvironment? Environment;
+    }
+
+    internal FunctionEnvironment? TakeParkedEnvironment(JintFunctionDefinition.State state)
+    {
+        if (_parkedEnvironments is { } parked)
+        {
+            ref var slot = ref parked[state.EnvironmentParkIndex];
+            if (ReferenceEquals(slot.State, state))
+            {
+                var environment = slot.Environment;
+                slot = default;
+                return environment;
+            }
+        }
+
+        return null;
+    }
+
+    internal void ParkEnvironment(JintFunctionDefinition.State state, FunctionEnvironment environment)
+    {
+        // What the call bound is let go: the environment is re-attached for its next call, and nothing that could
+        // reach it through this link exists.
+        environment.Detach();
+        ref var slot = ref (_parkedEnvironments ??= new ParkedEnvironment[ParkedEnvironmentCount])[state.EnvironmentParkIndex];
+        slot.State = state;
+        slot.Environment = environment;
+    }
 
     // Set, and never cleared, once a `return` has been put on a built-in iterator prototype or on an Object.prototype of
     // this engine, or a built-in iterator prototype's [[Prototype]] has been changed. Until then every built-in

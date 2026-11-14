@@ -44,6 +44,16 @@ internal sealed class JintIdentifierExpression : JintExpression
     private int _cachedGlobalLexicalVersion;
     private NestedChainMemo? _nestedChainMemo;
 
+    // Walks made while the published memo has not paid for itself. A read in a function that runs under a new call
+    // environment each time (a global read in a constructor or a callback) meets its memo's start once or never, so
+    // republishing a memo per walk allocates on every call to save at most one walk, and keeps the last call's
+    // environment alive. Past a few such walks a memo is republished only every NestedChainMemoRetryPeriod-th walk;
+    // one that serves NestedChainMemoProductiveHits reads (a loop in one call) resets the count.
+    private byte _nestedChainMemoIdleWalks;
+    private const int NestedChainMemoEagerWalks = 4;
+    private const int NestedChainMemoRetryPeriod = 64;
+    private const int NestedChainMemoProductiveHits = 2;
+
     // Bounded walk: chain depth is typically 1-3 in real code; deeper chains fall through.
     private const int MaxSlotCacheChainDepth = 4;
 
@@ -55,9 +65,10 @@ internal sealed class JintIdentifierExpression : JintExpression
     /// so the same start instance can sit on a different chain. Post-creation binding injection
     /// into a pinned intermediate (sloppy direct eval hoisting, AnnexB function copies) is the
     /// one mutation identity cannot see — covered by <see cref="Engine._envBindingInjectionEpoch"/>.
-    /// Instances are immutable and published through a single reference field so cross-engine
+    /// Instances are immutable (but for the Hits heuristic) and published through a single reference field so cross-engine
     /// shared handler trees observe consistent snapshots; a mismatch falls through to the walk
-    /// and re-publishes (never a permanent decline).
+    /// and re-publishes, or, for a node whose memos do not pay for themselves, re-publishes now and
+    /// then (never a permanent decline).
     /// </summary>
     private sealed class NestedChainMemo
     {
@@ -66,6 +77,10 @@ internal sealed class JintIdentifierExpression : JintExpression
         internal readonly Environment? Next2;
         internal readonly Environment? Next3;
         internal readonly int InjectionEpoch;
+
+        // Reads this memo served, counted up to NestedChainMemoProductiveHits. Only decides whether the next walk
+        // publishes a memo; a lost update on a handler shared across engines never changes what a read returns.
+        internal int Hits;
 
         internal NestedChainMemo(Environment start, Environment? next1, Environment? next2, Environment? next3, int injectionEpoch)
         {
@@ -366,6 +381,11 @@ internal sealed class JintIdentifierExpression : JintExpression
                             : ReferenceEquals(memo.Next2._outerEnv, memo.Next3)
                               && ReferenceEquals(memo.Next3._outerEnv, cachedGlobalEnv))))
             {
+                if (memo.Hits < NestedChainMemoProductiveHits)
+                {
+                    memo.Hits++;
+                }
+
                 return _cachedGlobalDescriptor;
             }
         }
@@ -393,7 +413,15 @@ internal sealed class JintIdentifierExpression : JintExpression
 
             if (ReferenceEquals(search, cachedGlobalEnv))
             {
-                _nestedChainMemo = new NestedChainMemo(env, next1, next2, next3, engine._envBindingInjectionEpoch);
+                var idle = memo is null || memo.Hits >= NestedChainMemoProductiveHits
+                    ? 0
+                    : unchecked((byte) (_nestedChainMemoIdleWalks + 1));
+                if (idle < NestedChainMemoEagerWalks || idle % NestedChainMemoRetryPeriod == 0)
+                {
+                    _nestedChainMemo = new NestedChainMemo(env, next1, next2, next3, engine._envBindingInjectionEpoch);
+                }
+
+                _nestedChainMemoIdleWalks = (byte) idle;
                 return _cachedGlobalDescriptor;
             }
 

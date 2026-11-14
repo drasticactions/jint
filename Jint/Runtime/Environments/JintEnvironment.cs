@@ -206,6 +206,12 @@ internal static class JintEnvironment
                 env = dynamicEnv;
                 env.Reset(f, newTarget, f._environment);
             }
+            else if (state.ReusesEnvironmentAcrossInstances && engine.TakeParkedEnvironment(state) is { } parked)
+            {
+                // another instance's call left it; see State.ReusesEnvironmentAcrossInstances
+                env = parked;
+                env.Reset(f, newTarget, f._environment);
+            }
             else
             {
                 env = new FunctionEnvironment(engine, f, newTarget)

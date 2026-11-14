@@ -696,6 +696,19 @@ internal sealed class JintFunctionDefinition
         public int TailCallMarkersInitialized;
 
         public bool EnvironmentMayEscape;
+
+        /// <summary>
+        /// True when no closure, class, <c>with</c> or direct eval in the function can reach its call environment, so
+        /// that environment can serve a call of another instance of the function, re-attached under that instance's
+        /// outer environment. A method a constructor makes for every object is mostly called once or a few times per
+        /// object; its first calls take the environment the engine parked in slot <see cref="EnvironmentParkIndex"/>
+        /// instead of allocating one (see Engine._parkedEnvironments). Only an environment is parked, never on this
+        /// shared State: the engine holds it.
+        /// </summary>
+        public bool ReusesEnvironmentAcrossInstances;
+
+        /// <summary>The engine's parking slot for <see cref="ReusesEnvironmentAcrossInstances"/>.</summary>
+        public int EnvironmentParkIndex;
         // True when the function body contains a direct call to itself by name. Tight recursion
         // (e.g. fib/ack/tak) keeps several frames live at once, which a single-slot per-call reuse cache
         // cannot serve — only the topmost frame would ever be reusable. Such functions use the bounded
@@ -743,6 +756,9 @@ internal sealed class JintFunctionDefinition
         [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Auto)]
         internal readonly record struct FunctionToInitialize(FunctionDeclaration Declaration, Key Name);
     }
+
+    // Spreads the definitions over the engine's parking slots; see State.ReusesEnvironmentAcrossInstances.
+    private static int _nextEnvironmentParkIndex;
 
     internal static State BuildState(IFunction function, string? fullSourceText = null)
     {
@@ -1119,6 +1135,16 @@ internal sealed class JintFunctionDefinition
         if (name is not null && !state.EnvironmentMayEscape)
         {
             state.IsDirectRecursive = SelfCallAstVisitor.ContainsCallTo(function.Body, name);
+        }
+
+        // Without the fixed-slot analysis EnvironmentMayEscape already is "any nested closure"; with it, a closure that
+        // reads no slot was let through, and it would resolve through an environment re-attached to another outer.
+        state.ReusesEnvironmentAcrossInstances = !state.EnvironmentMayEscape
+            && !state.IsDirectRecursive
+            && (!state.UseFixedSlots || !EnvironmentEscapeAstVisitor.MayEscape(function));
+        if (state.ReusesEnvironmentAcrossInstances)
+        {
+            state.EnvironmentParkIndex = Interlocked.Increment(ref _nextEnvironmentParkIndex) & (Engine.ParkedEnvironmentCount - 1);
         }
 
         // An async generator's `return Expression;` awaits its value, so its own return statements are built as the

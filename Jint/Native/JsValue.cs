@@ -542,11 +542,15 @@ public abstract partial class JsValue : IEquatable<JsValue>
         if (instOfHandler is not null)
         {
             // 3. If instOfHandler is not undefined, return ToBoolean(? Call(instOfHandler, target, « V »)).
-            if (!Function.FunctionPrototype.IsIntrinsicHasInstance(instOfHandler))
+            // The %Function.prototype%[@@hasInstance] every function inherits is OrdinaryHasInstance(target, V)
+            // (https://tc39.es/ecma262/#sec-function.prototype-%symbol.hasinstance%): calling it would only allocate
+            // the argument list.
+            if (Function.FunctionPrototype.IsIntrinsicHasInstance(instOfHandler))
             {
-                oi.Engine._stackGuard.EnsureNativeStackHeadroom();
+                return target.OrdinaryHasInstance(this);
             }
 
+            oi.Engine._stackGuard.EnsureNativeStackHeadroom();
             return TypeConverter.ToBoolean(instOfHandler.Call(target, this));
         }
 

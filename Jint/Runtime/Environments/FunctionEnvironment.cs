@@ -66,6 +66,19 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
     }
 
 
+    /// <summary>
+    /// Lets go of what the call bound — its this value, outer environment and dictionary bindings — while the
+    /// environment waits, parked by the engine, for a call of another instance of its function; <see cref="Reset"/>
+    /// binds the function, this and outer environment again. The function is kept: it is the last instance that
+    /// ran, and the engine drops its parked environments with its other interpreter caches.
+    /// </summary>
+    internal void Detach()
+    {
+        _thisValue = null;
+        _outerEnv = null;
+        _dictionary?.ClearPreservingCapacity();
+    }
+
     internal override bool HasThisBinding() => _thisBindingStatus != ThisBindingStatus.Lexical;
 
     internal override bool HasSuperBinding() =>

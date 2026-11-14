@@ -123,6 +123,14 @@ public sealed partial class GlobalObject : ObjectInstance
     /// </summary>
     internal static JsValue ParseFloat(JsValue value)
     {
+        // A Number's ToString is the shortest decimal that rounds back to it (or NaN, Infinity, -Infinity), and
+        // all of it is a StrDecimalLiteral prefix, so parsing it gives the number back; only -0 comes back as +0,
+        // because ToString(-0) is "0". Tween libraries call parseFloat on numbers for every animated value.
+        if (value is JsNumber number)
+        {
+            return number._value == 0 ? JsNumber.PositiveZero : number;
+        }
+
         var inputString = TypeConverter.ToString(value);
         var trimmedString = StringPrototype.TrimStartEx(inputString);
 

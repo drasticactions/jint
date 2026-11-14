@@ -186,11 +186,11 @@ public sealed partial class JsObject : ObjectInstance
             var overflowIndex = slot - InlineCapacity;
             if (_overflow is null)
             {
-                _overflow = new JsValue[4];
+                _overflow = new JsValue[OverflowCapacity(shape, 4)];
             }
             else if (overflowIndex >= _overflow.Length)
             {
-                System.Array.Resize(ref _overflow, _overflow.Length * 2);
+                System.Array.Resize(ref _overflow, OverflowCapacity(shape, _overflow.Length * 2));
             }
             WriteOverflowUnchecked(_overflow, overflowIndex, value);
         }
@@ -198,6 +198,17 @@ public sealed partial class JsObject : ObjectInstance
         _shape = shape.Add(in key, out created);
         unchecked { _propertiesVersion++; }
         return true;
+    }
+
+    // Objects at this layout went on to fill MaxDescendantSlotCount slots, so the array is sized for that many when
+    // it is more than the default growth gives, up to MaxPredictedOverflow: a layout shared by objects that grow
+    // in different directions overshoots by at most that much.
+    private const int MaxPredictedOverflow = 28;
+
+    private static int OverflowCapacity(Shape shape, int grown)
+    {
+        var predicted = shape.MaxDescendantSlotCount - InlineCapacity;
+        return predicted > grown && predicted <= MaxPredictedOverflow ? predicted : grown;
     }
 
     /// <summary>
