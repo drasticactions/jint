@@ -226,7 +226,7 @@ internal sealed class JintObjectExpression : JintExpression
     public static JintExpression Build(ObjectExpression expression)
     {
         return expression.Properties.Count == 0
-            ? JintEmptyObjectExpression.Instance
+            ? new JintEmptyObjectExpression(expression)
             : new JintObjectExpression(expression);
     }
 
@@ -524,21 +524,38 @@ internal sealed class JintObjectExpression : JintExpression
         }
     }
 
+    /// <summary>
+    /// An empty object literal, <c>{}</c>. Once the site is hot, each object it makes starts in shape-building
+    /// mode, so the properties a script then assigns (<c>o.x = 1</c>, <c>o[key] = v</c>) transition a shared
+    /// interned hidden class instead of filling a dictionary: a site evaluated over and over typically makes
+    /// records of one layout. A site that runs only a few times — the one map of a script — keeps the
+    /// dictionary, and <see cref="JsObject.TryShapeAdd(in Key, JsValue)"/>'s megamorphic guards deopt an
+    /// object used as a map all the same.
+    /// </summary>
     internal sealed class JintEmptyObjectExpression : JintExpression
     {
-        public static JintEmptyObjectExpression Instance = new(new ObjectExpression(NodeList.From(Array.Empty<Node>())));
+        /// <summary>Objects a site makes before it starts them in shape-building mode, as for a constructor's <c>this</c>.</summary>
+        private const int ShapePromoteThreshold = 16;
 
-        private JintEmptyObjectExpression(Expression expression) : base(expression)
+        // Shared by every engine running the prepared script; a lost increment only delays the promotion.
+        private int _evaluations;
+
+        internal JintEmptyObjectExpression(Expression expression) : base(expression)
         {
         }
 
-        protected override object EvaluateInternal(EvaluationContext context)
-        {
-            return new JsObject(context.Engine);
-        }
+        protected override object EvaluateInternal(EvaluationContext context) => Create(context);
 
-        public override JsValue GetValue(EvaluationContext context)
+        public override JsValue GetValue(EvaluationContext context) => Create(context);
+
+        private JsObject Create(EvaluationContext context)
         {
+            if (_evaluations >= ShapePromoteThreshold)
+            {
+                return context.Engine.Realm.Intrinsics.Object.ConstructShapeBuilding();
+            }
+
+            _evaluations++;
             return new JsObject(context.Engine);
         }
     }

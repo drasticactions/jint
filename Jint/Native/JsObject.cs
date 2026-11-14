@@ -166,8 +166,12 @@ public sealed partial class JsObject : ObjectInstance
     internal bool TryShapeAdd(in Key key, JsValue value, out bool created)
     {
         var shape = _shape!;
-        if (shape.SlotCount >= Shape.MaxShapeProperties || shape.TransitionCount >= Shape.MaxFanout)
+        if (shape.SlotCount >= Shape.MaxShapeProperties
+            || (shape.TransitionCount >= Shape.MaxFanout && !shape.HasTransition(in key)))
         {
+            // A transition already interned grows nothing, so only a new one is refused at the fan-out
+            // limit: objects built the same way keep their shape after others filled the limit with
+            // one-off keys.
             created = false;
             return false;
         }

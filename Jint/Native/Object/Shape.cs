@@ -129,6 +129,9 @@ internal sealed class Shape
         return child;
     }
 
+    /// <summary>Whether adding <paramref name="key"/> to this shape reuses an interned child rather than creating one.</summary>
+    internal bool HasTransition(in Key key) => _transitions is { } transitions && transitions.ContainsKey(key);
+
     /// <summary>
     /// Resolves a property name to its slot index. Returns false if this shape does not carry the key.
     /// </summary>
