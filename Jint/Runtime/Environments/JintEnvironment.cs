@@ -228,7 +228,9 @@ internal static class JintEnvironment
             };
         }
 
-        if (state is { UseFixedSlots: true })
+        // An environment this function instance kept for itself comes back with its own cleared slot array (see
+        // ScriptFunction.ReturnEnvironment), laid out for this same State.
+        if (state is { UseFixedSlots: true } && env._slots is null)
         {
             env._slotNames = state.SlotNames;
             // Try to reuse cached slots from the previous call to any instance sharing this State

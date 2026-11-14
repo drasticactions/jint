@@ -122,10 +122,29 @@ internal sealed class StackGuard
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void EnsureStackHeadroom()
     {
-        if (_backstopEnabled)
+        if (_backstopEnabled && !IsAtOrAboveVerifiedDepth())
         {
             ProbeStackHeadroom();
         }
+    }
+
+    /// <summary>
+    /// The deepest stack address on this thread at which <see cref="ProbeStackHeadroom"/> has found the reserve
+    /// available, or zero before the first probe. The stack's limit is fixed for a thread's lifetime, so a frame at
+    /// or above that address has the reserve as well, and the runtime need not be asked again: a recursion asks it
+    /// once per new depth, and a call that returns to a depth it reached before pays one comparison. The answer at
+    /// any depth is the runtime's, so the depth at which the <c>RangeError</c> is thrown does not change.
+    /// </summary>
+    [ThreadStatic]
+    private static nuint t_verifiedStackAddress;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static unsafe bool IsAtOrAboveVerifiedDepth()
+    {
+        byte marker = 0;
+        var here = (nuint) (&marker);
+        var verified = t_verifiedStackAddress;
+        return here >= verified && verified != 0;
     }
 
     /// <summary>
@@ -172,11 +191,20 @@ internal sealed class StackGuard
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private void ProbeStackHeadroom()
+    private unsafe void ProbeStackHeadroom()
     {
         if (!RuntimeHelpers.TryEnsureSufficientExecutionStack())
         {
             ThrowMaximumCallStackSizeExceeded();
+        }
+
+        // This frame is below its caller's, so the caller's own test passes at the depth just verified.
+        byte marker = 0;
+        var here = (nuint) (&marker);
+        var verified = t_verifiedStackAddress;
+        if (verified == 0 || here < verified)
+        {
+            t_verifiedStackAddress = here;
         }
     }
 

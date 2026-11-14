@@ -28,6 +28,23 @@ public class ArrayInstance : ObjectInstance, IEnumerable<JsValue>
 
     private bool HasLength => _lengthDescriptor is not null || _lengthValue is not null;
 
+    /// <summary>
+    /// What <see cref="Get(JsValue, JsValue)"/> returns for <c>length</c>, without the property-name tests: the
+    /// length value whenever the array has one, which is always outside the engine's own internals.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal bool TryGetLengthValue([NotNullWhen(true)] out JsNumber? length)
+    {
+        if (HasLength)
+        {
+            length = GetJsNumberLength();
+            return true;
+        }
+
+        length = null;
+        return false;
+    }
+
     // Matches `_length is { Writable: true }`: present AND writable. Inline length is always writable
     // (non-writable length only arises via DefineLength, which materializes the descriptor first).
     private bool LengthIsWritable => _lengthDescriptor is not null ? _lengthDescriptor.Writable : _lengthValue is not null;

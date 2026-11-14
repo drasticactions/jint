@@ -435,11 +435,11 @@ public sealed class ScriptFunction : Function, IConstructor
             return CallLeaf(strict);
         }
 
-        // Fixed-slot synchronous call: shares its whole body with the register-argument entry point
-        // (CallFromRegisters) through CallCore, which the ArrayArguments source specializes back to
-        // reading this very array. Disjoint from the leaf arm above — SupportsLeafCall requires
-        // CanUseEmptyFDI (no slots at all) while SupportsRegisterCall requires CanUseFastFDI (at
-        // least one). Anything else falls through to the general arm below unchanged.
+        // Fixed-slot or empty-instantiation synchronous call: shares its whole body with the
+        // register-argument entry point (CallFromRegisters) through CallCore, which the ArrayArguments
+        // source specializes back to reading this very array. A leaf function is register-eligible as
+        // well, but has already left through the arm above. Anything else falls through to the general
+        // arm below unchanged.
         if (state.SupportsRegisterCall && !_engine._isDebugMode && !_isClassConstructor)
         {
             return CallCore(thisObject, new ArrayArguments(arguments), state);
@@ -481,7 +481,7 @@ public sealed class ScriptFunction : Function, IConstructor
             // For async functions/generators, DisposeResources is deferred to when
             // the body truly completes (AsyncBlockStart/AsyncFunctionResume).
             // Calling it here would dispose too early (before awaits complete).
-            if (!_functionDefinition.Function.Async)
+            if (!_functionDefinition.IsAsync)
             {
                 result = calleeContext.LexicalEnvironment.DisposeResources(result);
             }
@@ -562,13 +562,19 @@ public sealed class ScriptFunction : Function, IConstructor
         }
         else
         {
-            // Cache the slot array on the shared State: cleared, it holds no engine references,
-            // so any instance sharing this State (also in another engine) can reuse it.
             if (funcEnv._slots is { } slots)
             {
                 System.Array.Clear(slots, 0, slots.Length);
-                Interlocked.Exchange(ref state._cachedSlots, slots);
-                funcEnv._slots = null;
+
+                // An environment this instance keeps for its own next call keeps its cleared slot array too, so
+                // that call takes neither from the State. Any other environment hands the array to the shared
+                // State: cleared, it holds no engine references, so any instance sharing this State (also in
+                // another engine) can reuse it.
+                if (_functionDefinition!.IsDynamic || !_returnedEnvironment)
+                {
+                    Interlocked.Exchange(ref state._cachedSlots, slots);
+                    funcEnv._slots = null;
+                }
             }
 
             if (_functionDefinition!.IsDynamic)
@@ -701,7 +707,12 @@ public sealed class ScriptFunction : Function, IConstructor
         _engine._stackGuard.EnsureStackHeadroom();
 
         _functionDefinition!.EnsureTailCallMarkers(state, _strict);
-        var result = CallCore(thisObject, new RegisterArguments(arg0, arg1, arg2, arg3, argCount), state);
+
+        // A leaf function has no parameters to fill, so the registers (already evaluated by the caller)
+        // are not needed, and it runs without a callee environment as its [[Call]] would run it.
+        var result = state.SupportsLeafCall
+            ? CallLeaf(_strict)
+            : CallCore(thisObject, new RegisterArguments(arg0, arg1, arg2, arg3, argCount), state);
         return result is TailCallRequest ? ContinueTailCalls(result, ownsFrame) : result;
     }
 
@@ -816,10 +827,12 @@ public sealed class ScriptFunction : Function, IConstructor
 
                     result = registerState is null
                         ? target.CallOnce(thisObject, arguments)
-                        : target.CallCore(
-                            thisObject,
-                            new RegisterArguments(arg0, arg1, arg2, arg3, argCount),
-                            registerState);
+                        : registerState.SupportsLeafCall
+                            ? target.CallLeaf(target._strict)
+                            : target.CallCore(
+                                thisObject,
+                                new RegisterArguments(arg0, arg1, arg2, arg3, argCount),
+                                registerState);
                 }
                 finally
                 {

@@ -30,6 +30,14 @@ internal sealed class JintFunctionDefinition
     public readonly string? Name;
     public readonly IFunction Function;
 
+    // The shape of Function that every call asks about, read once here: IFunction is an interface over
+    // several AST node classes, so each of these is otherwise an interface dispatch on the call path.
+    internal readonly bool IsArrowFunction;
+    internal readonly bool HasStatementBody;
+    internal readonly bool IsAsync;
+    internal readonly bool IsGenerator;
+    private readonly StatementOrExpression _body;
+
     // The function's own name as a JsValue, cached here so that every instantiation of this
     // definition (nested function declarations re-instantiate on every call of their enclosing
     // function) shares one immutable JsString instead of allocating a fresh one per instance.
@@ -54,6 +62,11 @@ internal sealed class JintFunctionDefinition
     public JintFunctionDefinition(IFunction function, INode sourceTextNode)
     {
         Function = function;
+        IsArrowFunction = function.Type == NodeType.ArrowFunctionExpression;
+        HasStatementBody = function.Body is FunctionBody;
+        IsAsync = function.Async;
+        IsGenerator = function.Generator;
+        _body = function.Body;
         Name = !string.IsNullOrEmpty(function.Id?.Name) ? function.Id!.Name : null;
         JsName = Name is not null ? new JsString(Name) : null;
         SourceTextNode = sourceTextNode;
@@ -110,12 +123,12 @@ internal sealed class JintFunctionDefinition
     {
         Completion result;
         JsArguments? argumentsInstance = null;
-        if (Function.Body is not FunctionBody)
+        if (!HasStatementBody)
         {
             // The async path captures locals into a closure; keeping it in a separate non-inlined
             // method ensures the C# compiler does not allocate that display class on the hot sync
             // call path (every function call goes through EvaluateBody).
-            if (Function.Async)
+            if (IsAsync)
             {
                 return EvaluateConciseBodyAsync(context, functionObject, argumentsList);
             }
@@ -124,27 +137,28 @@ internal sealed class JintFunctionDefinition
             var bodyExpression = _bodyExpression ?? BuildBodyExpression(context);
 
             argumentsInstance = context.Engine.FunctionDeclarationInstantiation(context, functionObject, argumentsList, state);
-            context.RunBeforeExecuteStatementChecks(Function.Body);
+            var body = _body;
+            context.RunBeforeExecuteStatementChecks(body);
             var jsValue = bodyExpression.GetValue(context);
-            result = new Completion(CompletionType.Return, jsValue, Function.Body);
+            result = new Completion(CompletionType.Return, jsValue, body);
         }
-        else if (Function.Generator)
+        else if (IsGenerator)
         {
-            result = Function.Async
+            result = IsAsync
                 ? EvaluateAsyncGeneratorBody(context, functionObject, argumentsList)
                 : EvaluateGeneratorBody(context, functionObject, argumentsList);
         }
         else
         {
             // See note above: extracted so the closure's display class is not allocated per sync call.
-            if (Function.Async)
+            if (IsAsync)
             {
                 return EvaluateFunctionBodyAsync(context, functionObject, argumentsList);
             }
 
             // https://tc39.es/ecma262/#sec-runtime-semantics-evaluatefunctionbody
             argumentsInstance = context.Engine.FunctionDeclarationInstantiation(context, functionObject, argumentsList, state);
-            result = (_bodyStatementList ?? BuildBodyStatementList(context)).Execute(context);
+            result = (_bodyStatementList ?? BuildBodyStatementList(context)).ExecuteSynchronousFunctionBody(context);
         }
 
         // The argument is evaluated only when there is an arguments object to tell.
@@ -165,20 +179,21 @@ internal sealed class JintFunctionDefinition
     {
         System.Diagnostics.Debug.Assert(!Function.Generator && !Function.Async);
 
-        if (Function.Body is not FunctionBody)
+        if (!HasStatementBody)
         {
             // https://tc39.es/ecma262/#sec-runtime-semantics-evaluateconcisebody
             var bodyExpression = _bodyExpression ?? BuildBodyExpression(context);
 
             context.Engine.FunctionDeclarationInstantiationFast(state, in argumentsList);
-            context.RunBeforeExecuteStatementChecks(Function.Body);
+            var body = _body;
+            context.RunBeforeExecuteStatementChecks(body);
             var jsValue = bodyExpression.GetValue(context);
-            return new Completion(CompletionType.Return, jsValue, Function.Body);
+            return new Completion(CompletionType.Return, jsValue, body);
         }
 
         // https://tc39.es/ecma262/#sec-runtime-semantics-evaluatefunctionbody
         context.Engine.FunctionDeclarationInstantiationFast(state, in argumentsList);
-        return (_bodyStatementList ?? BuildBodyStatementList(context)).Execute(context);
+        return (_bodyStatementList ?? BuildBodyStatementList(context)).ExecuteSynchronousFunctionBody(context);
     }
 
     /// <summary>
@@ -190,7 +205,7 @@ internal sealed class JintFunctionDefinition
     {
         System.Diagnostics.Debug.Assert(Function.Body is FunctionBody && !Function.Generator && !Function.Async);
         var list = _bodyStatementList ?? BuildBodyStatementList(context);
-        return list.Execute(context);
+        return list.ExecuteSynchronousFunctionBody(context);
     }
 
     /// <summary>
@@ -623,7 +638,8 @@ internal sealed class JintFunctionDefinition
         /// The initial <see cref="Binding"/> for every slot the fixed-slot instantiation arm fills —
         /// the whole region from <see cref="ParameterSlotCount"/> to the end of <see cref="SlotNames"/>,
         /// so <c>Length</c> is exactly <c>SlotNames.Length - ParameterSlotCount</c>. Non-null whenever
-        /// <see cref="CanUseFastFDI"/> holds (empty for a parameters-only function), which is what lets
+        /// <see cref="CanUseFastFDI"/> or <see cref="CanUseEmptyFDI"/> holds (empty for a parameters-only
+        /// function and for one with nothing to instantiate), which is what lets
         /// the arm be one unconditional copy with no arm selection of its own.
         /// <para>
         /// The hoisted-var region holds <c>undefined</c>, mutable, exactly as the general arm writes it.
@@ -682,9 +698,9 @@ internal sealed class JintFunctionDefinition
 
         /// <summary>
         /// The static half of the register-lane gate (<c>ScriptFunction.CallCore</c>): a plain
-        /// synchronous call whose instantiation is the fixed-slot fast path. Requires
-        /// <see cref="CanUseFastFDI"/> (so there is no arguments object and no parameter-default
-        /// evaluation) plus non-generator and non-async (so there is no suspension machinery and
+        /// synchronous call whose instantiation is the fixed-slot fast path or nothing at all. Requires
+        /// <see cref="CanUseFastFDI"/> or <see cref="CanUseEmptyFDI"/> (so there is no arguments object
+        /// and no parameter-default evaluation) plus non-generator and non-async (so there is no suspension machinery and
         /// no deferred DisposeResources). Precomputed rather than re-derived per call because
         /// <c>IFunction.Generator</c>/<c>.Async</c> are interface properties on a polymorphic AST
         /// node. Callers additionally gate on !Engine._isDebugMode and !_isClassConstructor at
@@ -1084,7 +1100,14 @@ internal sealed class JintFunctionDefinition
             && varsToInitialize.Count == 0
             && state.LexicalDeclarations is null;
 
-        state.SupportsRegisterCall = state.CanUseFastFDI && !function.Generator && !function.Async;
+        // A function with nothing to instantiate takes the same lane: its instantiation is the fixed-slot arm
+        // with no slots to fill, so it gets an empty template and the arm's copy loops run zero times.
+        if (state.CanUseEmptyFDI)
+        {
+            state.NonParameterSlotTemplate ??= [];
+        }
+
+        state.SupportsRegisterCall = (state.CanUseFastFDI || state.CanUseEmptyFDI) && !function.Generator && !function.Async;
 
         // Compute EnvironmentMayEscape unconditionally so consumers (e.g. FunctionEnvironment pooling)
         // can rely on it without first checking UseFixedSlots. Generators / async functions / direct eval

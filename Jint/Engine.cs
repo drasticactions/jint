@@ -2036,7 +2036,7 @@ public sealed partial class Engine : IDisposable
             Options.Interop.ObjectWrapperReportedMethodBindingFlags,
             _extensionMethods);
 
-        CallStack = new JintCallStack(_maxRecursionDepth >= 0);
+        CallStack = new JintCallStack(_maxRecursionDepth >= 0, recordsCallingContext: _isDebugMode);
         _stackGuard = new StackGuard(this);
 
         var scriptParsingDefaults = Options.RetainFunctionSourceText

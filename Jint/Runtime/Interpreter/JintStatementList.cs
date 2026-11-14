@@ -255,6 +255,72 @@ internal sealed class JintStatementList
     }
 
     /// <summary>
+    /// <see cref="Execute"/> for the body of a function whose frame cannot suspend: a plain synchronous call, whose
+    /// execution context carries no generator or async function. With no suspendable, every resume-position step of
+    /// <see cref="Execute"/> is a no-op, and a function body's completion values are never observable, so what is left
+    /// is the statement loop, the checks, and the exception handling, all as <see cref="Execute"/> has them.
+    /// </summary>
+    internal Completion ExecuteSynchronousFunctionBody(EvaluationContext context)
+    {
+        Debug.Assert(_statement is FunctionBody && _observability == CompletionValueObservability.NotObservable);
+        Debug.Assert(context.Engine.ExecutionContext.Suspendable is null);
+
+        var statement = _statement!;
+        context.LastSyntaxElement = statement;
+        context.RunBeforeExecuteStatementChecks(statement);
+
+        var oldCompletionValuesObservable = context.CompletionValuesObservable;
+        context.CompletionValuesObservable = false;
+
+        var c = Completion.Empty();
+        var sl = c;
+        var lastValue = JsEmpty.Instance;
+        var temp = _jintStatements;
+        uint i = 0;
+        try
+        {
+            for (; i < (uint) temp.Length; i++)
+            {
+                ref readonly var pair = ref temp[i];
+                c = pair.Value is null || context.BypassStatementFastPaths
+                    ? pair.Statement.Execute(context)
+                    : new Completion(CompletionType.Return, pair.Value, pair.Statement._statement);
+
+                if (c.Type != CompletionType.Normal)
+                {
+                    return c.UpdateEmpty(sl.Value);
+                }
+
+                sl = c;
+                if (!c.Value.IsEmpty)
+                {
+                    lastValue = c.Value;
+                }
+            }
+        }
+        // Keep in step with the catch in Execute above; without a suspendable its filter is ShouldCatch alone.
+        catch (Exception ex) when (ShouldCatch(ex))
+        {
+            if (ex is JintException)
+            {
+                c = HandleException(context, ex, temp[i].Statement);
+            }
+            else
+            {
+                var locationNode = (Node?) context.Engine._lastSyntaxElement ?? temp[i].Statement._statement;
+                ExceptionDataHelper.TryAttachJavaScriptLocation(ex, context.Engine, locationNode.Location);
+                throw;
+            }
+        }
+        finally
+        {
+            context.CompletionValuesObservable = oldCompletionValuesObservable;
+        }
+
+        return c.UpdateEmpty(lastValue).UpdateEmpty(JsValue.Undefined);
+    }
+
+    /// <summary>
     /// Runs a script's top-level list whose only statement is an expression statement, without the loop of
     /// <see cref="Execute"/>: completion values observable, and an exception the statement raised handled
     /// as the catch in <see cref="Execute"/> handles it. The statement always yields a value, so no empty

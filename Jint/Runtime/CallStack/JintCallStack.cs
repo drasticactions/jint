@@ -70,8 +70,16 @@ internal sealed class JintCallStack
     // Internal for use by DebugHandler
     internal RefStack<CallStackElement> Stack => _stack;
 
-    public JintCallStack(bool trackRecursionDepth)
+    /// <summary>
+    /// Whether a frame records the execution context it was called from. Only the debugger reads it back
+    /// (<see cref="Debugger.DebugCallStack"/>, built for a pause or an exception event of an engine in debug mode), so
+    /// any other engine leaves it empty and a call stores two references fewer.
+    /// </summary>
+    private readonly bool _recordsCallingContext;
+
+    public JintCallStack(bool trackRecursionDepth, bool recordsCallingContext = true)
     {
+        _recordsCallingContext = recordsCallingContext;
         if (trackRecursionDepth)
         {
             _statistics = new Dictionary<CallStackElement, int>(CallStackElementComparer.Instance);
@@ -84,8 +92,14 @@ internal sealed class JintCallStack
         // missing frame is observable in any stack trace taken below this point.
         Native.Function.LeafCallGuard.AssertNotInLeafCall("a nested call (JintCallStack.Push)");
 
-        var item = new CallStackElement(function, expression, new CallStackExecutionContext(in executionContext));
-        return Push(in item);
+        if (_recordsCallingContext)
+        {
+            var item = new CallStackElement(function, expression, new CallStackExecutionContext(in executionContext));
+            return Push(in item);
+        }
+
+        var frame = new CallStackElement(function, expression, default);
+        return Push(in frame);
     }
 
     private int Push(in CallStackElement item)

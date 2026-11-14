@@ -34,7 +34,7 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
     {
         _functionObject = functionObject;
         NewTarget = newTarget;
-        if (functionObject._functionDefinition?.Function.Type is NodeType.ArrowFunctionExpression)
+        if (functionObject._functionDefinition is { IsArrowFunction: true })
         {
             _thisBindingStatus = ThisBindingStatus.Lexical;
         }
@@ -50,11 +50,25 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
     /// </summary>
     internal void Reset(Function functionObject, JsValue newTarget, Environment? outerEnv)
     {
-        _functionObject = functionObject;
-        NewTarget = newTarget;
-        _outerEnv = outerEnv;
+        // A reused environment usually goes back to the function, target and outer environment it last ran with,
+        // so each store is made only when it changes something: a compare costs less than the write barrier.
+        if (!ReferenceEquals(_functionObject, functionObject))
+        {
+            _functionObject = functionObject;
+        }
+
+        if (!ReferenceEquals(NewTarget, newTarget))
+        {
+            NewTarget = newTarget;
+        }
+
+        if (!ReferenceEquals(_outerEnv, outerEnv))
+        {
+            _outerEnv = outerEnv;
+        }
+
         _thisValue = null;
-        _thisBindingStatus = functionObject._functionDefinition?.Function.Type is NodeType.ArrowFunctionExpression
+        _thisBindingStatus = functionObject._functionDefinition is { IsArrowFunction: true }
             ? ThisBindingStatus.Lexical
             : ThisBindingStatus.Uninitialized;
         // Keep the dictionary's grown capacity: a pooled env is reused for the same State (same binding

@@ -989,6 +989,15 @@ internal sealed class JintMemberExpression : JintExpression
     /// </summary>
     private JsValue ReadFromNonPlainReceiver(ObjectInstance baseObject, JsString property)
     {
+        // An array's `length` (`for (i = 0, n = a.length; …)`): its [[Get]] is sealed and answers the name from the
+        // inline length value before anything else, so that value is the read.
+        if (_readsLengthName
+            && baseObject is JsArray array
+            && array.TryGetLengthValue(out var arrayLength))
+        {
+            return arrayLength;
+        }
+
         // A host collection's `length`, answered from its own O(1) count with no descriptor and no accessor
         // invocation - but only while ArrayLikeObject's guard proves that read is the one [[Get]] would make.
         // The build-time name test is what keeps this off every other member node.

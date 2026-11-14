@@ -65,8 +65,8 @@ internal sealed class JintCallExpression : JintExpression
     /// which is the half of the register lane's gate that is decidable here rather than per callee.
     /// </summary>
     /// <remarks>
-    /// A zero-argument site is deliberately excluded: it rents nothing today (<see cref="ExpressionCache"/>
-    /// hands back a cached empty array without renting), so there is no allocation for the lane to avoid.
+    /// A zero-argument site is included: it rents no array either way, but the lane still skips the
+    /// argument list evaluation and the general [[Call]] arm (<c>v.magSq()</c>, <c>v.clear()</c>).
     /// Spreads make the arity a runtime quantity, which the register form cannot express, however few
     /// arguments a particular spread produces.
     /// </remarks>
@@ -82,8 +82,8 @@ internal sealed class JintCallExpression : JintExpression
     // _regCallee is non-null only when the probe *accepted* the callee, and every static half of the
     // gate — this site's arity and spread shape, the callee's SupportsRegisterCall, the engine's
     // readonly _isDebugMode — is folded into the arming. So the dispatch test below is a single
-    // reference compare, and a site that never sees an eligible callee (every built-in call, every
-    // zero-argument call) compares against a field that stays null and pays nothing else.
+    // reference compare, and a site that never sees an eligible callee (every built-in call)
+    // compares against a field that stays null and pays nothing else.
     // _regProbedCallee is whatever callee this site last examined, accepted or not, so such a site
     // remembers the rejection instead of re-probing on every dispatch. Only a site _regLaneEligible
     // admits ever examines one: the rest cannot arm the lane whatever they are handed, so they are
@@ -129,7 +129,7 @@ internal sealed class JintCallExpression : JintExpression
 
         _argCount = expression.Arguments.Count;
         _fastArgsEligible = !_arguments.HasSpreads && _argCount <= 2;
-        _regLaneEligible = !_arguments.HasSpreads && _argCount is >= 1 and <= MaxRegisterArguments;
+        _regLaneEligible = !_arguments.HasSpreads && _argCount <= MaxRegisterArguments;
 
         _argumentsMaySuspend = ArgumentsMaySuspend(expression.Arguments.AsSpan());
         _delegatesEvaluation = _calleeIsSuper || _argumentsMaySuspend;
@@ -784,8 +784,7 @@ internal sealed class JintCallExpression : JintExpression
     {
         var state = _regState!;
 
-        // Arming requires at least one argument, so the first read is unconditional.
-        var arg0 = _arguments.GetValue(context, 0);
+        var arg0 = _argCount >= 1 ? _arguments.GetValue(context, 0) : JsValue.Undefined;
         var arg1 = _argCount >= 2 ? _arguments.GetValue(context, 1) : JsValue.Undefined;
         var arg2 = _argCount >= 3 ? _arguments.GetValue(context, 2) : JsValue.Undefined;
         var arg3 = _argCount >= 4 ? _arguments.GetValue(context, 3) : JsValue.Undefined;
