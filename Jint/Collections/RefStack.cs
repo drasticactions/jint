@@ -103,7 +103,7 @@ internal sealed class RefStack<T> : IEnumerable<T> where T : struct
         _array[_size++] = item;
     }
 
-    private void EnsureCapacity(int min)
+    internal void EnsureCapacity(int min)
     {
         var array = _array;
         if (array.Length < min)

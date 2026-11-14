@@ -2518,19 +2518,29 @@ public sealed partial class Engine : IDisposable
         Native.Function.Function function,
         bool strict)
     {
-        _executionContexts.Push(new ExecutionContext(
-            scriptOrModule,
-            lexicalEnvironment: environment,
-            variableEnvironment: environment,
-            privateEnvironment,
-            realm,
-            generator: null,
-            function: function,
-            strict: strict));
+        EnterFunctionExecutionContext(scriptOrModule, environment, privateEnvironment, realm, function, strict);
+    }
+
+    /// <summary>
+    /// Pushes the execution context of a call of <paramref name="function"/> whose lexical and variable environments
+    /// are both <paramref name="environment"/>, and returns it.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal ref readonly ExecutionContext EnterFunctionExecutionContext(
+        IScriptOrModule? scriptOrModule,
+        Environment environment,
+        PrivateEnvironment? privateEnvironment,
+        Realm realm,
+        Native.Function.Function function,
+        bool strict)
+    {
+        ref readonly var context = ref _executionContexts.PushFunctionContext(scriptOrModule, environment, privateEnvironment, realm, function, strict);
         if (_memoryLimitConstraint is not null)
         {
             BeginImplicitMemoryOperation();
         }
+
+        return ref context;
     }
 
     /// <summary>

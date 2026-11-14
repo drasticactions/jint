@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Jint.Collections;
 using Jint.Native.AsyncGenerator;
+using Jint.Native.Function;
 using Jint.Native.Generator;
 using Jint.Runtime.Environments;
 using Environment = Jint.Runtime.Environments.Environment;
@@ -93,8 +95,87 @@ internal sealed class ExecutionContextStack
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Push(in ExecutionContext context) => _stack.Push(in context);
 
+    /// <summary>
+    /// Pushes the context of a call of <paramref name="function"/>, whose lexical and variable environments are both
+    /// <paramref name="environment"/>, writing the fields straight into the stack's slot.
+    /// </summary>
+    /// <remarks>
+    /// A popped slot keeps its realm and script (see <see cref="Pop"/>) and nothing else, and the next call at the
+    /// same depth usually runs in the same ones, so those two are compared before they are written: a compare costs
+    /// less than the write barrier a reference store into the array pays. The fields a function call leaves null are
+    /// null in a popped slot already.
+    /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Pop() => _stack.PopAndDiscard();
+    public ref readonly ExecutionContext PushFunctionContext(
+        IScriptOrModule? scriptOrModule,
+        Environment environment,
+        PrivateEnvironment? privateEnvironment,
+        Realm realm,
+        Function function,
+        bool strict)
+    {
+        var stack = _stack;
+        if (stack._size == stack._array.Length)
+        {
+            stack.EnsureCapacity(stack._size + 1);
+        }
+
+        ref var slot = ref stack._array[stack._size++];
+        Debug.Assert(slot.LexicalEnvironment is null && slot.Function is null && slot.Generator is null && slot.ParserOptions is null && slot.AsyncFunction is null && slot.AsyncGenerator is null && slot.PrivateEnvironment is null);
+
+        // MA0168 (net472/netstandard2.0 only): see ReplaceTopStrict.
+#pragma warning disable MA0168
+        if (!ReferenceEquals(slot.ScriptOrModule, scriptOrModule))
+        {
+            Unsafe.AsRef(in slot.ScriptOrModule) = scriptOrModule;
+        }
+
+        Unsafe.AsRef(in slot.LexicalEnvironment) = environment;
+        Unsafe.AsRef(in slot.VariableEnvironment) = environment;
+        if (privateEnvironment is not null)
+        {
+            Unsafe.AsRef(in slot.PrivateEnvironment) = privateEnvironment;
+        }
+
+        if (!ReferenceEquals(slot.Realm, realm))
+        {
+            Unsafe.AsRef(in slot.Realm) = realm;
+        }
+
+        Unsafe.AsRef(in slot.Function) = function;
+        Unsafe.AsRef(in slot.Strict) = strict;
+#pragma warning restore MA0168
+
+        return ref slot;
+    }
+
+    /// <summary>
+    /// Pops the running context. Its slot is cleared except for the realm and the script, which live as long as the
+    /// functions that run in them and which <see cref="PushFunctionContext"/> then often need not write again.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Pop()
+    {
+        var stack = _stack;
+        if (stack._size == 0)
+        {
+            Throw.InvalidOperationException("stack is empty");
+        }
+
+        ref var slot = ref stack._array[--stack._size];
+
+#pragma warning disable MA0168
+        Unsafe.AsRef(in slot.LexicalEnvironment) = null!;
+        Unsafe.AsRef(in slot.VariableEnvironment) = null!;
+        Unsafe.AsRef(in slot.PrivateEnvironment) = null;
+        Unsafe.AsRef(in slot.Function) = null;
+        Unsafe.AsRef(in slot.Generator) = null;
+        Unsafe.AsRef(in slot.ParserOptions) = null;
+        Unsafe.AsRef(in slot.AsyncFunction) = null;
+        Unsafe.AsRef(in slot.AsyncGenerator) = null;
+        Unsafe.AsRef(in slot.Strict) = false;
+#pragma warning restore MA0168
+    }
 
     public IScriptOrModule? GetActiveScriptOrModule()
     {

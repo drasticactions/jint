@@ -745,6 +745,14 @@ internal abstract class JintBinaryExpression : JintExpression
     protected bool TryEvaluateOperands(EvaluationContext context, out JsValue left, out JsValue right)
     {
         var suspendable = context.Engine?.ExecutionContext.Suspendable;
+        if (suspendable is null)
+        {
+            // A frame without a suspendable keeps none for as long as it runs, so neither operand can suspend it.
+            left = _left.GetValue(context);
+            right = _right.GetValue(context);
+            return true;
+        }
+
         if (suspendable is { IsResuming: true }
             && suspendable.Data.TryGet(this, out LeftOperandSuspendData? suspendData))
         {

@@ -811,23 +811,11 @@ public abstract partial class Function : ObjectInstance, ICallable
         var origin = _functionOrigin;
         var calleeRealm = origin.Realm;
 
-        var calleeContext = new ExecutionContext(
-            origin.ScriptOrModule,
-            lexicalEnvironment: localEnv,
-            variableEnvironment: localEnv,
-            _privateEnvironment,
-            calleeRealm,
-            generator: null,
-            function: this,
-            strict: strict);
-
         // If callerContext is not already suspended, suspend callerContext.
         // Push calleeContext onto the execution context stack; calleeContext is now the running execution context.
         // NOTE: Any exception objects produced after this point are associated with calleeRealm.
         // Return calleeContext.
-
-        _engine.EnterExecutionContext(in calleeContext);
-        return ref _engine.ExecutionContext;
+        return ref _engine.EnterFunctionExecutionContext(origin.ScriptOrModule, localEnv, _privateEnvironment, calleeRealm, this, strict);
     }
 
     internal void MakeConstructor(bool writableProperty = true, ObjectInstance? prototype = null)

@@ -52,6 +52,19 @@ internal sealed class JintSequenceExpression : JintExpression
         // When resuming a generator, skip sub-expressions that were already evaluated
         // before the yield point to avoid duplicate side effects
         var suspendable = context.Engine.ExecutionContext.Suspendable;
+        if (suspendable is null)
+        {
+            // A frame without a suspendable keeps none for as long as it runs, so no operand can suspend it or
+            // abort a generator: the checks below would all answer no.
+            JsValue value = JsValue.Undefined;
+            for (var i = 0; i < expressions.Length; i++)
+            {
+                value = expressions[i].GetValue(context);
+            }
+
+            return value;
+        }
+
         if (suspendable is { IsResuming: true }
             && suspendable.Data.TryGet(this, out SequenceSuspendData? suspendData))
         {
