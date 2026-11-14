@@ -166,6 +166,9 @@ public sealed class JsArguments : ObjectInstance
         set => _parameterMap = value;
     }
 
+    /// <summary>Whether this object still holds the environment of the call that made it.</summary>
+    internal bool HoldsCallEnvironment => _env is not null;
+
     internal override bool IsArrayLike => true;
 
     internal override bool IsIntegerIndexedArray => true;
@@ -558,6 +561,14 @@ public sealed class JsArguments : ObjectInstance
             _engine._argumentsInstancePool.Return(this);
             // prevent double-return
             _canReturnToPool = false;
+        }
+        else if (_mapDetached || _names is not { Length: > 0 })
+        {
+            // Claimed for good, and nothing it answers reads the call's environment any more: no parameter is
+            // mapped, or the map was detached. Letting go of the environment lets a call that only kept its
+            // arguments (`saved = arguments`) leave nothing else of itself behind.
+            _env = null!;
+            _bindingEnvironment = null;
         }
     }
 }

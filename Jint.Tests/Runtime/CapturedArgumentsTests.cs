@@ -368,4 +368,29 @@ public class CapturedArgumentsTests
         engine.Evaluate("untouched(3)");
         pool.PooledCount.Should().Be(1);
     }
+
+    [Test]
+    public void AClaimedArgumentsObjectThatMapsNothingLetsGoOfTheCallsEnvironment()
+    {
+        var engine = new Engine();
+        engine.Execute("""
+            function noParameters() { saved = arguments; return this; }
+            function mapped(a) { kept = arguments; a = 5; return kept[0]; }
+            function mappedWithAClosure(a) { live = arguments; return function () { a = 9; }; }
+            """);
+
+        engine.Evaluate("noParameters(1, 2)");
+        var saved = engine.GetValue("saved").Should().BeOfType<JsArguments>().Which;
+        saved.HoldsCallEnvironment.Should().BeFalse();
+        engine.Evaluate("saved.length + ':' + saved[0] + saved[1] + ':' + (saved.callee === noParameters)").AsString().Should().Be("2:12:true");
+
+        // A map that ended with the call (no closure reaches its environment) reads its snapshot.
+        engine.Evaluate("mapped(1)").AsNumber().Should().Be(5);
+        engine.GetValue("kept").Should().BeOfType<JsArguments>().Which.HoldsCallEnvironment.Should().BeFalse();
+        engine.Evaluate("kept[0]").AsNumber().Should().Be(5);
+
+        // A live map still reads and writes the parameter after the call.
+        engine.Evaluate("var set = mappedWithAClosure(1); set(); live[0]").AsNumber().Should().Be(9);
+        engine.GetValue("live").Should().BeOfType<JsArguments>().Which.HoldsCallEnvironment.Should().BeTrue();
+    }
 }
