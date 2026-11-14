@@ -47,6 +47,157 @@ internal sealed class SlotChainMemo
 }
 
 /// <summary>
+/// The layout a slot resolution followed, for a node that runs under many environments built from the same
+/// declarations: a method a constructor creates for each object reads the constructor's bindings through a chain
+/// that is new for every object, so <see cref="SlotChainMemo"/>, which pins environments by identity, misses on
+/// every switch and the node walks and re-resolves each time. The memo pins the chain by the slot-name arrays
+/// instead: from the reading environment, every environment up to the one holding the binding is declarative,
+/// keeps all its bindings in slots (no dictionary bindings), and has the recorded slot names, of which only the
+/// last holds the name.
+/// </summary>
+/// <remarks>
+/// A slot-name array belongs to one function definition, block, catch clause or eval body, and an environment's
+/// slot names never change, so equal arrays mean equal name sets for environments without dictionary bindings:
+/// none of the intermediates owns the name, and the binding sits at the recorded index of the last one. Sloppy
+/// direct eval and AnnexB block functions grow the name set of an existing environment, which goes through its
+/// dictionary and bumps <see cref="Engine._envBindingInjectionEpoch"/>; either fails the check. The holder must
+/// belong to the reading engine, since slot-name arrays are shared by every engine that runs a prepared script.
+/// </remarks>
+internal sealed class SlotLayoutMemo
+{
+    internal readonly int Hops;
+    internal readonly Key[]? Names0;
+    internal readonly Key[]? Names1;
+    internal readonly Key[]? Names2;
+    internal readonly Key[] TargetNames;
+    internal readonly int SlotIndex;
+    internal readonly int InjectionEpoch;
+
+    private SlotLayoutMemo(int hops, Key[]? names0, Key[]? names1, Key[]? names2, Key[] targetNames, int slotIndex, int injectionEpoch)
+    {
+        Hops = hops;
+        Names0 = names0;
+        Names1 = names1;
+        Names2 = names2;
+        TargetNames = targetNames;
+        SlotIndex = slotIndex;
+        InjectionEpoch = injectionEpoch;
+    }
+
+    /// <summary>
+    /// The layout from <paramref name="env"/> to <paramref name="target"/>, which holds <paramref name="key"/> at
+    /// <paramref name="slotIndex"/>, or null when the chain does not have one: it is longer than the slot caches
+    /// walk, or an environment on it is not declarative, keeps a binding in its dictionary, or has no slots.
+    /// </summary>
+    internal static SlotLayoutMemo? TryCreate(Engine engine, Environment env, DeclarativeEnvironment target, int slotIndex, Key key)
+    {
+        if (target._slotNames is not { } targetNames || target._slots is null || HasDictionaryBindings(target))
+        {
+            return null;
+        }
+
+        Key[]? names0 = null;
+        Key[]? names1 = null;
+        Key[]? names2 = null;
+        var hops = 0;
+        for (var e = env; !ReferenceEquals(e, target); e = e._outerEnv)
+        {
+            if (hops == SlotLocationCache.MaxChainDepth - 1
+                || e is not DeclarativeEnvironment { _slotNames: { } names } intermediate
+                || HasDictionaryBindings(intermediate)
+                || Contains(names, key))
+            {
+                return null;
+            }
+
+            switch (hops)
+            {
+                case 0: names0 = names; break;
+                case 1: names1 = names; break;
+                default: names2 = names; break;
+            }
+
+            hops++;
+        }
+
+        return new SlotLayoutMemo(hops, names0, names1, names2, targetNames, slotIndex, engine._envBindingInjectionEpoch);
+    }
+
+    /// <summary>The environment holding the binding when the chain from <paramref name="env"/> still has this layout.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal DeclarativeEnvironment? Follow(Engine engine, Environment env)
+    {
+        if (engine._envBindingInjectionEpoch != InjectionEpoch)
+        {
+            return null;
+        }
+
+        Environment? e = env;
+        var hops = Hops;
+        if (hops > 0)
+        {
+            if (!Matches(e, Names0))
+            {
+                return null;
+            }
+
+            e = e!._outerEnv;
+            if (hops > 1)
+            {
+                if (!Matches(e, Names1))
+                {
+                    return null;
+                }
+
+                e = e!._outerEnv;
+                if (hops > 2)
+                {
+                    if (!Matches(e, Names2))
+                    {
+                        return null;
+                    }
+
+                    e = e!._outerEnv;
+                }
+            }
+        }
+
+        return e is DeclarativeEnvironment target
+               && ReferenceEquals(target._slotNames, TargetNames)
+               && target._slots is { } slots
+               && (uint) SlotIndex < (uint) slots.Length
+               && ReferenceEquals(target._engine, engine)
+               && !HasDictionaryBindings(target)
+            ? target
+            : null;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool Matches(Environment? e, Key[]? names)
+    {
+        return e is DeclarativeEnvironment declarative
+               && ReferenceEquals(declarative._slotNames, names)
+               && !HasDictionaryBindings(declarative);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool HasDictionaryBindings(DeclarativeEnvironment env) => env._dictionary is { Count: > 0 };
+
+    private static bool Contains(Key[] names, Key key)
+    {
+        foreach (var name in names)
+        {
+            if (name == key)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
+/// <summary>
 /// Per-AST-node cache of a binding's slot location (environment + slot index), shared by the
 /// identifier read fast path and the numeric read-modify-write discard fast paths.
 /// </summary>
@@ -83,6 +234,7 @@ internal struct SlotLocationCache
     private int _cachedSlotIndex;
     private bool _disabled;
     private SlotChainMemo? _chainMemo;
+    private SlotLayoutMemo? _layout;
 
     /// <summary>
     /// Resolves the slot location for <paramref name="name"/> against the current lexical
@@ -157,13 +309,26 @@ internal struct SlotLocationCache
         out int slotIndex)
     {
         var cached = _cachedSlotEnv;
-        if (cached is not null
-            && ReferenceEquals(cached._engine, engine)
-            && CanReachAtOuterHop(engine, env, cached, name.Key, ref _chainMemo))
+        if (cached is not null && ReferenceEquals(cached._engine, engine))
         {
-            slotEnv = cached;
-            slotIndex = _cachedSlotIndex;
-            return true;
+            // Another environment with the cached one's layout (the same node run for another closure instance)
+            // before the walk, which can only fail then.
+            var layout = _layout;
+            if (layout is not null && layout.Follow(engine, env) is { } target)
+            {
+                _cachedSlotEnv = target;
+                _cachedSlotIndex = layout.SlotIndex;
+                slotEnv = target;
+                slotIndex = layout.SlotIndex;
+                return true;
+            }
+
+            if (CanReachAtOuterHop(engine, env, cached, name.Key, ref _chainMemo))
+            {
+                slotEnv = cached;
+                slotIndex = _cachedSlotIndex;
+                return true;
+            }
         }
 
         // The cached location is not reachable from this chain. Handler trees are shared
@@ -203,6 +368,34 @@ internal struct SlotLocationCache
         }
 
         return WalkAndMemoize(engine, env, cached, key, ref memoSlot);
+    }
+
+    /// <summary>
+    /// The identifier read lane's hops 1-3 check for a node whose cached slot environment is not the current one:
+    /// the chain memo, then the layout memo (<see cref="SlotLayoutMemo"/>), then the walk. Gives the environment
+    /// holding the binding, which is <paramref name="cached"/> or another one with its layout, or null.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static DeclarativeEnvironment? ReachAtOuterHopOrLayout(
+        Engine engine,
+        Environment env,
+        DeclarativeEnvironment cached,
+        Key key,
+        ref SlotChainMemo? memoSlot,
+        SlotLayoutMemo? layout)
+    {
+        var memo = memoSlot;
+        if (memo is not null && MemoStillPins(memo, engine, env, cached))
+        {
+            return cached;
+        }
+
+        if (layout is not null && layout.Follow(engine, env) is { } target)
+        {
+            return target;
+        }
+
+        return WalkAndMemoize(engine, env, cached, key, ref memoSlot) ? cached : null;
     }
 
     /// <summary>
@@ -341,6 +534,11 @@ internal struct SlotLocationCache
                 var index = declarativeEnvironment.FindSlotIndex(name.Key);
                 if (index >= 0)
                 {
+                    // A node resolving again after it was populated runs under more than one chain; the layout lets
+                    // the next switch skip this walk. Not made on the first population, which most nodes stop at.
+                    _layout = _cachedSlotEnv is not null
+                        ? SlotLayoutMemo.TryCreate(engine, env, declarativeEnvironment, index, name.Key)
+                        : null;
                     _cachedSlotEnv = declarativeEnvironment;
                     _cachedSlotIndex = index;
                     if ((uint) (depth - 1) < MaxChainDepth - 1)

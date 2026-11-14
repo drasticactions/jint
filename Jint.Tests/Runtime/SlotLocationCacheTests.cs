@@ -83,6 +83,67 @@ public class SlotLocationCacheTests
     }
 
     [Test]
+    public void MethodsMadeForEveryObjectReadTheirOwnObjectsBindings()
+    {
+        var engine = new Engine();
+        // the constructor's methods run under a chain that is new for every object, so the shared nodes switch
+        // environments on every call: each read must land in the calling object's environment, at hop 0 (the
+        // method's own variables), hop 1 (the constructor's) and hop 2 (through a block in the method)
+        var result = engine.Evaluate("""
+            (function () {
+                function Counter(start) {
+                    var count = start, step = start * 10;
+                    this.bump = function () {
+                        var before = count;
+                        { let twice = step * 2; count += step + twice - step * 2; }
+                        return before + ':' + count;
+                    };
+                }
+                var counters = [];
+                for (var i = 1; i <= 4; i++) { counters.push(new Counter(i)); }
+                var out = [];
+                for (var round = 0; round < 3; round++) {
+                    for (var c = 0; c < counters.length; c++) { out.push(counters[c].bump()); }
+                }
+                return out.join(',');
+            })()
+            """).AsString();
+
+        result.Should().Be("1:11,2:22,3:33,4:44,11:21,22:42,33:63,44:84,21:31,42:62,63:93,84:124");
+    }
+
+    [Test]
+    public void ARecordedLayoutStopsServingAfterABindingIsInjected()
+    {
+        var engine = new Engine();
+        // the readers switch closure instances, which records the layout of their chain; a sloppy direct eval
+        // that injects a var anywhere must stop it from serving, and a reader whose own environment declares the
+        // name is never served the outer binding
+        var result = engine.Evaluate("""
+            (function () {
+                var out = [];
+                function make(value) {
+                    var name = value;
+                    return function (x) { var local = x; return name + '/' + local; };
+                }
+                function shadowing(value) {
+                    var name = value;
+                    return function (x) { var name = 'own'; return name + '/' + x; };
+                }
+                var a = make('a'), b = make('b');
+                out.push(a(1), b(2), a(3), b(4));
+                (function () { var unrelated = 0; eval("var injected = 1;"); })();
+                out.push(a(5), b(6));
+                var s = shadowing('outer'), t = shadowing('outer');
+                out.push(s(7), t(8), s(9));
+                return out.join(',');
+            })()
+            """).AsString();
+
+        result.Should().Be("a/1,b/2,a/3,b/4,a/5,b/6,own/7,own/8,own/9");
+    }
+
+    [Test]
     public void SloppyDirectEvalShadowingVarInvalidatesChainMemoMidLoop()
     {
         var engine = new Engine();

@@ -28,6 +28,9 @@ internal sealed class JintIdentifierExpression : JintExpression
     // with reference compares + the injection epoch instead of re-probing every intermediate.
     // See SlotChainMemo for the soundness argument; the walk stays authoritative for misses.
     private SlotChainMemo? _slotChainMemo;
+    // The layout of the chain the slot cache resolved through, made when the node resolves again under another
+    // chain; see SlotLayoutMemo.
+    private SlotLayoutMemo? _slotLayout;
 
     // Version-based inline cache for global bindings: when resolution (from any scope depth)
     // lands on a plain writable data property of the real GlobalObject, remember the
@@ -179,11 +182,25 @@ internal sealed class JintIdentifierExpression : JintExpression
         var cachedSlotEnv = _cachedSlotEnv;
         if (cachedSlotEnv is not null && ReferenceEquals(cachedSlotEnv._engine, engine))
         {
-            if (ReferenceEquals(env, cachedSlotEnv)
-                || SlotLocationCache.CanReachAtOuterHop(engine, env, cachedSlotEnv, identifier.Key, ref _slotChainMemo))
+            var idx = _cachedSlotIndex;
+            if (!ReferenceEquals(env, cachedSlotEnv))
+            {
+                var layout = _slotLayout;
+                var reached = SlotLocationCache.ReachAtOuterHopOrLayout(engine, env, cachedSlotEnv, identifier.Key, ref _slotChainMemo, layout);
+                if (reached is not null && !ReferenceEquals(reached, cachedSlotEnv))
+                {
+                    // another closure instance's environment with the same layout: the index is the layout's
+                    idx = layout!.SlotIndex;
+                    _cachedSlotEnv = reached;
+                    _cachedSlotIndex = idx;
+                }
+
+                cachedSlotEnv = reached;
+            }
+
+            if (cachedSlotEnv is not null)
             {
                 var slots = cachedSlotEnv._slots;
-                var idx = _cachedSlotIndex;
                 if (slots is not null && (uint) idx < (uint) slots.Length)
                 {
                     // PeekValue rather than Value: an owned string is marked by HandOn below, which tests the
@@ -255,6 +272,11 @@ internal sealed class JintIdentifierExpression : JintExpression
                 var slotIndex = denv.FindSlotIndex(identifier.Key);
                 if (slotIndex >= 0)
                 {
+                    // Resolving again after the cache was populated: the node runs under more than one chain, and
+                    // the layout lets the next switch skip both walks.
+                    _slotLayout = _cachedSlotEnv is not null
+                        ? SlotLayoutMemo.TryCreate(engine, env, denv, slotIndex, identifier.Key)
+                        : null;
                     _cachedSlotEnv = denv;
                     _cachedSlotIndex = slotIndex;
                 }
