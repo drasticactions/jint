@@ -472,9 +472,9 @@ internal sealed record class ObjectDefinition(
     }
 
     /// <summary>
-    /// True if the type or any base class declares a Realm-typed field named <c>_realm</c>. The check is
-    /// structural — we don't verify visibility — but in practice every consumer in this assembly hits one
-    /// of two cases: a Function-derived host inherits the <c>internal</c> _realm from Function, or a
+    /// True if the type or any base class declares a Realm-typed field or property named <c>_realm</c>. The
+    /// check is structural — we don't verify visibility — but in practice every consumer in this assembly hits
+    /// one of two cases: a Function-derived host inherits the <c>internal</c> _realm property from Function, or a
     /// custom prototype declares its own <c>private readonly Realm _realm;</c> on the same class as the
     /// (nested) dispatcher. Both are accessible at the dispatcher's emit site under standard nested-type
     /// + same-assembly access rules. A future host that hides _realm behind cross-assembly inaccessibility
@@ -487,6 +487,11 @@ internal sealed record class ObjectDefinition(
             foreach (var member in t.GetMembers("_realm"))
             {
                 if (member is IFieldSymbol field && field.Type.ToDisplayString() == "Jint.Runtime.Realm")
+                {
+                    return true;
+                }
+
+                if (member is IPropertySymbol property && property.Type.ToDisplayString() == "Jint.Runtime.Realm")
                 {
                     return true;
                 }

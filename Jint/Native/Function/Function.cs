@@ -15,10 +15,146 @@ namespace Jint.Native.Function;
 public abstract partial class Function : ObjectInstance, ICallable
 #pragma warning restore MA0049
 {
-    protected PropertyDescriptor? _prototypeDescriptor;
+    // The own "prototype", "length" and "name" are two bits each of _ownPropertyState: absent, pending (the
+    // _pendingDescriptor sentinel), pending empty name (_pendingEmptyNameDescriptor) or materialized. A closure a
+    // script makes by the thousand has all three pending and holds no descriptor. While one of them is
+    // materialized (a closure NamedEvaluation named), _ownDescriptors is that descriptor; from two (a built-in,
+    // whose length and name are real from birth) it is a FunctionOwnDescriptors holding them.
+    private const int OwnAbsent = 0;
+    private const int OwnPending = 1;
+    private const int OwnPendingEmpty = 2;
+    private const int OwnMaterialized = 3;
 
-    protected internal PropertyDescriptor? _length;
-    internal PropertyDescriptor? _nameDescriptor;
+    private const int PrototypeShift = 0;
+    private const int LengthShift = 2;
+    private const int NameShift = 4;
+
+    private object? _ownDescriptors;
+    private byte _ownPropertyState;
+
+    /// <summary>
+    /// The function's own <c>prototype</c> property, or <see langword="null"/> when it has none. A built-in
+    /// constructor sets it to the descriptor of the object its instances inherit from.
+    /// </summary>
+    protected PropertyDescriptor? _prototypeDescriptor
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => ReadOwnDescriptor(PrototypeShift);
+        set => WriteOwnDescriptor(PrototypeShift, value);
+    }
+
+    /// <summary>
+    /// The function's own <c>length</c> property, or <see langword="null"/> when it has none.
+    /// </summary>
+    protected internal PropertyDescriptor? _length
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => ReadOwnDescriptor(LengthShift);
+        set => WriteOwnDescriptor(LengthShift, value);
+    }
+
+    internal PropertyDescriptor? _nameDescriptor
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => ReadOwnDescriptor(NameShift);
+        set => WriteOwnDescriptor(NameShift, value);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private PropertyDescriptor? ReadOwnDescriptor(int shift)
+    {
+        return ((_ownPropertyState >> shift) & 3) switch
+        {
+            OwnAbsent => null,
+            OwnPending => _pendingDescriptor,
+            OwnPendingEmpty => _pendingEmptyNameDescriptor,
+            _ => _ownDescriptors is FunctionOwnDescriptors several
+                ? several.Slot(shift)
+                : Unsafe.As<PropertyDescriptor>(_ownDescriptors),
+        };
+    }
+
+    private void WriteOwnDescriptor(int shift, PropertyDescriptor? value)
+    {
+        int state;
+        if (value is null)
+        {
+            state = OwnAbsent;
+        }
+        else if (ReferenceEquals(value, _pendingDescriptor))
+        {
+            state = OwnPending;
+        }
+        else if (ReferenceEquals(value, _pendingEmptyNameDescriptor))
+        {
+            state = OwnPendingEmpty;
+        }
+        else
+        {
+            state = OwnMaterialized;
+        }
+
+        var wasMaterialized = ((_ownPropertyState >> shift) & 3) == OwnMaterialized;
+        var held = _ownDescriptors;
+        if (held is FunctionOwnDescriptors several)
+        {
+            several.Slot(shift) = state == OwnMaterialized ? value : null;
+        }
+        else if (state == OwnMaterialized)
+        {
+            if (held is null || wasMaterialized)
+            {
+                _ownDescriptors = value;
+            }
+            else
+            {
+                // the one held so far belongs to the other materialized property
+                several = new FunctionOwnDescriptors();
+                several.Slot(MaterializedShift()) = Unsafe.As<PropertyDescriptor>(held);
+                several.Slot(shift) = value;
+                _ownDescriptors = several;
+            }
+        }
+        else if (wasMaterialized)
+        {
+            _ownDescriptors = null;
+        }
+
+        _ownPropertyState = (byte) ((_ownPropertyState & ~(3 << shift)) | (state << shift));
+    }
+
+    private int MaterializedShift()
+    {
+        if (((_ownPropertyState >> PrototypeShift) & 3) == OwnMaterialized)
+        {
+            return PrototypeShift;
+        }
+
+        return ((_ownPropertyState >> LengthShift) & 3) == OwnMaterialized ? LengthShift : NameShift;
+    }
+
+    private sealed class FunctionOwnDescriptors
+    {
+        private PropertyDescriptor? _prototype;
+        private PropertyDescriptor? _length;
+        private PropertyDescriptor? _name;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal ref PropertyDescriptor? Slot(int shift)
+        {
+            if (shift == PrototypeShift)
+            {
+                return ref _prototype;
+            }
+
+            if (shift == LengthShift)
+            {
+                return ref _length;
+            }
+
+            return ref _name;
+        }
+    }
 
     // Shared sentinel marking a script function's own name/length/prototype property as
     // "exists, but its descriptor has not been materialized yet". Descriptors cannot be shared
@@ -60,8 +196,25 @@ public abstract partial class Function : ObjectInstance, ICallable
     internal readonly FunctionThisMode _thisMode;
     internal ConstructorKind _constructorKind = ConstructorKind.Base;
 
-    internal Realm _realm;
-    internal readonly IScriptOrModule? _scriptOrModule;
+    // A script function's flags and the states of its own "arguments" and "caller" (see ScriptFunction), declared
+    // here so that it shares the padding the bytes above leave rather than rounding the subclass up by a word.
+    private protected byte _scriptState;
+
+    // [[Realm]] and [[ScriptOrModule]], one reference for both.
+    internal FunctionOrigin _functionOrigin;
+
+    internal Realm _realm
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _functionOrigin.Realm;
+        set => _functionOrigin = FunctionOrigin.Of(value, _functionOrigin.ScriptOrModule);
+    }
+
+    internal IScriptOrModule? _scriptOrModule
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _functionOrigin.ScriptOrModule;
+    }
 
     // Created by the first store of anything it holds; see FunctionRareData.
     internal FunctionRareData? _rare;
@@ -162,9 +315,8 @@ public abstract partial class Function : ObjectInstance, ICallable
         {
             _nameDescriptor = new PropertyDescriptor(name, PropertyFlag.Configurable);
         }
-        _realm = realm;
+        _functionOrigin = FunctionOrigin.Of(realm, _engine.GetActiveScriptOrModule());
         _thisMode = thisMode;
-        _scriptOrModule = _engine.GetActiveScriptOrModule();
     }
 
     // for example RavenDB wants to inspect this
@@ -656,10 +808,11 @@ public abstract partial class Function : ObjectInstance, ICallable
     internal ref readonly ExecutionContext PrepareForOrdinaryCall(JsValue newTarget, JintFunctionDefinition.State state, bool strict)
     {
         var localEnv = JintEnvironment.NewFunctionEnvironment(_engine, this, newTarget, state);
-        var calleeRealm = _realm;
+        var origin = _functionOrigin;
+        var calleeRealm = origin.Realm;
 
         var calleeContext = new ExecutionContext(
-            _scriptOrModule,
+            origin.ScriptOrModule,
             lexicalEnvironment: localEnv,
             variableEnvironment: localEnv,
             _privateEnvironment,

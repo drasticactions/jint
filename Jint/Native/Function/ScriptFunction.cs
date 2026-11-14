@@ -15,7 +15,40 @@ namespace Jint.Native.Function;
 
 public sealed class ScriptFunction : Function, IConstructor
 {
-    internal bool _isClassConstructor;
+    // Function._scriptState: four flags, then two bits each for the states of the own "arguments" and "caller".
+    private const int FlagClassConstructor = 1;
+    private const int FlagStrict = 2;
+    private const int FlagReturnedEnvironment = 4;
+    private const int FlagCtorShaped = 8;
+    private const int ArgumentsStateShift = 4;
+    private const int CallerStateShift = 6;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool HasFlag(int flag) => (_scriptState & flag) != 0;
+
+    private void SetFlag(int flag, bool value)
+    {
+        _scriptState = (byte) (value ? _scriptState | flag : _scriptState & ~flag);
+    }
+
+    private byte _argumentsState
+    {
+        get => (byte) ((_scriptState >> ArgumentsStateShift) & 3);
+        set => _scriptState = (byte) ((_scriptState & ~(3 << ArgumentsStateShift)) | (value << ArgumentsStateShift));
+    }
+
+    private byte _callerState
+    {
+        get => (byte) ((_scriptState >> CallerStateShift) & 3);
+        set => _scriptState = (byte) ((_scriptState & ~(3 << CallerStateShift)) | (value << CallerStateShift));
+    }
+
+    internal bool _isClassConstructor
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => HasFlag(FlagClassConstructor);
+        set => SetFlag(FlagClassConstructor, value);
+    }
 
     internal JsValue? _classFieldInitializerName
     {
@@ -35,7 +68,12 @@ public sealed class ScriptFunction : Function, IConstructor
     // FunctionBody node to carry the mark, yet is still strict when it appears in strict code
     // (https://tc39.es/ecma262/#sec-strict-mode-code), so JintArrowFunctionExpression ORs in the
     // strictness of the running context it was created from.
-    internal bool _strict;
+    internal bool _strict
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => HasFlag(FlagStrict);
+        set => SetFlag(FlagStrict, value);
+    }
 
     // Own restricted "arguments"/"caller" properties of non-strict, non-arrow, non-generator,
     // non-async functions. Dedicated fields (like Function's name/length/prototype) instead of
@@ -46,10 +84,9 @@ public sealed class ScriptFunction : Function, IConstructor
     // previous key order after resurrection. Enumeration order (length, name, prototype,
     // arguments, caller) matches the old ctor-time dictionary inserts.
     //
-    // Each is a state byte here: absent, pending (the sentinel) or materialized, the descriptor then being held in
-    // the rare data, so that a sloppy closure does not carry two descriptor references nothing reads.
-    private byte _argumentsState;
-    private byte _callerState;
+    // Each is a state of two bits in Function._scriptState: absent, pending (the sentinel) or materialized, the
+    // descriptor then being held in the rare data, so that a sloppy closure does not carry two descriptor
+    // references nothing reads.
 
     private const byte RestrictedAbsent = 0;
     private const byte RestrictedPending = 1;
@@ -120,7 +157,11 @@ public sealed class ScriptFunction : Function, IConstructor
     // Whether a call of this instance has returned its environment. The first one is not kept: a closure made for
     // every object (a method a constructor defines) is mostly called once, and its kept environment would live
     // as long as the closure for nothing. The second and later calls keep theirs for the next.
-    private bool _returnedEnvironment;
+    private bool _returnedEnvironment
+    {
+        get => HasFlag(FlagReturnedEnvironment);
+        set => SetFlag(FlagReturnedEnvironment, value);
+    }
 
     // [[PrivateMethods]] and [[Fields]] of a class constructor, both lists even when empty; an ordinary function has
     // neither. A class whose decorators added instance initializers keeps its fields in its private-methods list, a
@@ -156,7 +197,11 @@ public sealed class ScriptFunction : Function, IConstructor
     // reuse one interned hidden class. _ctorEmptyShape caches the prototype's empty root to avoid a
     // per-construct lookup (revalidated when .prototype is reassigned).
     private const int CtorShapePromoteThreshold = 16;
-    private bool _ctorShaped;
+    private bool _ctorShaped
+    {
+        get => HasFlag(FlagCtorShaped);
+        set => SetFlag(FlagCtorShaped, value);
+    }
 
     // Static eligibility verdict for this function instance: 0 = not yet analyzed, 1 = eligible
     // (body statically clean AND every class field name shape-compatible), 2 = ineligible. Provably
@@ -827,7 +872,8 @@ public sealed class ScriptFunction : Function, IConstructor
     private JsValue CallLeaf(bool strict)
     {
         var engine = _engine;
-        engine.EnterLeafCallExecutionContext(_scriptOrModule, _environment!, _privateEnvironment, _realm, this, strict);
+        var origin = _functionOrigin;
+        engine.EnterLeafCallExecutionContext(origin.ScriptOrModule, _environment!, _privateEnvironment, origin.Realm, this, strict);
         try
         {
             var context = engine._evaluationContext;

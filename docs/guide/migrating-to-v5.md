@@ -1160,6 +1160,23 @@ reflectively — a test runner, a structured logger, an error page. .NET Framewo
 it the way .NET Core does, so on `net472` the reflection message replaced the failure the reader came for —
 and under NUnit it took the test host down with every test still queued behind it.
 
+### 3.19 `Function._prototypeDescriptor` and `Function._length` are properties
+
+```c#
+// 4.16.x
+protected PropertyDescriptor? _prototypeDescriptor;
+protected PropertyDescriptor? _length;
+
+// 5.x
+protected PropertyDescriptor? _prototypeDescriptor { get; set; }
+protected PropertyDescriptor? _length { get; set; }
+```
+
+A `HostFunction` or `Constructor` subclass that assigns or reads them compiles unchanged; it only has to be
+rebuilt, and a `ref` to either no longer compiles. A function now holds its own `prototype`, `length` and
+`name` as a few bits and keeps a descriptor only once one is real, so the closures a script makes by the
+thousand are smaller.
+
 ## 4. Breaking without a signature change
 
 This is the section that matters most, because a compiler cannot find any of it. Every row below

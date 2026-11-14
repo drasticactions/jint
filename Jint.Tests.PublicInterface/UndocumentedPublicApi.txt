@@ -12,11 +12,9 @@
 #
 # The names are ISO documentation comment ids, which is what the compiler writes into Jint.xml.
 #
-undocumented: 619
+undocumented: 617
 F:Jint.ModuleParsingOptions.Default
 F:Jint.ModulePreparationOptions.Default
-F:Jint.Native.Function.Function._length
-F:Jint.Native.Function.Function._prototypeDescriptor
 F:Jint.Native.JsBigInt.One
 F:Jint.Native.JsBigInt.Zero
 F:Jint.Native.JsBoolean.False

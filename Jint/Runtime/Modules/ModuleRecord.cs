@@ -1,6 +1,7 @@
 #nullable disable
 
 using Jint.Native;
+using Jint.Native.Function;
 using Jint.Native.Object;
 using Jint.Native.Promise;
 using Jint.Runtime.Environments;
@@ -22,6 +23,17 @@ public abstract class ModuleRecord : JsValue, IScriptOrModule
     protected internal readonly Engine _engine;
     protected internal readonly Realm _realm;
     internal ModuleEnvironment _environment;
+    private FunctionOrigin _functionOrigin;
+
+    FunctionOrigin IScriptOrModule.GetFunctionOrigin(Realm realm)
+    {
+        if (!ReferenceEquals(realm, _realm))
+        {
+            return new FunctionOrigin(realm, this);
+        }
+
+        return _functionOrigin ??= new FunctionOrigin(realm, this);
+    }
 
     ParsingConstraints IScriptOrModule.ParsingConstraints => ParsingConstraints;
     ParserOptions IScriptOrModule.ParserOptions => ParserOptions;

@@ -95,4 +95,9 @@ public sealed class Realm
     /// Field reserved for use by hosts that need to associate additional information with a Realm Record.
     /// </summary>
     public object? HostDefined { get; set; }
+
+    /// <summary>
+    /// The origin shared by the functions created in this realm while no script or module runs (the built-ins).
+    /// </summary>
+    internal Native.Function.FunctionOrigin? _scriptlessFunctionOrigin;
 }

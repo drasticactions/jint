@@ -1,3 +1,5 @@
+using Jint.Native.Function;
+
 namespace Jint.Runtime;
 
 internal interface IScriptOrModule
@@ -12,4 +14,10 @@ internal interface IScriptOrModule
     /// or builder module.
     /// </summary>
     public Program? Program { get; }
+
+    /// <summary>
+    /// The origin a function created in <paramref name="realm"/> while this script or module runs records: the
+    /// one this script or module keeps for its own realm, or a new one for another realm.
+    /// </summary>
+    public FunctionOrigin GetFunctionOrigin(Realm realm);
 }
