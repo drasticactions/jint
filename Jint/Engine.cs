@@ -5028,6 +5028,8 @@ public sealed partial class Engine : IDisposable
             {
                 env.CreateMutableBindingAndInitialize(KnownKeys.Arguments, canBeDeleted: false, ao, DisposeHint.Normal);
             }
+
+            ao._bindingEnvironment = env;
         }
 
         // Per ECMAScript spec 10.2.11:

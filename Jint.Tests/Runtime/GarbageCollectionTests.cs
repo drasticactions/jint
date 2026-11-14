@@ -800,6 +800,41 @@ public class GarbageCollectionTests
     }
 
     /// <summary>
+    /// A tween queue's shape: each node's method saves its own <c>arguments</c>, which holds the next node, so
+    /// the list is linked forwards only and a node nothing earlier names must be collectable. The constructor's
+    /// methods keep its environment alive, and that environment has an arguments object of its own: the scan
+    /// that decides whether a function needs one counts the method's <c>arguments</c>, and under the debugger
+    /// every call gets one. The object went back to the pool while the binding still named it, the next call to
+    /// rent it was the method call that saved it, and so every node's environment reached the previous node's:
+    /// the whole list stayed alive.
+    /// </summary>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void AForwardLinkedChainOfSavedArgumentsIsCollectedFromItsHead(bool debugger)
+    {
+        var engine = new Engine(options => options.Debugger.Enabled = debugger);
+        engine.Execute("function Node() { var saved = null; this.chain = function () { saved = arguments; }; }");
+        engine.Execute("var tail = new Node(); function append(n) { for (var i = 0; i < n; i++) { var node = new Node(); tail.chain(node); tail = node; } }");
+
+        var head = CaptureTheHeadAndMoveOn(engine);
+
+        Collect();
+
+        head.IsAlive.Should().BeFalse("only `tail` is named, and the list links forwards from the head to it");
+
+        GC.KeepAlive(engine);
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static WeakReference CaptureTheHeadAndMoveOn(Engine engine)
+        {
+            var reference = new WeakReference(engine.GetValue("tail"));
+            engine.Execute("append(100)");
+            engine.Execute("append(100)");
+            return reference;
+        }
+    }
+
+    /// <summary>
     /// Only ever used by <see cref="NestedTypeAccessDoesNotRetainEngines"/>: the accessor cache is
     /// process-wide, so a type another test also resolves would let that test's engine take the blame.
     /// </summary>

@@ -19,6 +19,9 @@ public sealed class JsArguments : ObjectInstance
     private DeclarativeEnvironment _env = null!;
     private Realm _realm = null!;
     private bool _canReturnToPool;
+
+    // The environment whose `arguments` binding names this object, set by FunctionDeclarationInstantiation.
+    internal DeclarativeEnvironment? _bindingEnvironment;
     private bool _materialized;
 
     // Virtual read mode: while set, in-range index reads, length, @@iterator and (mapped) callee
@@ -510,8 +513,9 @@ public sealed class JsArguments : ObjectInstance
     }
 
     /// <summary>
-    /// The owning call returned: an object nothing claimed goes back to the pool, and a mapped one detaches
-    /// from the call's environment where that environment may be reused.
+    /// The owning call returned: an object nothing claimed goes back to the pool, its binding cleared where the
+    /// call's environment outlives the call, and a mapped one detaches from the call's environment where that
+    /// environment may be reused.
     /// </summary>
     /// <param name="environmentOutlivesCall">
     /// Whether a closure or a direct eval may have captured the call's environment, so that it is never handed
@@ -540,6 +544,17 @@ public sealed class JsArguments : ObjectInstance
 
         if (_canReturnToPool)
         {
+            if (environmentOutlivesCall)
+            {
+                // The environment keeps its `arguments` binding, and no code can read it any more: an arrow or a
+                // direct eval that could have would have materialized the object up front. Left naming a pooled
+                // object, the binding would reach whatever call rents it next — and when that call claimed it
+                // for good, as `saved = arguments` does, every environment before it in a chain of such calls
+                // stayed alive.
+                _bindingEnvironment?.ReleaseBindingValue(KnownKeys.Arguments, this);
+            }
+
+            _bindingEnvironment = null;
             _engine._argumentsInstancePool.Return(this);
             // prevent double-return
             _canReturnToPool = false;

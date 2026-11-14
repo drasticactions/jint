@@ -324,6 +324,39 @@ internal class DeclarativeEnvironment : Environment
         return false;
     }
 
+    /// <summary>
+    /// Sets the binding <paramref name="name"/> to undefined if it still holds <paramref name="value"/>, whatever
+    /// its mutability: for the engine taking back an object that no code can reach through this binding any more.
+    /// </summary>
+    internal void ReleaseBindingValue(Key name, JsValue value)
+    {
+        if (_slots is not null)
+        {
+            var index = SlotIndexOf(name);
+            if (index >= 0)
+            {
+                ref var slot = ref _slots[index];
+                if (ReferenceEquals(slot.Value, value))
+                {
+                    slot = slot.ChangeValue(JsValue.Undefined);
+                }
+
+                return;
+            }
+        }
+
+        if (_dictionary is null)
+        {
+            return;
+        }
+
+        ref var binding = ref _dictionary.GetValueRefOrNullRef(name);
+        if (!Unsafe.IsNullRef(ref binding) && ReferenceEquals(binding.Value, value))
+        {
+            binding = binding.ChangeValue(JsValue.Undefined);
+        }
+    }
+
     internal void CreateMutableBindingAndInitialize(Key name, bool canBeDeleted, JsValue value, DisposeHint hint)
     {
         if (_slots is not null)
