@@ -757,10 +757,20 @@ public class GarbageCollectionTests
     /// harness does warm a pinning entry and can see it.
     /// </summary>
     [TestCase("var first = { value: 1, extra: 0 }; delete first.extra;")]
-    [TestCase("var first = Object.create({ value: 1 });")]
     public void AMemberReadSiteStillRetainsItsLastReceiver(string firstReceiver)
     {
         AssertReceiverRetention(firstReceiver, thenReadAShapeModeObject: false, expectRetained: true);
+    }
+
+    /// <summary>
+    /// A member inherited from a prototype is served by an entry that names no receiver: the own miss is proved
+    /// afresh on every read, so the entry serves every receiver of the chain and keeps none of them, not even
+    /// the last one.
+    /// </summary>
+    [Test]
+    public void AMemberReadSiteServingAPrototypeMemberRetainsNoReceiver()
+    {
+        AssertReceiverRetention("var first = Object.create({ value: 1 });", thenReadAShapeModeObject: false, expectRetained: false);
     }
 
     private static void AssertReceiverRetention(string firstReceiver, bool thenReadAShapeModeObject, bool expectRetained)

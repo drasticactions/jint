@@ -24,6 +24,13 @@ internal sealed class JintCallExpression : JintExpression
     private readonly bool _isTailPosition;
 
     /// <summary>
+    /// Whether this is a non-optional call of a <see cref="JintMemberExpression.IsBaseCallEligible"/> callee
+    /// (<c>p.acc.add(v)</c>, <c>v.copy(w).sub(u)</c>), which evaluates the base once and resolves the callee
+    /// on it through the member node's caches instead of renting a <see cref="Reference"/> for it.
+    /// </summary>
+    private readonly bool _baseCallLane;
+
+    /// <summary>
     /// Whether <see cref="EvaluateInternal"/> hands the whole evaluation to another method at its first test:
     /// a <c>super(…)</c> call, and a call whose arguments may suspend the frame
     /// (<see cref="_argumentsMaySuspend"/>). Both are decided at build time, and the test is the one
@@ -110,6 +117,7 @@ internal sealed class JintCallExpression : JintExpression
         _calleeMember = _calleeExpression as JintMemberExpression;
         _calleeMember?.HandsOnBaseAsReceiver();
         _isTailPosition = ReferenceEquals(expression.UserData, TailCallMarker.Instance);
+        _baseCallLane = _calleeMember is { IsBaseCallEligible: true } && !expression.IsOptional();
 
         // A ChainExpression callee is a chain of its own whose value has already been taken
         // (`(a?.b)()`), so its short circuit is a real undefined and this call must run against it.
@@ -215,6 +223,37 @@ internal sealed class JintCallExpression : JintExpression
             thisObject = fastThis;
             referenceRecord = null;
             reference = fastFunc;
+        }
+        else if (_baseCallLane && suspendable is null && !engine._resolverWatchesValueBase)
+        {
+            // The base is evaluated once, here, whatever the callee turns out to be: a value the caches
+            // resolve and that is callable needs no Reference at all, and everything else gets the one the
+            // member node would have rented, built from this base value instead of a second evaluation.
+            var baseValue = member!.EvaluateBaseForCall(context);
+            if (member.ResolveCalleeOnBase(context, baseValue, out func, out thisObject))
+            {
+                if (IsCallableFlagged(func))
+                {
+                    referenceRecord = null;
+                    reference = func;
+                }
+                else
+                {
+                    // Kept for the "not a function" message and the resolver's TryGetCallable below; the
+                    // value was read already, so the property is not read (and a getter not run) again.
+                    referenceRecord = member.RentReferenceForBase(engine, baseValue);
+                    reference = referenceRecord;
+                }
+            }
+            else
+            {
+                // A primitive or nullish base: [[Get]] through the Reference, which boxes the primitive or
+                // throws the TypeError for reading a property of null or undefined.
+                referenceRecord = member.RentReferenceForBase(engine, baseValue);
+                func = engine.GetValue(referenceRecord, false);
+                thisObject = referenceRecord.ThisValue;
+                reference = referenceRecord;
+            }
         }
         else
         {

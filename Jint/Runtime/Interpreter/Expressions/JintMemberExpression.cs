@@ -53,15 +53,16 @@ internal sealed class JintMemberExpression : JintExpression
     // read off an element three interfaces below it). The own-property caches above only handle own
     // properties, so without this every such read/call re-walks the chain and probes each level's dictionary.
     //
-    // Validity: same receiver (so a per-site monomorphic hit), receiver own-shape unchanged (no own property
-    // added that would shadow), the chain from receiver to holder still linked exactly as recorded (nothing
-    // re-pointed by [[SetPrototypeOf]], nothing inserted or removed), no intermediate link having gained an
-    // own property of this name, and the holder's own-property shape unchanged (member not redefined or
-    // removed). Exotic receivers and links (Proxy/TypedArray/IteratorResult) are excluded via
-    // InternalTypes.ExoticGet, and every object whose _propertiesVersion cannot witness this property name is
-    // excluded by CanCacheAgainstReceiverVersion and ObjectInstance.VersionWitnessesOwnProperty.
-    private ObjectInstance? _cachedProtoReceiver;
-    private uint _cachedProtoReceiverVersion;
+    // Validity: the receiver has no own property of this name, proved afresh on every read (the lanes above
+    // establish it on the way here, and ReadAfterOwnMiss probes when they have not), the chain from the
+    // receiver's prototype to the holder still linked exactly as recorded (nothing re-pointed by
+    // [[SetPrototypeOf]], nothing inserted or removed), no intermediate link having gained an own property of
+    // this name, and the holder's own-property shape unchanged (member not redefined or removed). The entry
+    // names no receiver, so it serves every receiver whose chain it is — `p.acc.add(v)` over a thousand
+    // particles, `results.push(x)` on a new array each time — and keeps none of them alive. Exotic receivers
+    // and links (Proxy/TypedArray/IteratorResult) are excluded via InternalTypes.ExoticGet, and every object
+    // whose _propertiesVersion cannot witness this property name is excluded by CanCacheAgainstReceiverVersion
+    // and ObjectInstance.VersionWitnessesOwnProperty.
     private ObjectInstance? _cachedProtoHolder;
     private uint _cachedProtoHolderVersion;
     private PropertyDescriptor? _cachedProtoDescriptor;
@@ -91,6 +92,11 @@ internal sealed class JintMemberExpression : JintExpression
     // constructor instead of re-deriving four type tests on every call this node is the callee of —
     // JintCallExpression probes it before every member call it dispatches.
     private readonly bool _fastCallEligible;
+
+    // The same member-call shape on any other base (`p.acc.add(v)`, `v.copy(w).sub(u)`): the call evaluates
+    // the base once itself and resolves the callee on the value through the caches above, so the base is
+    // never evaluated a second time. See ResolveCalleeOnBase.
+    private readonly bool _baseCallEligible;
 
     // ObjectWrapper member cache: interop receivers carry InternalTypes.ExoticGet (members resolve against
     // the wrapped CLR object), so none of the caches above apply and every host.value read/write walks
@@ -149,13 +155,16 @@ internal sealed class JintMemberExpression : JintExpression
             _determinedProperty = determined;
         }
 
-        _fastCallEligible = _propertyExpression is null
-                            && _determinedProperty is JsString
-                            && !_memberExpression.Optional
-                            && !_objectExpressionCanShortCircuit
-                            && _objectExpression is JintIdentifierExpression or JintThisExpression;
+        var memberCallShape = _propertyExpression is null
+                              && _determinedProperty is JsString
+                              && !_memberExpression.Optional
+                              && !_objectExpressionCanShortCircuit
+                              && _objectExpression is not JintSuperExpression;
 
-        _stringReceiverCallEligible = _fastCallEligible && !CanBeOwnStringInstanceProperty((JsString) _determinedProperty!);
+        _fastCallEligible = memberCallShape && _objectExpression is JintIdentifierExpression or JintThisExpression;
+        _baseCallEligible = memberCallShape && !_fastCallEligible;
+
+        _stringReceiverCallEligible = memberCallShape && !CanBeOwnStringInstanceProperty((JsString) _determinedProperty!);
 
         _readsLengthName = _propertyExpression is null
                            && _determinedProperty is JsString determinedName
@@ -783,8 +792,6 @@ internal sealed class JintMemberExpression : JintExpression
     /// </summary>
     internal JsValue GetCalleeForCall(EvaluationContext context, out JsValue thisObject)
     {
-        var determinedProperty = (JsString) _determinedProperty!;
-
         var baseValue = _objectExpression.GetValue(context);
         if (context.IsSuspended())
         {
@@ -792,13 +799,49 @@ internal sealed class JintMemberExpression : JintExpression
             return JsValue.Undefined;
         }
 
+        ResolveCalleeOnBase(context, baseValue, out var callee, out thisObject);
+        return callee;
+    }
+
+    /// <summary>
+    /// Whether this member expression is a literal-name, non-optional member call on a base other than a plain
+    /// identifier or <c>this</c> (the <see cref="IsFastCallEligible"/> shape), which a call evaluates through
+    /// <see cref="EvaluateBaseForCall"/> and <see cref="ResolveCalleeOnBase"/> instead of renting a
+    /// <see cref="Reference"/> for the callee.
+    /// </summary>
+    internal bool IsBaseCallEligible => _baseCallEligible;
+
+    /// <summary>
+    /// Evaluates the base of a <see cref="IsBaseCallEligible"/> member call: the value
+    /// <see cref="EvaluateInternal"/> would have put in the callee's <see cref="Reference"/>. Only called by a
+    /// frame that cannot suspend.
+    /// </summary>
+    internal JsValue EvaluateBaseForCall(EvaluationContext context) => _objectExpression.GetValue(context);
+
+    /// <summary>
+    /// The callee's <see cref="Reference"/> for a base <see cref="EvaluateBaseForCall"/> produced, which is the one
+    /// <see cref="EvaluateInternal"/> rents for a literal-name property: what a call needs when the base is not
+    /// an object or the value is not callable.
+    /// </summary>
+    internal Reference RentReferenceForBase(Engine engine, JsValue baseValue)
+        => engine._referencePool.Rent(baseValue, _determinedProperty!, engine.ExecutionContext.Strict, thisValue: null);
+
+    /// <summary>
+    /// Resolves the callee of a member call on an evaluated base through this node's inline caches. Returns
+    /// false, with <paramref name="callee"/> and <paramref name="thisObject"/> undefined, for a base the caches
+    /// do not serve (a primitive other than a string, null, undefined, a string method the string cache
+    /// declines); the caller then resolves it through a <see cref="Reference"/>. When it returns true,
+    /// <paramref name="callee"/> is the property's value, callable or not.
+    /// </summary>
+    internal bool ResolveCalleeOnBase(EvaluationContext context, JsValue baseValue, out JsValue callee, out JsValue thisObject)
+    {
+        var determinedProperty = (JsString) _determinedProperty!;
+
         context.LastSyntaxElement = _expression;
 
         // Object receivers take the own-property/prototype cache path below; primitive string receivers
         // take the prototype-only string-method cache further down. Other primitive receivers
-        // (number/boolean/...) return undefined here so the caller falls through to the Reference path.
-        // The identifier/`this` receiver is side-effect-free, so re-evaluating it on that path is
-        // unobservable.
+        // (number/boolean/...) are declined so the caller falls through to the Reference path.
         if (baseValue.IsObject())
         {
             var baseObject = baseValue.AsObjectNoTypeCheck();
@@ -813,7 +856,8 @@ internal sealed class JintMemberExpression : JintExpression
                 var shape = shapeObj.ShapeOf;
                 if (ReferenceEquals(shape, _cachedShape))
                 {
-                    return shapeObj.GetSlot(_cachedShapeSlot);
+                    callee = shapeObj.GetSlot(_cachedShapeSlot);
+                    return true;
                 }
 
                 if (shape.TryGetSlot(determinedProperty.ToString(), out var slot))
@@ -821,11 +865,13 @@ internal sealed class JintMemberExpression : JintExpression
                     DropReceiverEntries();
                     _cachedShape = shape;
                     _cachedShapeSlot = slot;
-                    return shapeObj.GetSlot(slot);
+                    callee = shapeObj.GetSlot(slot);
+                    return true;
                 }
 
                 // Slot miss ⇒ no own string property (any non-shapeable property would have deopted).
-                return ReadAfterOwnMiss(baseObject, determinedProperty, ownMissConfirmed: true);
+                callee = ReadAfterOwnMiss(baseObject, determinedProperty, ownMissConfirmed: true);
+                return true;
             }
 
             if (shapeFlags == (InternalTypes.ShapeMode | InternalTypes.HasLazySlots))
@@ -837,7 +883,8 @@ internal sealed class JintMemberExpression : JintExpression
                 var lazyShape = lazyObj.ShapeOf;
                 if (ReferenceEquals(lazyShape, _cachedShape))
                 {
-                    return lazyObj.GetSlotForRead(_cachedShapeSlot);
+                    callee = lazyObj.GetSlotForRead(_cachedShapeSlot);
+                    return true;
                 }
 
                 if (lazyShape.TryGetSlot(determinedProperty.ToString(), out var lazySlot))
@@ -845,10 +892,12 @@ internal sealed class JintMemberExpression : JintExpression
                     DropReceiverEntries();
                     _cachedShape = lazyShape;
                     _cachedShapeSlot = lazySlot;
-                    return lazyObj.GetSlotForRead(lazySlot);
+                    callee = lazyObj.GetSlotForRead(lazySlot);
+                    return true;
                 }
 
-                return ReadAfterOwnMiss(baseObject, determinedProperty, ownMissConfirmed: true);
+                callee = ReadAfterOwnMiss(baseObject, determinedProperty, ownMissConfirmed: true);
+                return true;
             }
 
             if ((baseObject._type & (InternalTypes.PlainObject | InternalTypes.BuiltinShapeMode)) != InternalTypes.Empty)
@@ -857,7 +906,8 @@ internal sealed class JintMemberExpression : JintExpression
                     && baseObject._propertiesVersion == _cachedReadVersion
                     && _cachedReadDescriptor is not null)
                 {
-                    return ObjectInstance.UnwrapJsValue(_cachedReadDescriptor, baseObject);
+                    callee = ObjectInstance.UnwrapJsValue(_cachedReadDescriptor, baseObject);
+                    return true;
                 }
 
                 var ownDescriptor = baseObject.GetOwnProperty(determinedProperty);
@@ -867,16 +917,19 @@ internal sealed class JintMemberExpression : JintExpression
                     _cachedReadObject = baseObject;
                     _cachedReadVersion = baseObject._propertiesVersion;
                     _cachedReadDescriptor = ownDescriptor;
-                    return ObjectInstance.UnwrapJsValue(ownDescriptor, baseObject);
+                    callee = ObjectInstance.UnwrapJsValue(ownDescriptor, baseObject);
+                    return true;
                 }
 
                 // GetOwnProperty already proved the own-property miss for this receiver.
                 _cachedReadObject = null;
                 _cachedReadDescriptor = null;
-                return ReadAfterOwnMiss(baseObject, determinedProperty, ownMissConfirmed: true);
+                callee = ReadAfterOwnMiss(baseObject, determinedProperty, ownMissConfirmed: true);
+                return true;
             }
 
-            return ReadFromNonPlainReceiver(baseObject, determinedProperty);
+            callee = ReadFromNonPlainReceiver(baseObject, determinedProperty);
+            return true;
         }
 
         if (_stringReceiverCallEligible && baseValue.IsString())
@@ -900,7 +953,8 @@ internal sealed class JintMemberExpression : JintExpression
             if (ReferenceEquals(stringPrototype, _cachedStringProtoHolder)
                 && stringPrototype._propertiesVersion == _cachedStringProtoHolderVersion)
             {
-                return ObjectInstance.UnwrapJsValue(_cachedStringProtoDescriptor!, jsString);
+                callee = ObjectInstance.UnwrapJsValue(_cachedStringProtoDescriptor!, jsString);
+                return true;
             }
 
             var descriptor = stringPrototype.GetOwnProperty(determinedProperty);
@@ -910,12 +964,14 @@ internal sealed class JintMemberExpression : JintExpression
                 _cachedStringProtoHolder = stringPrototype;
                 _cachedStringProtoHolderVersion = stringPrototype._propertiesVersion;
                 _cachedStringProtoDescriptor = descriptor;
-                return ObjectInstance.UnwrapJsValue(descriptor, jsString);
+                callee = ObjectInstance.UnwrapJsValue(descriptor, jsString);
+                return true;
             }
         }
 
+        callee = JsValue.Undefined;
         thisObject = JsValue.Undefined;
-        return JsValue.Undefined;
+        return false;
     }
 
     /// <summary>
@@ -1086,47 +1142,52 @@ internal sealed class JintMemberExpression : JintExpression
     private JsValue ReadAfterOwnMiss(ObjectInstance baseObject, JsString property, bool ownMissConfirmed)
     {
         var holder = _cachedProtoHolder;
-        if (holder is not null && TryReadFromPrototypeCache(baseObject, holder, out var value))
+        if (holder is not null && (baseObject._type & InternalTypes.ExoticGet) == InternalTypes.Empty)
         {
-            return value;
+            // The entry proves nothing about the receiver, so the own miss is established here when the caller
+            // has not: the probe the uncached walk would make, made before the cache rather than after it.
+            if (ownMissConfirmed || baseObject.ProbeOwnPropertyChecked(property) == OwnPropertyProbe.Missing)
+            {
+                if (TryReadFromPrototypeCache(baseObject, holder, out var value))
+                {
+                    return value;
+                }
+
+                ownMissConfirmed = true;
+            }
         }
 
         return ReadAfterOwnMissUncached(baseObject, property, ownMissConfirmed);
     }
 
     /// <summary>
-    /// The prototype-member inline cache's validity check, split out so the ordinary-semantics lane can consult
-    /// it after probing the receiver. <paramref name="holder"/> is the already-loaded <c>_cachedProtoHolder</c>,
-    /// non-null. Every version comparison is only meaningful because
+    /// The prototype-member inline cache's validity check for a receiver that is not exotic and has been proved
+    /// to have no own property of the name on this read. <paramref name="holder"/> is the already-loaded
+    /// <c>_cachedProtoHolder</c>, non-null. Every version comparison is only meaningful because
     /// <see cref="CanCacheAgainstReceiverVersion"/> and <see cref="ObjectInstance.VersionWitnessesOwnProperty"/>
     /// between them refused to create an entry any of whose versions cannot witness the name.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool TryReadFromPrototypeCache(ObjectInstance baseObject, ObjectInstance holder, out JsValue value)
     {
-        if (ReferenceEquals(baseObject, _cachedProtoReceiver)
-            && baseObject._propertiesVersion == _cachedProtoReceiverVersion)
+        // GetPrototypeOf(), not the _prototype field: a subclass may shadow the field and override
+        // [[GetPrototypeOf]] (e.g. interop instances), and base Get walks via the same accessor. It is a pure
+        // field read for ordinary objects and never the proxy trap (proxies carry ExoticGet and never reach here).
+        var reached = baseObject.GetPrototypeOf();
+
+        // Null for a direct-prototype entry, so the common shape costs one predictable field test and the call
+        // below is never made.
+        var chain = _cachedProtoChain;
+        if (chain is not null)
         {
-            // GetPrototypeOf(), not the _prototype field: a subclass may shadow the field and override
-            // [[GetPrototypeOf]] (e.g. interop instances), and base Get walks via the same accessor. The
-            // receiver is pinned by identity, so this is a pure field read for ordinary objects and never
-            // the proxy trap (proxies carry ExoticGet and are never cached as the receiver).
-            var reached = baseObject.GetPrototypeOf();
+            reached = RevalidateChain(reached, chain);
+        }
 
-            // Null for a direct-prototype entry, so the common shape costs one predictable field test and
-            // the call below is never made.
-            var chain = _cachedProtoChain;
-            if (chain is not null)
-            {
-                reached = RevalidateChain(reached, chain);
-            }
-
-            if (ReferenceEquals(reached, holder)
-                && holder._propertiesVersion == _cachedProtoHolderVersion)
-            {
-                value = ObjectInstance.UnwrapJsValue(_cachedProtoDescriptor!, baseObject);
-                return true;
-            }
+        if (ReferenceEquals(reached, holder)
+            && holder._propertiesVersion == _cachedProtoHolderVersion)
+        {
+            value = ObjectInstance.UnwrapJsValue(_cachedProtoDescriptor!, baseObject);
+            return true;
         }
 
         value = JsValue.Undefined;
@@ -1298,8 +1359,6 @@ internal sealed class JintMemberExpression : JintExpression
             }
         }
 
-        _cachedProtoReceiver = baseObject;
-        _cachedProtoReceiverVersion = baseObject._propertiesVersion;
         _cachedProtoChain = chain;
         _cachedProtoHolder = holder;
         _cachedProtoHolderVersion = holder._propertiesVersion;
@@ -1313,15 +1372,14 @@ internal sealed class JintMemberExpression : JintExpression
     /// </summary>
     private void DropPrototypeCacheEntry()
     {
-        _cachedProtoReceiver = null;
         _cachedProtoHolder = null;
         _cachedProtoChain = null;
         _cachedProtoDescriptor = null;
     }
 
     /// <summary>
-    /// Disarms every entry that holds a receiver object: the own-property entry, the prototype entry and the
-    /// wrapper entry. Each of them hits only for the very receiver it recorded, so an entry left behind when
+    /// Disarms every entry that holds a receiver object, the own-property entry and the wrapper entry, and the
+    /// prototype entry with them. The first two hit only for the very receiver they recorded, so an entry left behind when
     /// the site resolves through another lane serves nothing, yet keeps that receiver — and everything its
     /// property values reach — alive for as long as the script's code is. A forward-linked list whose first
     /// node was read here before later nodes took the shape lane was kept whole that way, growing with every
@@ -1434,6 +1492,22 @@ internal sealed class JintMemberExpression : JintExpression
 
         context.LastSyntaxElement = _expression;
 
+        StoreOnBase(context, baseValue, rval);
+        result = rval;
+        return true;
+    }
+
+    /// <summary>
+    /// The store half of <see cref="TryAssignFast"/>: <c>[[Set]]</c> of this node's literal name on an already
+    /// evaluated base, in place when the caches prove an own writable data property and through
+    /// <see cref="Engine.PutValue"/> otherwise. Shared with compound assignment, whose right-hand side may have
+    /// changed the object since its read, which is why nothing about the read is trusted here.
+    /// </summary>
+    internal void StoreOnBase(EvaluationContext context, JsValue baseValue, JsValue rval)
+    {
+        var engine = context.Engine;
+        var determinedProperty = (JsString) _determinedProperty!;
+
         if (baseValue.IsObject())
         {
             var baseObject = baseValue.AsObjectNoTypeCheck();
@@ -1464,8 +1538,7 @@ internal sealed class JintMemberExpression : JintExpression
                 if (slot >= 0)
                 {
                     shapeObj.SetSlot(slot, rval);
-                    result = rval;
-                    return true;
+                    return;
                 }
             }
             else if ((baseObject._type & (InternalTypes.PlainObject | InternalTypes.BuiltinShapeMode)) != InternalTypes.Empty)
@@ -1503,8 +1576,7 @@ internal sealed class JintMemberExpression : JintExpression
                     && (descriptor._flags & (PropertyFlag.NonData | PropertyFlag.CustomJsValue | PropertyFlag.Writable | PropertyDescriptor.WritesThroughDefineOwnProperty)) == PropertyFlag.Writable)
                 {
                     descriptor._value = rval;
-                    result = rval;
-                    return true;
+                    return;
                 }
             }
             else
@@ -1560,8 +1632,7 @@ internal sealed class JintMemberExpression : JintExpression
                     if (canPut)
                     {
                         descriptor.Value = rval;
-                        result = rval;
-                        return true;
+                        return;
                     }
                 }
             }
@@ -1571,7 +1642,93 @@ internal sealed class JintMemberExpression : JintExpression
         var reference = engine._referencePool.Rent(baseValue, determinedProperty, engine.ExecutionContext.Strict, thisValue: null);
         engine.PutValue(reference, rval);
         engine._referencePool.Return(reference);
-        result = rval;
-        return true;
+    }
+
+    /// <summary>
+    /// Whether this member expression can be the left-hand side of a compound assignment that reads and writes
+    /// through <see cref="TryReadOwnDataForCompound"/> and <see cref="StoreOnBase"/> on a base evaluated once,
+    /// without renting a <see cref="Reference"/>: a literal-name, non-optional, non-super member.
+    /// </summary>
+    internal bool IsCompoundTargetEligible => _propertyExpression is null
+                                              && _determinedProperty is JsString
+                                              && !_memberExpression.Optional
+                                              && !_objectExpressionCanShortCircuit
+                                              && _objectExpression is not JintSuperExpression;
+
+    /// <summary>
+    /// Evaluates the base of a member a compound assignment writes: the value <see cref="EvaluateInternal"/>
+    /// would have put in the left-hand side's <see cref="Reference"/>. Only called by a frame that cannot suspend.
+    /// </summary>
+    internal JsValue EvaluateBaseForAssignment(EvaluationContext context) => _objectExpression.GetValue(context);
+
+    /// <summary>
+    /// The read half of a compound assignment on an evaluated base: the value of an own data property, from the
+    /// shape and own-property caches. Returns false, having read nothing observable, for everything else (a
+    /// primitive or nullish base, an accessor, an inherited or absent property, a host object), which the caller
+    /// then reads through a <see cref="Reference"/>.
+    /// </summary>
+    internal bool TryReadOwnDataForCompound(EvaluationContext context, JsValue baseValue, out JsValue value)
+    {
+        context.LastSyntaxElement = _expression;
+
+        if (baseValue.IsObject())
+        {
+            var determinedProperty = (JsString) _determinedProperty!;
+            var baseObject = baseValue.AsObjectNoTypeCheck();
+            var shapeFlags = baseObject._type & (InternalTypes.ShapeMode | InternalTypes.HasLazySlots);
+            if (shapeFlags == InternalTypes.ShapeMode)
+            {
+                var shapeObj = Unsafe.As<JsObject>(baseObject);
+                var shape = shapeObj.ShapeOf;
+                if (ReferenceEquals(shape, _cachedShape))
+                {
+                    value = shapeObj.GetSlot(_cachedShapeSlot);
+                    return true;
+                }
+
+                if (shape.TryGetSlot(determinedProperty.ToString(), out var slot))
+                {
+                    DropReceiverEntries();
+                    _cachedShape = shape;
+                    _cachedShapeSlot = slot;
+                    value = shapeObj.GetSlot(slot);
+                    return true;
+                }
+            }
+            else if (shapeFlags == InternalTypes.Empty
+                     && (baseObject._type & (InternalTypes.PlainObject | InternalTypes.BuiltinShapeMode)) != InternalTypes.Empty)
+            {
+                PropertyDescriptor descriptor;
+                if (ReferenceEquals(baseObject, _cachedReadObject)
+                    && baseObject._propertiesVersion == _cachedReadVersion
+                    && _cachedReadDescriptor is not null)
+                {
+                    descriptor = _cachedReadDescriptor;
+                }
+                else
+                {
+                    descriptor = baseObject.GetOwnProperty(determinedProperty);
+                    if (!ReferenceEquals(descriptor, PropertyDescriptor.Undefined))
+                    {
+                        DropReceiverEntries();
+                        _cachedReadObject = baseObject;
+                        _cachedReadVersion = baseObject._propertiesVersion;
+                        _cachedReadDescriptor = descriptor;
+                    }
+                }
+
+                // Flags read live, as the store does: defineProperty can turn the same descriptor into an
+                // accessor without moving the version.
+                if (!ReferenceEquals(descriptor, PropertyDescriptor.Undefined)
+                    && (descriptor._flags & PropertyFlag.NonData) == PropertyFlag.None)
+                {
+                    value = ObjectInstance.UnwrapJsValue(descriptor, baseObject);
+                    return true;
+                }
+            }
+        }
+
+        value = JsValue.Undefined;
+        return false;
     }
 }

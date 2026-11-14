@@ -18,6 +18,10 @@ internal sealed class JintAssignmentExpression : JintExpression
     private readonly JintExpression _right;
     private readonly Operator _operator;
 
+    // A literal-name member target of an arithmetic or bitwise compound assignment (`this.x -= v.x`), which
+    // CompoundToMember serves with the base evaluated once and no Reference; null for every other target.
+    private readonly JintMemberExpression? _leftMember;
+
     // A primitive literal right-hand side runs no code, evaluated or converted, so a binding that owned its string
     // before it still does after it. Not a regex literal: that is an object, and converting it runs its toString.
     private readonly bool _rightIsLiteral;
@@ -47,6 +51,10 @@ internal sealed class JintAssignmentExpression : JintExpression
     {
         _left = Build((Expression) expression.Left);
         _leftIdentifier = _left as JintIdentifierExpression;
+        _leftMember = _left is JintMemberExpression { IsCompoundTargetEligible: true } member
+                      && expression.Operator is not (Operator.NullishCoalescingAssignment or Operator.LogicalAndAssignment or Operator.LogicalOrAssignment)
+            ? member
+            : null;
 
         _right = Build(expression.Right);
         _operator = expression.Operator;
@@ -188,6 +196,14 @@ internal sealed class JintAssignmentExpression : JintExpression
         ref readonly var executionContext = ref engine.ExecutionContext;
         var strict = executionContext.Strict;
         var suspendable = executionContext.Suspendable;
+
+        if (_leftMember is not null
+            && suspendable is null
+            && !context.OperatorOverloadingAllowed
+            && !engine._resolverWatchesValueBase)
+        {
+            return CompoundToMember(context, _leftMember);
+        }
 
         JsValue originalLeftValue;
         Reference lref;
@@ -335,6 +351,35 @@ internal sealed class JintAssignmentExpression : JintExpression
         engine._referencePool.Return(lref);
         suspendable?.Data.Clear(this);
         return newLeftValue!;
+    }
+
+    /// <summary>
+    /// An arithmetic or bitwise compound assignment to a literal-name member in a frame that cannot suspend:
+    /// the steps of the Reference path (evaluate the base, read the property, evaluate the right-hand side,
+    /// compute, write) in the same order, with the read and the write served from the member node's caches
+    /// when the property is an own data property. Anything the caches do not serve is read through a
+    /// <see cref="Reference"/> rented from the evaluated base, so the base is never evaluated twice.
+    /// </summary>
+    private JsValue CompoundToMember(EvaluationContext context, JintMemberExpression member)
+    {
+        var engine = context.Engine;
+        var baseValue = member.EvaluateBaseForAssignment(context);
+
+        if (member.TryReadOwnDataForCompound(context, baseValue, out var originalLeftValue))
+        {
+            var rval = _right.GetValue(context);
+            var newValue = ComputeCompound(context, originalLeftValue, rval);
+            member.StoreOnBase(context, baseValue, newValue);
+            return newValue;
+        }
+
+        var lref = member.RentReferenceForBase(engine, baseValue);
+        originalLeftValue = engine.GetValue(lref, returnReferenceToPool: false);
+        var right = _right.GetValue(context);
+        var result = ComputeCompound(context, originalLeftValue, right);
+        engine.PutValue(lref, result);
+        engine._referencePool.Return(lref);
+        return result;
     }
 
     /// <summary>

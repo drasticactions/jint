@@ -130,7 +130,7 @@ public class PrototypeMethodCacheTests
     public void OwnPropertyAddedAfterCachingShadowsPrototype()
     {
         // First reads hit the prototype method and populate the cache; assigning an own property of the
-        // same name must shadow it on every subsequent read (the receiver version bump invalidates).
+        // same name must shadow it on every subsequent read (the own-property probe every read makes sees it).
         const string script = """
             function C() {}
             C.prototype.tag = function () { return 'proto'; };
