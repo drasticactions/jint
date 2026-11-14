@@ -736,6 +736,70 @@ public class GarbageCollectionTests
     }
 
     /// <summary>
+    /// A warmed member-read site keeps one receiver, its last — and only while that receiver's entry can still
+    /// serve. The first receiver here resolves through an entry that pins it (a dictionary-mode object's own
+    /// property, or a member inherited from a prototype); every later one is shape-mode with the member as an
+    /// own slot, which the shape entry serves without naming any object. The pinning entry left behind by the
+    /// switch was never replaced, because only its own lane wrote it: so a site that read the head of a
+    /// forward-linked list once — a tween queue whose head was the first <c>curTween.chain(next)</c> receiver —
+    /// kept the whole list alive as it grew, without limit.
+    /// </summary>
+    [TestCase("var first = { value: 1, extra: 0 }; delete first.extra;")]
+    [TestCase("var first = Object.create({ value: 1 });")]
+    public void AMemberReadSiteReleasesAReceiverOnceAnotherLaneServesIt(string firstReceiver)
+    {
+        AssertReceiverRetention(firstReceiver, thenReadAShapeModeObject: true, expectRetained: false);
+    }
+
+    /// <summary>
+    /// The control for <see cref="AMemberReadSiteReleasesAReceiverOnceAnotherLaneServesIt"/>: with no later
+    /// receiver, the same site still retains the first one — the documented one-entry-per-site cost — so the
+    /// harness does warm a pinning entry and can see it.
+    /// </summary>
+    [TestCase("var first = { value: 1, extra: 0 }; delete first.extra;")]
+    [TestCase("var first = Object.create({ value: 1 });")]
+    public void AMemberReadSiteStillRetainsItsLastReceiver(string firstReceiver)
+    {
+        AssertReceiverRetention(firstReceiver, thenReadAShapeModeObject: false, expectRetained: true);
+    }
+
+    private static void AssertReceiverRetention(string firstReceiver, bool thenReadAShapeModeObject, bool expectRetained)
+    {
+        var engine = new Engine();
+
+        // A declared function's body tree lives as long as the function, so its member site stays warm
+        // across evaluations. The call sites are re-parsed every time and cache nothing.
+        engine.Execute("function read(o) { return o.value; }");
+
+        var reference = ReadAndForget(engine, firstReceiver, thenReadAShapeModeObject);
+
+        Collect();
+
+        reference.IsAlive.Should().Be(expectRetained, expectRetained
+            ? "the site's last receiver is its one retained entry"
+            : "the shape entry served the last read, so no entry may still hold the first receiver");
+
+        GC.KeepAlive(engine);
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static WeakReference ReadAndForget(Engine engine, string firstReceiver, bool thenReadAShapeModeObject)
+        {
+            engine.Execute(firstReceiver);
+            var reference = new WeakReference(engine.GetValue("first"));
+            engine.Evaluate("read(first)").AsNumber().Should().Be(1);
+            engine.Evaluate("read(first)").AsNumber().Should().Be(1);
+            if (thenReadAShapeModeObject)
+            {
+                engine.Evaluate("read({ value: 2 })").AsNumber().Should().Be(2);
+                engine.Evaluate("read({ value: 3 })").AsNumber().Should().Be(3);
+            }
+
+            engine.Execute("first = undefined;");
+            return reference;
+        }
+    }
+
+    /// <summary>
     /// Only ever used by <see cref="NestedTypeAccessDoesNotRetainEngines"/>: the accessor cache is
     /// process-wide, so a type another test also resolves would let that test's engine take the blame.
     /// </summary>

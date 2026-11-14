@@ -528,6 +528,7 @@ internal sealed class JintMemberExpression : JintExpression
 
                     if (shape.TryGetSlot(determinedProperty.ToString(), out var slot))
                     {
+                        DropReceiverEntries();
                         _cachedShape = shape;
                         _cachedShapeSlot = slot;
                         return shapeObj.GetSlot(slot);
@@ -556,6 +557,7 @@ internal sealed class JintMemberExpression : JintExpression
 
                     if (lazyShape.TryGetSlot(determinedProperty.ToString(), out var lazySlot))
                     {
+                        DropReceiverEntries();
                         _cachedShape = lazyShape;
                         _cachedShapeSlot = lazySlot;
                         return lazyObj.GetSlotForRead(lazySlot);
@@ -579,6 +581,7 @@ internal sealed class JintMemberExpression : JintExpression
                     var ownDescriptor = baseObject.GetOwnProperty(determinedProperty);
                     if (!ReferenceEquals(ownDescriptor, PropertyDescriptor.Undefined))
                     {
+                        DropReceiverEntries();
                         _cachedReadObject = baseObject;
                         _cachedReadVersion = baseObject._propertiesVersion;
                         _cachedReadDescriptor = ownDescriptor;
@@ -815,6 +818,7 @@ internal sealed class JintMemberExpression : JintExpression
 
                 if (shape.TryGetSlot(determinedProperty.ToString(), out var slot))
                 {
+                    DropReceiverEntries();
                     _cachedShape = shape;
                     _cachedShapeSlot = slot;
                     return shapeObj.GetSlot(slot);
@@ -838,6 +842,7 @@ internal sealed class JintMemberExpression : JintExpression
 
                 if (lazyShape.TryGetSlot(determinedProperty.ToString(), out var lazySlot))
                 {
+                    DropReceiverEntries();
                     _cachedShape = lazyShape;
                     _cachedShapeSlot = lazySlot;
                     return lazyObj.GetSlotForRead(lazySlot);
@@ -858,6 +863,7 @@ internal sealed class JintMemberExpression : JintExpression
                 var ownDescriptor = baseObject.GetOwnProperty(determinedProperty);
                 if (!ReferenceEquals(ownDescriptor, PropertyDescriptor.Undefined))
                 {
+                    DropReceiverEntries();
                     _cachedReadObject = baseObject;
                     _cachedReadVersion = baseObject._propertiesVersion;
                     _cachedReadDescriptor = ownDescriptor;
@@ -958,6 +964,7 @@ internal sealed class JintMemberExpression : JintExpression
             {
                 if (baseObject.TryGetOwnPropertyValue(property, baseObject, out var projectedValue))
                 {
+                    DropReceiverEntries();
                     if (HostContractVerification.Enabled)
                     {
                         ObjectInstance.AssertOwnValueAgreesWithDescriptor(baseObject, property, baseObject, answered: true, projectedValue);
@@ -984,6 +991,8 @@ internal sealed class JintMemberExpression : JintExpression
             var ownDescriptor = baseObject.GetOwnProperty(property);
             if (!ReferenceEquals(ownDescriptor, PropertyDescriptor.Undefined))
             {
+                DropReceiverEntries();
+
                 // The probe that proves the own property exists *is* the read: the descriptor no longer has to
                 // be materialized a second time inside Get (ObjectInstance.Get's fast path needs PlainObject,
                 // which such an object cannot claim because it stores nothing in _properties).
@@ -1016,6 +1025,7 @@ internal sealed class JintMemberExpression : JintExpression
             var descriptor = wrapper.TryGetInlineCacheableDescriptor(property);
             if (descriptor is not null)
             {
+                DropReceiverEntries();
                 _cachedWrapper = wrapper;
                 _cachedWrapperVersion = wrapper._propertiesVersion;
                 _cachedWrapperDescriptor = descriptor;
@@ -1165,6 +1175,12 @@ internal sealed class JintMemberExpression : JintExpression
     [MethodImpl(MethodImplOptions.NoInlining)]
     private JsValue ReadAfterOwnMissUncached(ObjectInstance baseObject, JsString property, bool ownMissConfirmed)
     {
+        // The entry for the previous receiver has just missed (or there was none). Drop it, and every other
+        // receiver entry, before resolving: only an entry recorded below may outlive this read. The chain array
+        // is kept apart as a buffer for the next entry to refill, not as part of any entry.
+        var spareChain = _cachedProtoChain;
+        DropReceiverEntries();
+
         // Only ordinary receivers: a Proxy / TypedArray / IteratorResult / interop wrapper has a custom
         // [[Get]] / [[GetOwnProperty]] this lane must not bypass. And no own property on the receiver (which
         // would shadow the prototype's) — the caller usually already established that (shape slot miss /
@@ -1204,7 +1220,7 @@ internal sealed class JintMemberExpression : JintExpression
             {
                 if (cacheable && ObjectInstance.VersionWitnessesOwnProperty(link, property))
                 {
-                    PopulatePrototypeCache(baseObject, link, descriptor, intermediates);
+                    PopulatePrototypeCache(baseObject, link, descriptor, intermediates, spareChain);
                 }
 
                 return ObjectInstance.UnwrapJsValue(descriptor, baseObject);
@@ -1251,12 +1267,12 @@ internal sealed class JintMemberExpression : JintExpression
     /// chain was written down from a chain that had already moved is the one failure this cache must not have.
     /// </para>
     /// </summary>
-    private void PopulatePrototypeCache(ObjectInstance baseObject, ObjectInstance holder, PropertyDescriptor descriptor, int intermediates)
+    private void PopulatePrototypeCache(ObjectInstance baseObject, ObjectInstance holder, PropertyDescriptor descriptor, int intermediates, PrototypeChainLink[]? spareChain)
     {
         PrototypeChainLink[]? chain = null;
         if (intermediates > 0)
         {
-            chain = _cachedProtoChain;
+            chain = spareChain;
             if (chain is null || chain.Length != intermediates)
             {
                 chain = new PrototypeChainLink[intermediates];
@@ -1301,6 +1317,25 @@ internal sealed class JintMemberExpression : JintExpression
         _cachedProtoHolder = null;
         _cachedProtoChain = null;
         _cachedProtoDescriptor = null;
+    }
+
+    /// <summary>
+    /// Disarms every entry that holds a receiver object: the own-property entry, the prototype entry and the
+    /// wrapper entry. Each of them hits only for the very receiver it recorded, so an entry left behind when
+    /// the site resolves through another lane serves nothing, yet keeps that receiver — and everything its
+    /// property values reach — alive for as long as the script's code is. A forward-linked list whose first
+    /// node was read here before later nodes took the shape lane was kept whole that way, growing with every
+    /// node appended. Called on the miss paths only, before the lane that resolved the read records its own
+    /// entry; hits never pay for it. The shape and string-prototype entries hold no receiver and are left
+    /// alone.
+    /// </summary>
+    private void DropReceiverEntries()
+    {
+        _cachedReadObject = null;
+        _cachedReadDescriptor = null;
+        _cachedWrapper = null;
+        _cachedWrapperDescriptor = null;
+        DropPrototypeCacheEntry();
     }
 
     /// <summary>
@@ -1416,11 +1451,13 @@ internal sealed class JintMemberExpression : JintExpression
                 }
                 else if (shape.TryGetSlot(determinedProperty.ToString(), out slot))
                 {
+                    DropReceiverEntries();
                     _cachedShape = shape;
                     _cachedShapeSlot = slot;
                 }
                 else
                 {
+                    DropReceiverEntries();
                     slot = -1;
                 }
 
@@ -1443,11 +1480,10 @@ internal sealed class JintMemberExpression : JintExpression
                 else
                 {
                     var ownDescriptor = baseObject.GetOwnProperty(determinedProperty);
+                    DropReceiverEntries();
                     if (ReferenceEquals(ownDescriptor, PropertyDescriptor.Undefined))
                     {
                         // Absent own property: inherited-setter / CreateDataProperty semantics — handled by fallback.
-                        _cachedReadObject = null;
-                        _cachedReadDescriptor = null;
                         descriptor = null;
                     }
                     else
@@ -1497,12 +1533,14 @@ internal sealed class JintMemberExpression : JintExpression
                 else if (baseObject is ObjectWrapper wrapper
                     && (descriptor = wrapper.TryGetInlineCacheableDescriptor(determinedProperty)) is not null)
                 {
+                    DropReceiverEntries();
                     _cachedWrapper = wrapper;
                     _cachedWrapperVersion = wrapper._propertiesVersion;
                     _cachedWrapperDescriptor = descriptor;
                 }
                 else
                 {
+                    DropReceiverEntries();
                     descriptor = null;
                 }
 
