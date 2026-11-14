@@ -299,6 +299,50 @@ public class CapturedArgumentsTests
     }
 
     [Test]
+    public void OnlyTheFunctionsOwnCodeAndItsArrowsMakeItBuildAnArgumentsObject()
+    {
+        var engine = new Engine();
+        engine.Execute("""
+            function nestedExpression() { var g = function () { return arguments.length; }; return g(1, 2); }
+            function nestedDeclaration() { function g() { return arguments.length; } return g(1, 2); }
+            function method() { return { m() { return arguments.length; } }.m(1, 2); }
+            function accessor() { return { get p() { return arguments.length; } }.p; }
+            function classMethod() { return new (class { m() { return arguments.length; } })().m(1, 2); }
+            function arrowInNestedExpression() { return function () { return (() => arguments.length)(); }(1, 2); }
+
+            function arrow() { return (() => arguments.length)(); }
+            function computedMethodKey() { return Object.keys({ [arguments[0]]() { } })[0]; }
+            function classHeritage() { return new (class extends (arguments[0]) { })() instanceof arguments[0]; }
+            function parameterOfNestedExpressionReadsOuterNothing(a) { return function (b = arguments.length) { return b; }(); }
+            """);
+
+        // A nested non-arrow function names its own arguments object, whatever kind of function it is.
+        StateOf(engine, "nestedExpression").ArgumentsObjectNeeded.Should().BeFalse();
+        StateOf(engine, "nestedDeclaration").ArgumentsObjectNeeded.Should().BeFalse();
+        StateOf(engine, "method").ArgumentsObjectNeeded.Should().BeFalse();
+        StateOf(engine, "accessor").ArgumentsObjectNeeded.Should().BeFalse();
+        StateOf(engine, "classMethod").ArgumentsObjectNeeded.Should().BeFalse();
+        StateOf(engine, "arrowInNestedExpression").ArgumentsObjectNeeded.Should().BeFalse();
+        StateOf(engine, "parameterOfNestedExpressionReadsOuterNothing").ArgumentsObjectNeeded.Should().BeFalse();
+
+        // An arrow, a computed key and a class heritage are evaluated in the function's own scope.
+        StateOf(engine, "arrow").ArgumentsObjectNeeded.Should().BeTrue();
+        StateOf(engine, "computedMethodKey").ArgumentsObjectNeeded.Should().BeTrue();
+        StateOf(engine, "classHeritage").ArgumentsObjectNeeded.Should().BeTrue();
+
+        engine.Evaluate("nestedExpression(7)").AsNumber().Should().Be(2);
+        engine.Evaluate("nestedDeclaration(7)").AsNumber().Should().Be(2);
+        engine.Evaluate("method(7)").AsNumber().Should().Be(2);
+        engine.Evaluate("accessor(7)").AsNumber().Should().Be(0);
+        engine.Evaluate("classMethod(7)").AsNumber().Should().Be(2);
+        engine.Evaluate("arrowInNestedExpression(7)").AsNumber().Should().Be(2);
+        engine.Evaluate("parameterOfNestedExpressionReadsOuterNothing(7)").AsNumber().Should().Be(0);
+        engine.Evaluate("arrow(7, 8, 9)").AsNumber().Should().Be(3);
+        engine.Evaluate("computedMethodKey('k')").AsString().Should().Be("k");
+        engine.Evaluate("classHeritage(Array)").AsBoolean().Should().BeTrue();
+    }
+
+    [Test]
     public void AnArgumentsObjectNothingKeepsStillGoesBackToThePool()
     {
         var engine = new Engine();

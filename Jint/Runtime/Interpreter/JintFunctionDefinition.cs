@@ -1566,6 +1566,11 @@ Start:
         state.ParameterNames = parameterNames.ToArray();
     }
 
+    /// <summary>
+    /// Whether the function's own code names <c>arguments</c>. A nested non-arrow function (a declaration, an
+    /// expression, a method, an accessor) has a binding of its own, so the name inside it is never this function's
+    /// and is not looked for there; only an arrow resolves it to the enclosing function's.
+    /// </summary>
     private static class ArgumentsUsageAstVisitor
     {
         public static bool HasArgumentsReference(IFunction function)
@@ -1600,7 +1605,7 @@ Start:
                         return true;
                     }
                 }
-                else if (childType != NodeType.FunctionDeclaration && !childNode.ChildNodes.IsEmpty())
+                else if (childType is not (NodeType.FunctionDeclaration or NodeType.FunctionExpression) && !childNode.ChildNodes.IsEmpty())
                 {
                     if (HasArgumentsReference(childNode))
                     {
