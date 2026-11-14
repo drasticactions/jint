@@ -848,6 +848,7 @@ namespace Jint.Constraints
         public void Begin() { }
         public override void Check() { }
         public void End() { }
+        public void Release(long bytes) { }
         public override void Reset() { }
     }
     public sealed class OperationDeadlineConstraint : Jint.Constraint

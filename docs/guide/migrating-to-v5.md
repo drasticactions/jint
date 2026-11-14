@@ -1297,6 +1297,9 @@ event-loop jobs and asynchronous module completions, including ones that resume 
 thread. A budget that only ever saw one synchronous segment in 4.16 can therefore trip where it
 previously did not. `MemoryLimitAccuracy` reports what the accounting can and cannot see, and
 `MemoryLimitConstraint.Begin`/`End` brackets one budget across a multi-entry host operation.
+`MemoryLimitConstraint.Release` takes off the running operation what the host measured to be garbage
+already, so a host that releases what the collector reclaimed bounds what an operation keeps rather
+than everything it allocated.
 
 ### 4.9 Script-visible error text is redacted ([#3051](https://github.com/sebastienros/jint/pull/3051))
 
