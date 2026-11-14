@@ -3822,7 +3822,16 @@ public sealed partial class Engine : IDisposable
         {
             foreach (var constraint in _exactConstraints)
             {
-                constraint.Check();
+                // The memory limit is checked on the engine's thread here, where its common case is one read of
+                // the allocation counter.
+                if (constraint is MemoryLimitConstraint memoryLimit)
+                {
+                    memoryLimit.CheckOnEngineThread();
+                }
+                else
+                {
+                    constraint.Check();
+                }
             }
         }
         catch (Exception exception) when (_implicitMemoryContextDepth != 0 && exception is not JavaScriptException)
@@ -3955,7 +3964,7 @@ public sealed partial class Engine : IDisposable
     {
         if (_executionContexts.Count > 1 && !_debuggerEvaluating)
         {
-            _memoryLimitConstraint?.Check();
+            _memoryLimitConstraint?.CheckOnEngineThread();
             CheckAmortizedConstraints();
         }
     }

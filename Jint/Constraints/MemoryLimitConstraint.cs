@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Jint.Runtime;
 
 namespace Jint.Constraints;
@@ -63,6 +64,14 @@ public sealed class MemoryLimitConstraint : Constraint
     private int _segmentDepth;
     private Engine? _engine;
     private bool _aborting;
+
+    /// <summary>
+    /// The value of the thread's allocation counter up to which <see cref="CheckOnEngineThread"/> cannot fail, so
+    /// that it passes on one read of the counter: <see cref="long.MaxValue"/> while no operation is running, and
+    /// <see cref="long.MinValue"/> once the running one cannot pass at all. Kept by <see cref="RefreshPassLimit"/>
+    /// whenever the running operation, its segment or its charge changes.
+    /// </summary>
+    private long _passLimit = long.MaxValue;
 
     public MemoryLimitConstraint(long memoryLimit)
     {
@@ -169,6 +178,7 @@ public sealed class MemoryLimitConstraint : Constraint
         }
 
         state.AllocatedBytes -= Math.Min(bytes, GetUsage(state));
+        RefreshPassLimit();
     }
 
     /// <summary>
@@ -199,8 +209,63 @@ public sealed class MemoryLimitConstraint : Constraint
             }
 
             state.Exceeded = true;
+            RefreshPassLimit();
             Throw.MemoryLimitExceededException(message, Abort());
         }
+    }
+
+    /// <summary>
+    /// <see cref="Check"/> for the engine's own check points — before a statement, after a host call — which run on
+    /// the thread that owns the engine, so the ownership <see cref="Check"/> takes for a host is already held. The
+    /// common case is one read of the allocation counter against <see cref="_passLimit"/>.
+    /// </summary>
+    /// <remarks>
+    /// The counter is per thread, and this does not ask which thread it runs on. It does not need to: the pass
+    /// limit is only finite while the running operation has been charged no more than the limit, so on a thread
+    /// other than the running segment's, where <see cref="Check"/> counts only what was charged, a check this
+    /// passes is one <see cref="Check"/> passes too.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal void CheckOnEngineThread()
+    {
+        if (!GCPolyfills.AllocatedBytesForCurrentThreadIsSupported || GC.GetAllocatedBytesForCurrentThread() > _passLimit)
+        {
+            Check();
+        }
+    }
+
+    /// <summary>
+    /// Recomputes <see cref="_passLimit"/> from the running operation: what it has been charged and, while its
+    /// segment runs, the counter value the segment started at. It mirrors <see cref="GetUsage"/> and the test in
+    /// <see cref="Check"/>, which fails when the usage exceeds the limit or the operation already has.
+    /// </summary>
+    private void RefreshPassLimit()
+    {
+        var state = _activeState;
+        if (state is null)
+        {
+            _passLimit = long.MaxValue;
+            return;
+        }
+
+        var charged = state.AllocatedBytes;
+        if (state.Exceeded || charged > _memoryLimit)
+        {
+            _passLimit = long.MinValue;
+            return;
+        }
+
+        if (_segmentDepth <= 0)
+        {
+            // Nothing running adds to the charge.
+            _passLimit = long.MaxValue;
+            return;
+        }
+
+        // Usage is the charge plus the counter's growth since the segment started; it passes while it is at most
+        // the limit. A charge below zero (a release ahead of the segment's own allocations) raises the limit.
+        var room = _memoryLimit - charged;
+        _passLimit = _segmentStart > long.MaxValue - room ? long.MaxValue : _segmentStart + room;
     }
 
     /// <summary>
@@ -305,10 +370,12 @@ public sealed class MemoryLimitConstraint : Constraint
         {
             // Seen by the next exact check — the statement's own, or the one closing the entry.
             state.AllocatedBytes = SaturatingAdd(state.AllocatedBytes, Math.Min(leftLength, rightLength) * (long) sizeof(char));
+            RefreshPassLimit();
             return;
         }
 
         state.AllocatedBytes = SaturatingAdd(state.AllocatedBytes, length * sizeof(char));
+        RefreshPassLimit();
         Check();
     }
 
@@ -338,6 +405,7 @@ public sealed class MemoryLimitConstraint : Constraint
         }
 
         state.AllocatedBytes = SaturatingAdd(state.AllocatedBytes, bytes);
+        RefreshPassLimit();
         Check();
     }
 
@@ -376,6 +444,7 @@ public sealed class MemoryLimitConstraint : Constraint
             if (state is not null)
             {
                 _segmentDepth++;
+                RefreshPassLimit();
             }
 
             return new SegmentToken(Switched: false, null, 0);
@@ -392,6 +461,7 @@ public sealed class MemoryLimitConstraint : Constraint
             StartSegment();
         }
 
+        RefreshPassLimit();
         return new SegmentToken(Switched: true, previousState, previousDepth);
     }
 
@@ -402,6 +472,7 @@ public sealed class MemoryLimitConstraint : Constraint
             if (_activeState is not null)
             {
                 _segmentDepth--;
+                RefreshPassLimit();
             }
             return;
         }
@@ -413,6 +484,8 @@ public sealed class MemoryLimitConstraint : Constraint
         {
             StartSegment();
         }
+
+        RefreshPassLimit();
     }
 
     private OperationState RentState()
