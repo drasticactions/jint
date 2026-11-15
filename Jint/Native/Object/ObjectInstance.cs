@@ -2040,9 +2040,13 @@ public partial class ObjectInstance : JsValue, IEquatable<ObjectInstance>
             return false;
         }
 
-        _engine.Call(setter, receiver, [
-            value
-        ], expression: null);
+        // The setter gets a pooled argument list, as a call expression's callee does: an arguments object that
+        // outlives the call copies it, and a host setter reads its value during the call.
+        var pool = _engine._jsValueArrayPool;
+        var arguments = pool.RentArray(1);
+        arguments[0] = value;
+        _engine.Call(setter, receiver, arguments, expression: null);
+        pool.ReturnArray(arguments);
 
         return true;
     }

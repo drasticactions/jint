@@ -235,14 +235,20 @@ internal sealed partial class FunctionPrototype : Function
     [JsFunction(Length = 1, Name = "call")]
     private static JsValue CallImpl(ICallable thisObject, JsCallArguments arguments)
     {
-        JsValue[] values = [];
-        if (arguments.Length > 1)
+        if (arguments.Length <= 1)
         {
-            values = new JsValue[arguments.Length - 1];
-            System.Array.Copy(arguments, 1, values, 0, arguments.Length - 1);
+            return thisObject.Call(arguments.At(0), []);
         }
 
+        // The rest of the list is a pooled array, as a call expression's callee gets: a callee that keeps its
+        // arguments past the call copies them.
+        var count = arguments.Length - 1;
+        var pool = thisObject is ObjectInstance callee ? callee.Engine._jsValueArrayPool : null;
+        var values = pool?.RentArray(count) ?? new JsValue[count];
+        System.Array.Copy(arguments, 1, values, 0, count);
+
         var result = thisObject.Call(arguments.At(0), values);
+        pool?.ReturnArray(values);
 
         return result;
     }
