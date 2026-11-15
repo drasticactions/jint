@@ -15,6 +15,11 @@ internal sealed class ExpressionCache
 
     internal bool HasSpreads { get; private set; }
 
+    // The list is up to MaxLeadingArguments plain arguments and then one spread (`f(...args)`, `f(a, ...args)`), so a
+    // spread of an array that iterates as its elements fills a rented array directly (TrailingSpreadArgumentListEvaluation).
+    private bool _onlyTrailingSpread;
+    private const int MaxLeadingArguments = 2;
+
     internal void Initialize(ReadOnlySpan<Expression> arguments)
     {
         if (arguments.Length == 0)
@@ -59,6 +64,13 @@ internal sealed class ExpressionCache
                 }
             }
         }
+
+        var last = arguments.Length - 1;
+        _onlyTrailingSpread = last <= MaxLeadingArguments && _expressions[last] is JintSpreadExpression;
+        for (var i = 0; i < last; i++)
+        {
+            _onlyTrailingSpread &= arguments[i] is not null && arguments[i].Type != NodeType.SpreadElement && _expressions[i] is not JintSpreadExpression;
+        }
     }
 
     public JsValue[] ArgumentListEvaluation(EvaluationContext context, object key, out bool rented)
@@ -71,6 +83,11 @@ internal sealed class ExpressionCache
 
         if (HasSpreads)
         {
+            if (_onlyTrailingSpread && context.Engine.ExecutionContext.Suspendable is null)
+            {
+                return TrailingSpreadArgumentListEvaluation(context, out rented);
+            }
+
             var args = ArgumentListEvaluationWithSpreadsResumable(context, key);
             return args.ToArray();
         }
@@ -168,6 +185,78 @@ internal sealed class ExpressionCache
         }
 
         return e.Type == NodeType.SpreadElement || e is AssignmentExpression { Right.Type: NodeType.SpreadElement };
+    }
+
+    /// <summary>
+    /// <see cref="ArgumentListEvaluation"/> for a list of a few plain arguments and then one spread, outside a
+    /// generator or an async function (nothing here can suspend). The spread of an array whose iteration is the
+    /// built-in one (<see cref="ArrayInstance.HasOriginalIterator"/>, which makes GetIterator's one read of
+    /// <c>@@iterator</c>) is copied by index into an array rented for the whole list; anything else is iterated
+    /// as <see cref="BuildArgumentsWithSpreads"/> iterates it, with the method that read found.
+    /// </summary>
+    private JsValue[] TrailingSpreadArgumentListEvaluation(EvaluationContext context, out bool rented)
+    {
+        var engine = context.Engine;
+        var expressions = _expressions;
+        var leading = expressions.Length - 1;
+        var a0 = leading > 0 ? GetValue(context, expressions[0]) : null;
+        var a1 = leading > 1 ? GetValue(context, expressions[1]) : null;
+
+        var argument = ((JintSpreadExpression) expressions[leading]!)._argument.GetValue(context);
+        JsValue? iteratorMethod = null;
+        if (argument is JsArray ai && ai.HasOriginalIterator(out iteratorMethod))
+        {
+            var length = ai.GetLength();
+            if (engine._hasMaxArraySize)
+            {
+                ArrayInstance.ValidateListLength(engine, (ulong) leading + length);
+            }
+
+            if (length <= int.MaxValue - MaxLeadingArguments)
+            {
+                var arguments = engine._jsValueArrayPool.RentArray(leading + (int) length);
+                if (leading > 0)
+                {
+                    arguments[0] = a0!;
+                    if (leading > 1)
+                    {
+                        arguments[1] = a1!;
+                    }
+                }
+
+                for (var j = 0; j < (int) length; j++)
+                {
+                    arguments[leading + j] = ai.GetElement((uint) j);
+                }
+
+                rented = true;
+                return arguments;
+            }
+        }
+
+        var target = new List<JsValue>(leading + 4);
+        if (leading > 0)
+        {
+            target.Add(a0!);
+            if (leading > 1)
+            {
+                target.Add(a1!);
+            }
+        }
+
+        var iterator = ((JintSpreadExpression) expressions[leading]!).GetIterator(engine.Realm, argument, iteratorMethod);
+        IteratorProtocol protocol = engine._hasMaxArraySize
+            ? new BoundedArraySpreadProtocol(engine, target, iterator)
+            : new ArraySpreadProtocol(engine, target, iterator);
+        protocol.Execute();
+
+        if (engine._hasMaxArraySize)
+        {
+            ArrayInstance.ValidateListLength(engine, (uint) target.Count);
+        }
+
+        rented = false;
+        return target.ToArray();
     }
 
     internal JsValue[] DefaultSuperCallArgumentListEvaluation(EvaluationContext context)

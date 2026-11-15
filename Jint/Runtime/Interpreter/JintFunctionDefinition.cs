@@ -630,6 +630,21 @@ internal sealed class JintFunctionDefinition
         public Key[] ParameterNames = null!;
         public bool HasDuplicates;
         public bool IsSimpleParameterList;
+
+        /// <summary>
+        /// True when the parameter list is plain identifiers followed by one rest identifier (<c>(a, ...rest)</c>).
+        /// Such a list is not simple (no mapped arguments object, no sloppy duplicates), but binding it observes
+        /// nothing: the rest array is made from the argument list itself, never through an iterator
+        /// (https://tc39.es/ecma262/#sec-functiondeclarationinstantiation, step 25, over a list iterator record).
+        /// </summary>
+        public bool HasOnlyTrailingRestIdentifier;
+
+        /// <summary>
+        /// The slot of the rest parameter when <see cref="HasOnlyTrailingRestIdentifier"/> holds and the function
+        /// uses fixed slots: the parameters before it are filled from the arguments by position, and this slot
+        /// gets a new array of the arguments from this position on. -1 otherwise.
+        /// </summary>
+        public int RestParameterSlot = -1;
         public bool HasParameterExpressions;
         public bool ArgumentsObjectNeeded;
 
@@ -1043,8 +1058,9 @@ internal sealed class JintFunctionDefinition
             state.LexicalDeclarations = DeclarationCacheBuilder.Build(hoistingScope._lexicalDeclarations);
         }
 
-        // Fixed-slot qualification: use array-based binding storage for simple functions
-        if (state.IsSimpleParameterList
+        // Fixed-slot qualification: use array-based binding storage for simple functions, and for a list of
+        // identifiers ending in a rest identifier, whose rest slot the instantiation fills with a new array.
+        if ((state.IsSimpleParameterList || state.HasOnlyTrailingRestIdentifier)
             && !state.HasDuplicates
             && !state.HasParameterExpressions
             && !state.NeedsEvalContext
@@ -1114,6 +1130,7 @@ internal sealed class JintFunctionDefinition
 
                 state.SlotNames = slotNames;
                 state.ParameterSlotCount = state.ParameterNames.Length;
+                state.RestParameterSlot = state.HasOnlyTrailingRestIdentifier ? state.ParameterNames.Length - 1 : -1;
                 state.VarSlotCount = varsToInitialize.Count;
                 state.NonParameterSlotTemplate = nonParameterSlotTemplate;
                 state.UseFixedSlots = true;
@@ -1546,8 +1563,9 @@ Start:
         {
             if (parameter.Type == NodeType.RestElement)
             {
+                // `...name` binds name, which the Identifier case at Start records.
                 parameter = ((RestElement) parameter).Argument;
-                continue;
+                goto Start;
             }
 
             if (parameter.Type == NodeType.ArrayPattern)
@@ -1647,6 +1665,17 @@ Start:
         }
 
         state.ParameterNames = parameterNames.ToArray();
+
+        if (!state.IsSimpleParameterList && count > 0 && functionDeclarationParams[count - 1] is RestElement { Argument: Identifier })
+        {
+            var onlyIdentifiersBefore = true;
+            for (var i = 0; i < count - 1; i++)
+            {
+                onlyIdentifiersBefore &= functionDeclarationParams[i].Type == NodeType.Identifier;
+            }
+
+            state.HasOnlyTrailingRestIdentifier = onlyIdentifiersBefore && !state.HasDuplicates;
+        }
     }
 
     /// <summary>

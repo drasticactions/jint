@@ -199,6 +199,41 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
         }
     }
 
+    /// <summary>
+    /// The fixed-slot arm for a parameter list of identifiers ending in a rest identifier
+    /// (<see cref="JintFunctionDefinition.State.RestParameterSlot"/>): the identifiers take the arguments by
+    /// position and the rest slot a new array of the arguments after them, which is what binding the list over a
+    /// list iterator of the arguments produces, with no iterator to observe.
+    /// </summary>
+    internal void InitializeParametersWithRest<TArgs>(int restSlot, in TArgs arguments)
+        where TArgs : struct, IArgumentSource
+    {
+        var slots = _slots!;
+        for (var i = 0; i < restSlot; i++)
+        {
+            slots[i] = new Binding(arguments.At(i), canBeDeleted: false, mutable: true, strict: false);
+        }
+
+        var count = arguments.Count - restSlot;
+        JsArray rest;
+        if (count > 0)
+        {
+            var values = new JsValue[count];
+            for (var i = 0; i < values.Length; i++)
+            {
+                values[i] = arguments.At(restSlot + i);
+            }
+
+            rest = new JsArray(_engine, values);
+        }
+        else
+        {
+            rest = new JsArray(_engine);
+        }
+
+        slots[restSlot] = new Binding(rest, canBeDeleted: false, mutable: true, strict: false);
+    }
+
     internal void AddFunctionParameters(EvaluationContext context, IFunction functionDeclaration, JsCallArguments arguments)
     {
         var empty = _dictionary is null || _dictionary.Count == 0;

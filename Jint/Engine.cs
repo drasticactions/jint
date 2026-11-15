@@ -5080,7 +5080,14 @@ public sealed partial class Engine : IDisposable
         where TArgs : struct, IArgumentSource
     {
         var fastEnv = (FunctionEnvironment) ExecutionContext.LexicalEnvironment;
-        fastEnv.InitializeParametersFast(configuration.ParameterNames, in argumentsList);
+        if (configuration.RestParameterSlot < 0)
+        {
+            fastEnv.InitializeParametersFast(configuration.ParameterNames, in argumentsList);
+        }
+        else
+        {
+            fastEnv.InitializeParametersWithRest(configuration.RestParameterSlot, in argumentsList);
+        }
 
         // Stamp every non-parameter slot from the template: undefined for a hoisted var, the temporal
         // dead zone with the declaration's mutability for a top-level let/const. One unconditional
@@ -5118,7 +5125,14 @@ public sealed partial class Engine : IDisposable
         if (configuration.CanUseFastFDI && !_isDebugMode)
         {
             var fastEnv = (FunctionEnvironment) ExecutionContext.LexicalEnvironment;
-            fastEnv.InitializeParameters(configuration.ParameterNames, false, argumentsList);
+            if (configuration.RestParameterSlot < 0)
+            {
+                fastEnv.InitializeParameters(configuration.ParameterNames, false, argumentsList);
+            }
+            else
+            {
+                fastEnv.InitializeParametersWithRest(configuration.RestParameterSlot, new ArrayArguments(argumentsList));
+            }
 
             // Stamp every non-parameter slot from the template (see FunctionDeclarationInstantiationFast).
             var slots = fastEnv._slots!;
@@ -5147,8 +5161,17 @@ public sealed partial class Engine : IDisposable
         }
 
         var canInitializeParametersOnDeclaration = simpleParameterList && !configuration.HasDuplicates;
-        var arguments = canInitializeParametersOnDeclaration ? argumentsList : null;
-        env.InitializeParameters(parameterNames, hasDuplicates, arguments);
+        if (configuration.RestParameterSlot >= 0)
+        {
+            // Identifiers and a rest identifier in fixed slots (the debugger's arm): bound as the fast arm binds them.
+            canInitializeParametersOnDeclaration = true;
+            env.InitializeParametersWithRest(configuration.RestParameterSlot, new ArrayArguments(argumentsList));
+        }
+        else
+        {
+            var arguments = canInitializeParametersOnDeclaration ? argumentsList : null;
+            env.InitializeParameters(parameterNames, hasDuplicates, arguments);
+        }
 
         JsArguments? ao = null;
         if (configuration.ArgumentsObjectNeeded || _isDebugMode)
