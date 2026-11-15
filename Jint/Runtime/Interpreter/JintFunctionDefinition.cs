@@ -590,6 +590,71 @@ internal sealed class JintFunctionDefinition
     internal State? BuiltState => ((Node) Function).UserData as State;
 
     /// <summary>
+    /// How a call of this function can treat its function object, for a call of a deferred closure that has not
+    /// been created yet (<see cref="JsObject.GetSlotForCall"/>). Decided from the built State and the body, once.
+    /// </summary>
+    internal enum FunctionObjectUse : byte
+    {
+        /// <summary>Not decided yet: the State has not been built.</summary>
+        Unknown,
+
+        /// <summary>The body can reach its own function object, or the call may need it some other way.</summary>
+        Needed,
+
+        /// <summary>
+        /// Nothing the body runs can reach the function object: no <c>arguments</c> object, or one without the
+        /// function as its <c>callee</c> (strict, or a parameter list that is not simple), and no direct eval or
+        /// <c>debugger</c> statement. An anonymous function expression has no name binding of its own, and an
+        /// ordinary function's call has no home object and no new.target, so the object is only the call's
+        /// bookkeeping (the call stack frame, the execution context, the function environment).
+        /// </summary>
+        NotReachable,
+    }
+
+    private FunctionObjectUse _functionObjectUse;
+
+    /// <summary>
+    /// Whether a call of this function reaches its function object (see <see cref="FunctionObjectUse"/>);
+    /// <see cref="FunctionObjectUse.Unknown"/> until the State is built.
+    /// </summary>
+    internal FunctionObjectUse GetFunctionObjectUse()
+    {
+        var use = _functionObjectUse;
+        if (use != FunctionObjectUse.Unknown)
+        {
+            return use;
+        }
+
+        var state = BuiltState;
+        if (state is null)
+        {
+            return FunctionObjectUse.Unknown;
+        }
+
+        use = FunctionObjectUse.Needed;
+        if (!IsArrowFunction
+            && !IsAsync
+            && !IsGenerator
+            && (!state.ArgumentsObjectNeeded || Strict || !state.IsSimpleParameterList))
+        {
+            try
+            {
+                if ((EvalContextAstVisitor.Scan(Function) & EvalContextAstVisitor.Usage.EvalContext) == EvalContextAstVisitor.Usage.None)
+                {
+                    use = FunctionObjectUse.NotReachable;
+                }
+            }
+            catch (ScriptPreparationException exception) when (SyntaxNesting.IsTooDeep(exception))
+            {
+                // Too deep to scan: the call creates the function, as it always did.
+            }
+        }
+
+        _functionObjectUse = use;
+        return use;
+    }
+
+    /// <summary>
     /// <see cref="Initialize"/> for a function being called, constructed, or having its <c>length</c> or source text
     /// read: a body too deep for the stack to analyse fails as the <c>RangeError</c> a call throws, whoever asked,
     /// script or host. See <see cref="SyntaxNesting"/>.

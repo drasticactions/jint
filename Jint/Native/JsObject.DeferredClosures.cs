@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Jint.Native.Function;
 using Jint.Native.Object;
 using Jint.Runtime;
@@ -89,6 +90,38 @@ public sealed partial class JsObject
         return true;
     }
 
+    /// <summary>
+    /// Reads a slot for the callee of a call <c>o.name(...)</c>: <see cref="GetSlotForRead"/>, except that the
+    /// first call of a deferred closure whose body cannot reach its own function object
+    /// (<see cref="JintFunctionDefinition.FunctionObjectUse.NotReachable"/>) gets a function made for that call
+    /// alone, and the slot keeps deferring. A constructor's methods are mostly called once per object, if at
+    /// all, so an object that lives long then holds no closure for them; a second call creates the slot's
+    /// function as a read does.
+    /// <para>
+    /// The function the call runs is not observable: the body cannot name it, the callee value goes no further
+    /// than the call, and what the engine keeps of a frame (the recursion count, a stack trace's frame name and
+    /// location, the profilers' entries) is keyed by the definition, which it shares with the function a read
+    /// creates. So the call behaves as if it had run the slot's function, which a later read creates and
+    /// memoizes once as before. A debugger, which can show a frame's function, always gets the slot's.
+    /// </para>
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal JsValue GetSlotForCall(int slot)
+    {
+        var value = GetSlot(slot);
+        if (value is DeferredClosures closures)
+        {
+            return closures.CalleeForCall(this, slot);
+        }
+
+        if (value is LayoutSlots)
+        {
+            return MaterializeSlot(Unsafe.As<UnmaterializedSlots>(value), slot);
+        }
+
+        return value;
+    }
+
     private DeferredClosures? FindDeferredClosures(Environment environment, FunctionOrigin origin)
     {
         if ((_type & InternalTypes.HasLazySlots) == InternalTypes.Empty)
@@ -123,10 +156,37 @@ public sealed partial class JsObject
         internal readonly FunctionOrigin Origin;
         internal JintFunctionDefinition?[]? Definitions;
 
+        // The slots below 32 whose function has run once for a call without being created (see
+        // GetSlotForCall). It fills the padding after JsValue's type field, so the sentinel is no larger.
+        private uint _calledSlots;
+
         internal DeferredClosures(Environment environment, FunctionOrigin origin)
         {
             Environment = environment;
             Origin = origin;
+        }
+
+        /// <summary>
+        /// The callee of a call of <paramref name="slot"/>, which holds this sentinel: a function for this call
+        /// alone on the slot's first call when its body cannot reach it, the slot's materialized function
+        /// otherwise. See <see cref="GetSlotForCall"/>.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal JsValue CalleeForCall(JsObject owner, int slot)
+        {
+            var definition = Definitions![slot]!;
+            var engine = owner._engine;
+            var bit = slot < 32 ? 1u << slot : 0u;
+            if ((_calledSlots & bit) == 0
+                && bit != 0
+                && !engine._isDebugMode
+                && definition.GetFunctionObjectUse() == JintFunctionDefinition.FunctionObjectUse.NotReachable)
+            {
+                _calledSlots |= bit;
+                return JintFunctionExpression.InstantiateDeferred(engine, definition, Environment, Origin);
+            }
+
+            return owner.MaterializeSlot(this, slot);
         }
 
         internal override JsValue Materialize(JsObject owner, int slot)

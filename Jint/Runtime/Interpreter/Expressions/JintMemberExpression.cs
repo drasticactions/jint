@@ -945,12 +945,13 @@ internal sealed class JintMemberExpression : JintExpression
             {
                 // A member call whose callee is a lazy member (`e.body.toString()` resolves the base through
                 // the read lane; `e.decode()` resolves the callee here) materializes it like any other value
-                // observation. Cache fields shared with the plain arm — see the read lane's note.
+                // observation, except a deferred closure's first call (JsObject.GetSlotForCall). Cache fields
+                // shared with the plain arm — see the read lane's note.
                 var lazyObj = Unsafe.As<JsObject>(baseObject);
                 var lazyShape = lazyObj.ShapeOf;
                 if (ReferenceEquals(lazyShape, _cachedShape))
                 {
-                    callee = lazyObj.GetSlotForRead(_cachedShapeSlot);
+                    callee = lazyObj.GetSlotForCall(_cachedShapeSlot);
                     return true;
                 }
 
@@ -959,7 +960,7 @@ internal sealed class JintMemberExpression : JintExpression
                     DropReceiverEntries();
                     _cachedShape = lazyShape;
                     _cachedShapeSlot = lazySlot;
-                    callee = lazyObj.GetSlotForRead(lazySlot);
+                    callee = lazyObj.GetSlotForCall(lazySlot);
                     return true;
                 }
 
