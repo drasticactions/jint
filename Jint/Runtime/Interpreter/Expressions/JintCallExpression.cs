@@ -31,6 +31,13 @@ internal sealed class JintCallExpression : JintExpression
     private readonly bool _baseCallLane;
 
     /// <summary>
+    /// The callee when it is a plain identifier other than <c>eval</c> (<c>f(x)</c>), which a call reads through the
+    /// identifier's slot and global caches instead of renting a <see cref="Reference"/> for it. A direct eval needs
+    /// the reference, so <c>eval(…)</c> keeps it.
+    /// </summary>
+    private readonly JintIdentifierExpression? _calleeIdentifier;
+
+    /// <summary>
     /// Whether <see cref="EvaluateInternal"/> hands the whole evaluation to another method at its first test:
     /// a <c>super(…)</c> call, and a call whose arguments may suspend the frame
     /// (<see cref="_argumentsMaySuspend"/>). Both are decided at build time, and the test is the one
@@ -118,6 +125,9 @@ internal sealed class JintCallExpression : JintExpression
         _calleeMember?.HandsOnBaseAsReceiver();
         _isTailPosition = ReferenceEquals(expression.UserData, TailCallMarker.Instance);
         _baseCallLane = _calleeMember is { IsBaseCallEligible: true } && !expression.IsOptional();
+        _calleeIdentifier = _calleeExpression is JintIdentifierExpression { HasEvalOrArguments: false } calleeIdentifier
+            ? calleeIdentifier
+            : null;
 
         // A ChainExpression callee is a chain of its own whose value has already been taken
         // (`(a?.b)()`), so its short circuit is a real undefined and this call must run against it.
@@ -255,6 +265,19 @@ internal sealed class JintCallExpression : JintExpression
                 reference = referenceRecord;
             }
         }
+        else if (_calleeIdentifier is not null
+                 && !engine._customResolver
+                 && _calleeIdentifier.TryGetCachedCallee(engine) is { } identifierCallee
+                 && IsCallableFlagged(identifierCallee))
+        {
+            // A binding of a declarative or the global environment: the this value is undefined, as WithBaseObject
+            // gives it for both. Anything else, a callee that is not callable included, takes the reference below,
+            // which reads the binding again; the cached read observed nothing, so that is not visible.
+            func = identifierCallee;
+            thisObject = JsValue.Undefined;
+            referenceRecord = null;
+            reference = identifierCallee;
+        }
         else
         {
             var calleeReference = _calleeExpression.Evaluate(context);
@@ -324,6 +347,7 @@ internal sealed class JintCallExpression : JintExpression
                     {
                         var refEnv = (Environment) baseValue;
                         thisObject = refEnv.WithBaseObject();
+                        _calleeIdentifier?.RememberCalleeResolution(engine, refEnv);
                     }
                 }
             }

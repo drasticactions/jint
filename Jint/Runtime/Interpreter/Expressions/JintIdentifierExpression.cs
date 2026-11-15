@@ -54,6 +54,10 @@ internal sealed class JintIdentifierExpression : JintExpression
     private const int NestedChainMemoRetryPeriod = 64;
     private const int NestedChainMemoProductiveHits = 2;
 
+    // Resolutions of this node as a callee that left no cache to read it through; see RememberCalleeResolution.
+    private byte _calleeCacheMisses;
+    private const int MaxCalleeCacheMisses = 4;
+
     // Bounded walk: chain depth is typically 1-3 in real code; deeper chains fall through.
     private const int MaxSlotCacheChainDepth = 4;
 
@@ -310,29 +314,7 @@ internal sealed class JintIdentifierExpression : JintExpression
                 _cachedEnvironment = null;
             }
 
-            // Populate slot-binding cache when the resolved env stores this binding in a fixed slot.
-            // Closure-captured envs cannot be pooled (escape detection prevents it), so caching the
-            // env reference is safe; slot indices are immutable for the lifetime of the env.
-            if (identifierEnvironment is DeclarativeEnvironment denv)
-            {
-                var slotIndex = denv.FindSlotIndex(identifier.Key);
-                if (slotIndex >= 0)
-                {
-                    // Resolving again after the cache was populated: the node runs under more than one chain, and
-                    // the layout lets the next switch skip both walks.
-                    _slotLayout = _cachedSlotEnv is not null
-                        ? SlotLayoutMemo.TryCreate(engine, env, denv, slotIndex, identifier.Key)
-                        : null;
-                    _cachedSlotEnv = denv;
-                    _cachedSlotIndex = slotIndex;
-                }
-            }
-            else if (identifierEnvironment is GlobalEnvironment globalEnv)
-            {
-                // No hop restriction: the validator re-walks with shadow probes on every read,
-                // so nested-scope reads of globals (loop bodies, closures) can use the cache.
-                TryRememberGlobalBinding(globalEnv);
-            }
+            RememberResolution(engine, env, identifierEnvironment);
 
             if (value is null)
             {
@@ -346,6 +328,118 @@ internal sealed class JintIdentifierExpression : JintExpression
         }
 
         return HandOn(value);
+    }
+
+    /// <summary>
+    /// Fills the caches <see cref="GetValue"/> reads through after a full resolution from <paramref name="env"/> found
+    /// the binding in <paramref name="identifierEnvironment"/>.
+    /// </summary>
+    private bool RememberResolution(Engine engine, Environment env, Environment identifierEnvironment)
+    {
+        // Populate slot-binding cache when the resolved env stores this binding in a fixed slot.
+        // Closure-captured envs cannot be pooled (escape detection prevents it), so caching the
+        // env reference is safe; slot indices are immutable for the lifetime of the env.
+        if (identifierEnvironment is DeclarativeEnvironment denv)
+        {
+            var key = _identifier.Key;
+            var slotIndex = denv.FindSlotIndex(key);
+            if (slotIndex >= 0)
+            {
+                // Resolving again after the cache was populated: the node runs under more than one chain, and
+                // the layout lets the next switch skip both walks.
+                _slotLayout = _cachedSlotEnv is not null
+                    ? SlotLayoutMemo.TryCreate(engine, env, denv, slotIndex, key)
+                    : null;
+                _cachedSlotEnv = denv;
+                _cachedSlotIndex = slotIndex;
+                return true;
+            }
+        }
+        else if (identifierEnvironment is GlobalEnvironment globalEnv)
+        {
+            // No hop restriction: the validator re-walks with shadow probes on every read,
+            // so nested-scope reads of globals (loop bodies, closures) can use the cache.
+            TryRememberGlobalBinding(globalEnv);
+            return ReferenceEquals(_cachedGlobalEnv, globalEnv);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The callee of a call whose callee is this identifier, read through the slot and global caches of
+    /// <see cref="GetValue"/> without a <see cref="Reference"/>; <see langword="null"/> when no cache serves the read
+    /// or the binding is not initialized, and the call then evaluates the identifier as a reference. A cached binding
+    /// lives in a declarative or the global environment, whose <c>WithBaseObject</c> is undefined, so the call's this
+    /// value is undefined. The read leaves the last syntax element alone, as the reference evaluation it replaces
+    /// restores it, and probes nothing a script can observe, so a miss costs only the caches' own checks.
+    /// </summary>
+    internal JsValue? TryGetCachedCallee(Engine engine)
+    {
+        var env = engine.ExecutionContext.LexicalEnvironment;
+        JsValue? value;
+
+        var cachedSlotEnv = _cachedSlotEnv;
+        if (cachedSlotEnv is not null && ReferenceEquals(cachedSlotEnv._engine, engine))
+        {
+            var idx = _cachedSlotIndex;
+            if (!ReferenceEquals(env, cachedSlotEnv))
+            {
+                var layout = _slotLayout;
+                var reached = SlotLocationCache.ReachAtOuterHopOrLayout(engine, env, cachedSlotEnv, _identifier.Key, ref _slotChainMemo, layout);
+                if (reached is not null && !ReferenceEquals(reached, cachedSlotEnv))
+                {
+                    idx = layout!.SlotIndex;
+                    _cachedSlotEnv = reached;
+                    _cachedSlotIndex = idx;
+                }
+
+                cachedSlotEnv = reached;
+            }
+
+            if (cachedSlotEnv is not null)
+            {
+                var slots = cachedSlotEnv._slots;
+                if (slots is not null && (uint) idx < (uint) slots.Length)
+                {
+                    ref var binding = ref slots[idx];
+                    value = binding.HasReferenceValue
+                        ? binding.PeekValue
+                        : DeclarativeEnvironment.MaterializeUnboxedOrNull(ref binding);
+                    return value is null ? null : HandOn(value);
+                }
+            }
+        }
+
+        if (_cachedGlobalEnv is not null)
+        {
+            var cachedGlobalDescriptor = TryGetValidatedGlobalDescriptor(engine, env);
+            if (cachedGlobalDescriptor is not null)
+            {
+                value = cachedGlobalDescriptor._value;
+                return value is null ? null : HandOn(value);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Fills the caches <see cref="TryGetCachedCallee"/> reads after the call evaluated this identifier as a reference
+    /// that resolved in <paramref name="identifierEnvironment"/>.
+    /// </summary>
+    /// <remarks>
+    /// A binding no cache can hold, one of an environment that keeps its bindings by name, fails the same way every
+    /// time, so after <see cref="MaxCalleeCacheMisses"/> such resolutions the call stops trying.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal void RememberCalleeResolution(Engine engine, Environment identifierEnvironment)
+    {
+        if (_calleeCacheMisses < MaxCalleeCacheMisses
+            && !RememberResolution(engine, engine.ExecutionContext.LexicalEnvironment, identifierEnvironment))
+        {
+            _calleeCacheMisses++;
+        }
     }
 
     /// <summary>

@@ -551,7 +551,7 @@ public sealed class ScriptFunction : Function, IConstructor
             // recursive pool so another simultaneously live frame can reuse env + slots.
             if (funcEnv._slots is { } recursiveSlots)
             {
-                System.Array.Clear(recursiveSlots, 0, recursiveSlots.Length);
+                ClearSlots(recursiveSlots);
             }
             var pool = _envReuse as RecursiveEnvPool;
             if (pool is null)
@@ -564,7 +564,7 @@ public sealed class ScriptFunction : Function, IConstructor
         {
             if (funcEnv._slots is { } slots)
             {
-                System.Array.Clear(slots, 0, slots.Length);
+                ClearSlots(slots);
 
                 // An environment this instance keeps for its own next call keeps its cleared slot array too, so
                 // that call takes neither from the State. Any other environment hands the array to the shared
@@ -612,6 +612,26 @@ public sealed class ScriptFunction : Function, IConstructor
     }
 
     /// <summary>
+    /// Clears a returned environment's slots. A call's few slots are cleared in place: a cleared binding holds only
+    /// null references, which need no write barrier, and the general clear costs more than that for so few.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void ClearSlots(Binding[] slots)
+    {
+        if (slots.Length <= 4)
+        {
+            for (var i = 0; i < slots.Length; i++)
+            {
+                slots[i] = default;
+            }
+        }
+        else
+        {
+            System.Array.Clear(slots, 0, slots.Length);
+        }
+    }
+
+    /// <summary>
     /// The shared body behind this function's two fast synchronous [[Call]] entry points — the
     /// array-backed <see cref="Call"/> arm and the register-backed <see cref="CallFromRegisters"/> —
     /// generic over where the argument values live, so the JIT specializes it per source and the
@@ -651,27 +671,16 @@ public sealed class ScriptFunction : Function, IConstructor
             var context = _engine._evaluationContext;
             var definition = _functionDefinition!;
 
+            // EvaluateBodyFast, with the instantiation taken out so that this method inlines one copy of it.
+            _engine.FunctionDeclarationInstantiationFast(state, in args);
+
             if (definition.SingleReturnBody is { } singleReturnBody)
             {
-                // EvaluateBodyFast's statement-body arm, with the completion unwrapped by the list.
-                _engine.FunctionDeclarationInstantiationFast(state, in args);
+                // The statement-body arm, with the completion unwrapped by the list.
                 return singleReturnBody.ExecuteSingleReturnBody(context);
             }
 
-            var result = definition.EvaluateBodyFast(context, in args, state);
-
-            // Not async by the gate, so disposal is never deferred to AsyncBlockStart.
-            result = calleeContext.LexicalEnvironment.DisposeResources(result);
-
-            if (result.Type == CompletionType.Throw)
-            {
-                Throw.JavaScriptException(_engine, result.Value, in result);
-            }
-
-            if (result.Type == CompletionType.Return)
-            {
-                return result.Value;
-            }
+            return EvaluateInstantiatedBody(context, definition, in calleeContext);
         }
         finally
         {
@@ -681,8 +690,28 @@ public sealed class ScriptFunction : Function, IConstructor
             }
             _engine.LeaveExecutionContext();
         }
+    }
 
-        return Undefined;
+    /// <summary>
+    /// The rest of <see cref="CallCore{TArgs}"/> for a body other than a single <c>return</c>: evaluates it, disposes
+    /// its resources and turns the completion into the call's value. Out of line because its completion records are
+    /// stack slots the runtime zeroes on entry, which every call through the register lane paid for when they were
+    /// part of its frame.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private JsValue EvaluateInstantiatedBody(EvaluationContext context, JintFunctionDefinition definition, in Runtime.Environments.ExecutionContext calleeContext)
+    {
+        var result = definition.EvaluateInstantiatedBodyFast(context);
+
+        // Not async by the gate, so disposal is never deferred to AsyncBlockStart.
+        result = calleeContext.LexicalEnvironment.DisposeResources(result);
+
+        if (result.Type == CompletionType.Throw)
+        {
+            Throw.JavaScriptException(_engine, result.Value, in result);
+        }
+
+        return result.Type == CompletionType.Return ? result.Value : Undefined;
     }
 
     /// <summary>

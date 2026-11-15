@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -98,8 +99,49 @@ internal sealed class JintCallStack
             return Push(in item);
         }
 
-        var frame = new CallStackElement(function, expression, default);
-        return Push(in frame);
+        // A popped slot is cleared (PopAndDiscard, Pop, Clear), so the calling context this frame does not record is
+        // null already: only the function and the call site are written, rather than a whole element whose two null
+        // references each cost a write barrier.
+        var stack = _stack;
+        if (stack._size == stack._array.Length)
+        {
+            stack.EnsureCapacity(stack._size + 1);
+        }
+
+        ref var slot = ref stack._array[stack._size++];
+        Debug.Assert(slot.Function is null && slot.Expression is null && slot.CallingExecutionContext.LexicalEnvironment is null && slot.CallingExecutionContext.ScriptOrModule is null);
+        // MA0168 (net472/netstandard2.0 only): see ExecutionContextStack.ReplaceTopStrict.
+#pragma warning disable MA0168
+        Unsafe.AsRef(in slot.Function) = function;
+        if (expression is not null)
+        {
+            Unsafe.AsRef(in slot.Expression) = expression;
+        }
+#pragma warning restore MA0168
+
+        _profiler?.RecordEnter(function);
+        return _statistics is null ? -1 : CountPush(in slot);
+    }
+
+    /// <summary>
+    /// The recursion-depth statistics of a pushed frame, out of line so that the dictionary's code stays out of the
+    /// call paths that inline <see cref="Push(Function, JintExpression?, in ExecutionContext)"/>.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private int CountPush(in CallStackElement item)
+    {
+        var statistics = _statistics!;
+#pragma warning disable CA1854
+#pragma warning disable CA1864
+        if (statistics.ContainsKey(item))
+#pragma warning restore CA1854
+#pragma warning restore CA1864
+        {
+            return ++statistics[item];
+        }
+
+        statistics.Add(item, 0);
+        return 0;
     }
 
     private int Push(in CallStackElement item)

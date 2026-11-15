@@ -197,6 +197,30 @@ internal sealed class JintFunctionDefinition
     }
 
     /// <summary>
+    /// <see cref="EvaluateBodyFast{TArgs}"/> for a body whose declarations the caller has already instantiated with
+    /// <see cref="Engine.FunctionDeclarationInstantiationFast{TArgs}"/>. Building a concise body's expression after
+    /// the instantiation rather than before it changes nothing observable: building runs no script, and the
+    /// instantiation only fills the call's own slots.
+    /// </summary>
+    internal Completion EvaluateInstantiatedBodyFast(EvaluationContext context)
+    {
+        System.Diagnostics.Debug.Assert(!Function.Generator && !Function.Async);
+
+        if (!HasStatementBody)
+        {
+            // https://tc39.es/ecma262/#sec-runtime-semantics-evaluateconcisebody
+            var bodyExpression = _bodyExpression ?? BuildBodyExpression(context);
+            var body = _body;
+            context.RunBeforeExecuteStatementChecks(body);
+            var jsValue = bodyExpression.GetValue(context);
+            return new Completion(CompletionType.Return, jsValue, body);
+        }
+
+        // https://tc39.es/ecma262/#sec-runtime-semantics-evaluatefunctionbody
+        return (_bodyStatementList ?? BuildBodyStatementList(context)).ExecuteSynchronousFunctionBody(context);
+    }
+
+    /// <summary>
     /// The built statement list of a body that is a single <c>return &lt;expression&gt;;</c> (see
     /// <see cref="JintStatementList.ExecuteSingleReturnBody"/>), or null — also until the body is first built.
     /// </summary>
