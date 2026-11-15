@@ -65,6 +65,11 @@ internal sealed class JintWhileStatement : JintIterationStatement<WhileStatement
             return TightWhileBody(context);
         }
 
+        if (context.Engine.ExecutionContext.Suspendable is null)
+        {
+            return ExecuteWithoutSuspendable(context);
+        }
+
         var v = JsValue.Undefined;
         var suspensionNode = GetSuspensionNode(context.Engine.ExecutionContext.Suspendable);
         var skipTestOnce = suspensionNode is not null && IsNodeInsideRange(suspensionNode, _statement.Body.Range);
@@ -110,6 +115,50 @@ internal sealed class JintWhileStatement : JintIterationStatement<WhileStatement
                 var bodySuspendable = context.Engine.ExecutionContext.Suspendable;
                 var suspendedValue = bodySuspendable?.SuspendedValue ?? completion.Value;
                 return new Completion(CompletionType.Return, suspendedValue, _statement);
+            }
+
+            if (completion.Type != CompletionType.Continue || (completion.Target is { } target && !LabelSetContains(target)))
+            {
+                if (completion.Type == CompletionType.Break && (completion.Target == null || string.Equals(completion.Target, _labelSetName, StringComparison.Ordinal)))
+                {
+                    return new Completion(CompletionType.Normal, v, _statement);
+                }
+
+                if (completion.Type != CompletionType.Normal)
+                {
+                    return completion;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The loop in a frame that cannot suspend (no generator or async function in its execution context): nothing
+    /// resumes into the body and neither the test nor the body suspends, so what is left per iteration is the test,
+    /// the body and its completion, as <see cref="ExecuteInternal"/> has them.
+    /// </summary>
+    private Completion ExecuteWithoutSuspendable(EvaluationContext context)
+    {
+        var v = JsValue.Undefined;
+        var debugMode = context.DebugMode;
+
+        while (true)
+        {
+            if (debugMode)
+            {
+                context.Engine.Debugger.OnStep(_test._expression);
+            }
+
+            if (!_test.GetBooleanValue(context))
+            {
+                return new Completion(CompletionType.Normal, v, _statement);
+            }
+
+            var completion = _body.ExecuteWithoutSuspendable(context);
+
+            if (!completion.Value.IsEmpty)
+            {
+                v = completion.Value;
             }
 
             if (completion.Type != CompletionType.Continue || (completion.Target is { } target && !LabelSetContains(target)))

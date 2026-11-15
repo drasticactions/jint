@@ -34,8 +34,14 @@ internal sealed class JintIfStatement : JintStatement<IfStatement>
 
     protected override Completion ExecuteInternal(EvaluationContext context)
     {
+        var frameSuspendable = context.Engine.ExecutionContext.Suspendable;
+        if (frameSuspendable is null)
+        {
+            return ExecuteWithoutSuspendable(context);
+        }
+
         Completion result;
-        var suspensionNode = GetSuspensionNode(context.Engine.ExecutionContext.Suspendable);
+        var suspensionNode = GetSuspensionNode(frameSuspendable);
         if (suspensionNode is not null && IsNodeInsideRange(suspensionNode, _statement.Consequent.Range))
         {
             result = _statementConsequent.Execute(context);
@@ -82,6 +88,35 @@ internal sealed class JintIfStatement : JintStatement<IfStatement>
             {
                 result = Completion.Empty();
             }
+        }
+
+        return result.UpdateEmpty(JsValue.Undefined);
+    }
+
+    /// <summary>
+    /// The statement in a frame that cannot suspend (no generator or async function in its execution context):
+    /// nothing resumes into a branch and the test cannot suspend, so what is left is the test and the branch it
+    /// picks.
+    /// </summary>
+    private Completion ExecuteWithoutSuspendable(EvaluationContext context)
+    {
+        Completion result;
+        if (_test.GetBooleanValue(context))
+        {
+            // B.3.2/B.3.3: IfStatement function declarations need runtime AnnexB handling
+            result = _consequentIsFunctionDecl && !context.Engine.ExecutionContext.Strict
+                ? ExecuteAnnexBFunctionDeclaration(context, (FunctionDeclaration) _statement.Consequent)
+                : _statementConsequent.ExecuteWithoutSuspendable(context);
+        }
+        else if (_alternate is { } alternate)
+        {
+            result = _alternateIsFunctionDecl && !context.Engine.ExecutionContext.Strict
+                ? ExecuteAnnexBFunctionDeclaration(context, (FunctionDeclaration) _statement.Alternate!)
+                : alternate.ExecuteWithoutSuspendable(context);
+        }
+        else
+        {
+            result = Completion.Empty();
         }
 
         return result.UpdateEmpty(JsValue.Undefined);

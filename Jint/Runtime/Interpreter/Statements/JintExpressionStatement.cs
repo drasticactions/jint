@@ -53,6 +53,27 @@ internal sealed class JintExpressionStatement : JintStatement<ExpressionStatemen
     }
 
     /// <summary>
+    /// <see cref="JintStatement.Execute"/> for a statement list running in a frame that cannot suspend (no generator or
+    /// async function in its execution context): the same checks and evaluation, with the value of the Normal
+    /// completion the statement always ends with returned on its own.
+    /// </summary>
+    internal JsValue ExecuteWithoutSuspendable(EvaluationContext context)
+    {
+        context.PrepareFor(_statement);
+        context.RunBeforeExecuteStatementChecks(_statement);
+
+        if (_expressionCanDiscard && !context.CompletionValuesObservable)
+        {
+            _expression.EvaluateAndDiscard(context);
+            return JsValue.Undefined;
+        }
+
+        return _identifierExpression is not null
+            ? _identifierExpression.GetValue(context)
+            : _expression.GetValue(context);
+    }
+
+    /// <summary>
     /// Tight-loop entry: evaluates the expression for side effects only, skipping the
     /// per-statement ceremony (PrepareFor, constraint checks, Completion construction).
     /// Callers guarantee a non-suspendable frame, no constraint/debug checks and dead

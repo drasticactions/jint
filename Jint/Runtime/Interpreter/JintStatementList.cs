@@ -23,7 +23,9 @@ internal enum CompletionValueObservability : byte
 
 internal sealed class JintStatementList
 {
-    private readonly record struct Pair(JintStatement Statement, JsValue? Value, bool NormalValueDead);
+    // Expression and Block: the statement when it is an expression statement or a block, which the lanes for
+    // frames that cannot suspend run without a virtual call (and for an expression statement, a completion record).
+    private readonly record struct Pair(JintStatement Statement, JsValue? Value, bool NormalValueDead, JintExpressionStatement? Expression, JintBlockStatement? Block);
 
     private readonly Statement? _statement;
     private readonly CompletionValueObservability _observability;
@@ -34,12 +36,15 @@ internal sealed class JintStatementList
     // resume positions live on the suspendable (SuspendDataDictionary), not here.
     private readonly Pair[] _jintStatements;
 
-    // A function body whose first statement stores its own node as the last syntax element before anything
-    // can read it: the body's own store is then made only where a check could report it.
+    // A function body or block whose first statement stores its own node as the last syntax element before
+    // anything can read it: the list's own store is then made only where a check could report it.
     private readonly bool _firstStatementStoresLocation;
 
     // A function body that is a single `return <expression>;`, run by ExecuteSingleReturnBody.
     private readonly JintReturnStatement? _singleReturn;
+
+    // A function body with no using declaration of its own, run by ExecuteValueBody.
+    private readonly bool _isValueBody;
 
     // exposed so enclosing loop fast paths can iterate the exact handler instances of this list
     internal int Count => _jintStatements.Length;
@@ -86,7 +91,7 @@ internal sealed class JintStatementList
             // FastResolve pre-evaluates literal return values.
             // Debug mode check moved to Execute loop to preserve stepping behavior.
             var value = JintStatement.FastResolve(esprimaStatement);
-            jintStatements[i] = new Pair(stmt, value, NormalValueDead: false);
+            jintStatements[i] = new Pair(stmt, value, NormalValueDead: false, stmt as JintExpressionStatement, stmt as JintBlockStatement);
         }
 
         // Dead completion-value analysis, top-level (Observable) lists only: a statement's Normal
@@ -114,16 +119,36 @@ internal sealed class JintStatementList
 
         _jintStatements = jintStatements;
 
-        if (statement is FunctionBody && jintStatements.Length > 0 && jintStatements[0].Value is null)
+        if (statement is not null && jintStatements.Length > 0 && jintStatements[0].Value is null)
         {
             var first = jintStatements[0].Statement;
             _firstStatementStoresLocation = first._statement.Type != NodeType.BlockStatement;
-            if (jintStatements.Length == 1 && first is JintReturnStatement { Argument: not null } returnStatement)
+            if (statement is FunctionBody && jintStatements.Length == 1 && first is JintReturnStatement { Argument: not null } returnStatement)
             {
                 _singleReturn = returnStatement;
             }
         }
+
+        if (statement is FunctionBody && _singleReturn is null)
+        {
+            // Only a using declaration of the body itself registers a resource in the function's environment.
+            _isValueBody = true;
+            foreach (var bodyStatement in statements.AsSpan())
+            {
+                if (bodyStatement is VariableDeclaration { Kind: VariableDeclarationKind.Using or VariableDeclarationKind.AwaitUsing })
+                {
+                    _isValueBody = false;
+                    break;
+                }
+            }
+        }
     }
+
+    /// <summary>
+    /// Whether <see cref="ExecuteValueBody"/> can run this list: a function body other than a single
+    /// <c>return &lt;expression&gt;;</c> that declares no resource for the function's environment to dispose.
+    /// </summary>
+    internal bool IsValueBody => _isValueBody;
 
     /// <summary>
     /// Whether <see cref="ExecuteSingleReturnBody"/> can run this list: a function body that is a single
@@ -131,10 +156,24 @@ internal sealed class JintStatementList
     /// </summary>
     internal bool IsSingleReturnBody => _singleReturn is not null;
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining | (MethodImplOptions) 512)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Completion Execute(EvaluationContext context)
     {
+        if (_observability == CompletionValueObservability.Inherit && context.Engine.ExecutionContext.Suspendable is null)
+        {
+            return ExecuteNestedWithoutSuspendable(context);
+        }
 
+        return ExecuteWithSuspendable(context);
+    }
+
+    /// <summary>
+    /// <see cref="Execute"/> for a list whose frame can suspend, or one that sets the observability of completion
+    /// values itself.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining | (MethodImplOptions) 512)]
+    private Completion ExecuteWithSuspendable(EvaluationContext context)
+    {
         if (_statement is not null)
         {
             context.PrepareFor(_statement);
@@ -278,6 +317,87 @@ internal sealed class JintStatementList
     }
 
     /// <summary>
+    /// <see cref="Execute"/> for a nested list (a block's, a case clause's) in a frame that cannot suspend: a plain
+    /// synchronous call or script, whose execution context carries no generator or async function. With no
+    /// suspendable every resume-position step of <see cref="Execute"/> is a no-op, and a nested list leaves the
+    /// observability of completion values as the enclosing list set it, so there is nothing to save and restore;
+    /// what is left is the statement loop, the checks and the exception handling, all as <see cref="Execute"/> has
+    /// them.
+    /// </summary>
+    internal Completion ExecuteNestedWithoutSuspendable(EvaluationContext context)
+    {
+        var statement = _statement;
+        if (statement is not null)
+        {
+            if (_firstStatementStoresLocation)
+            {
+                context.RunBeforeExecuteStatementChecksDeferringLocation(statement);
+            }
+            else
+            {
+                context.PrepareFor(statement);
+                context.RunBeforeExecuteStatementChecks(statement);
+            }
+        }
+
+        var c = Completion.Empty();
+        var sl = c;
+        var lastValue = JsEmpty.Instance;
+        var temp = _jintStatements;
+        uint i = 0;
+        try
+        {
+            for (; i < (uint) temp.Length; i++)
+            {
+                ref readonly var pair = ref temp[i];
+                if (pair.Expression is { } expressionStatement)
+                {
+                    c = new Completion(CompletionType.Normal, expressionStatement.ExecuteWithoutSuspendable(context), expressionStatement._statement);
+                }
+                else if (pair.Block is { } block)
+                {
+                    c = block.ExecuteWithoutSuspendable(context);
+                }
+                else
+                {
+                    c = pair.Value is null || context.BypassStatementFastPaths
+                        ? pair.Statement.Execute(context)
+                        : new Completion(CompletionType.Return, pair.Value, pair.Statement._statement);
+                }
+
+                if (c.Type != CompletionType.Normal)
+                {
+                    return c.UpdateEmpty(sl.Value);
+                }
+
+                sl = c;
+                if (!c.Value.IsEmpty)
+                {
+                    lastValue = c.Value;
+                }
+            }
+        }
+        // Keep in step with the catch in Execute above; without a suspendable its filter is ShouldCatch alone.
+        catch (Exception ex) when (ShouldCatch(ex))
+        {
+            if (ex is JintException)
+            {
+                c = HandleException(context, ex, temp[i].Statement);
+            }
+            else
+            {
+                var location = context.Engine.HasLastSyntaxElement ? context.Engine.LastSyntaxLocation : temp[i].Statement._statement.Location;
+                ExceptionDataHelper.TryAttachJavaScriptLocation(ex, context.Engine, location);
+                throw;
+            }
+        }
+
+        // A case clause's list (no statement of its own) ends as Execute ends a list without one.
+        var result = c.UpdateEmpty(lastValue);
+        return statement is null ? result.UpdateEmpty(JsValue.Undefined) : result;
+    }
+
+    /// <summary>
     /// <see cref="Execute"/> for the body of a function whose frame cannot suspend: a plain synchronous call, whose
     /// execution context carries no generator or async function. With no suspendable, every resume-position step of
     /// <see cref="Execute"/> is a no-op, and a function body's completion values are never observable, so what is left
@@ -312,9 +432,20 @@ internal sealed class JintStatementList
             for (; i < (uint) temp.Length; i++)
             {
                 ref readonly var pair = ref temp[i];
-                c = pair.Value is null || context.BypassStatementFastPaths
-                    ? pair.Statement.Execute(context)
-                    : new Completion(CompletionType.Return, pair.Value, pair.Statement._statement);
+                if (pair.Expression is { } expressionStatement)
+                {
+                    c = new Completion(CompletionType.Normal, expressionStatement.ExecuteWithoutSuspendable(context), expressionStatement._statement);
+                }
+                else if (pair.Block is { } block)
+                {
+                    c = block.ExecuteWithoutSuspendable(context);
+                }
+                else
+                {
+                    c = pair.Value is null || context.BypassStatementFastPaths
+                        ? pair.Statement.Execute(context)
+                        : new Completion(CompletionType.Return, pair.Value, pair.Statement._statement);
+                }
 
                 if (c.Type != CompletionType.Normal)
                 {
@@ -406,6 +537,104 @@ internal sealed class JintStatementList
         }
 
         return c.Value;
+    }
+
+    /// <summary>
+    /// <see cref="ExecuteSynchronousFunctionBody"/> for a body <see cref="IsValueBody"/> admits, with the completion
+    /// the caller would unwrap already unwrapped: the returned value, undefined when the body ends without a
+    /// return, or the throw a Throw completion stands for. Normal completion values of a function body are never
+    /// observed, so an expression statement's is dropped, and a return statement hands its value straight back.
+    /// </summary>
+    /// <remarks>
+    /// The function environment of such a body holds no disposable resources, so the caller's DisposeResources
+    /// step has nothing to do either. A function body cannot be left by a break or a continue, so the abrupt
+    /// completions that reach this list are returns and throws, whose values are never empty.
+    /// </remarks>
+    internal JsValue ExecuteValueBody(EvaluationContext context)
+    {
+        Debug.Assert(_isValueBody);
+        Debug.Assert(context.Engine.ExecutionContext.Suspendable is null);
+
+        var statement = _statement!;
+        if (_firstStatementStoresLocation)
+        {
+            context.RunBeforeExecuteStatementChecksDeferringLocation(statement);
+        }
+        else
+        {
+            context.PrepareFor(statement);
+            context.RunBeforeExecuteStatementChecks(statement);
+        }
+
+        var oldCompletionValuesObservable = context.CompletionValuesObservable;
+        context.CompletionValuesObservable = false;
+
+        Completion c;
+        var temp = _jintStatements;
+        uint i = 0;
+        try
+        {
+            for (; i < (uint) temp.Length; i++)
+            {
+                ref readonly var pair = ref temp[i];
+                if (pair.Expression is { } expressionStatement)
+                {
+                    expressionStatement.ExecuteWithoutSuspendable(context);
+                    continue;
+                }
+
+                if (pair.Value is not null && !context.BypassStatementFastPaths)
+                {
+                    return pair.Value;
+                }
+
+                if (pair.Statement is JintReturnStatement returnStatement)
+                {
+                    // JintStatement.Execute and the return statement's own evaluation, without the completion.
+                    var returnNode = returnStatement._statement;
+                    context.PrepareFor(returnNode);
+                    context.RunBeforeExecuteStatementChecks(returnNode);
+                    return returnStatement.Argument is { } argument ? argument.GetValue(context) : JsValue.Undefined;
+                }
+
+                c = pair.Block is { } block
+                    ? block.ExecuteWithoutSuspendable(context)
+                    : pair.Statement.Execute(context);
+
+                if (c.Type != CompletionType.Normal)
+                {
+                    goto Abrupt;
+                }
+            }
+
+            return JsValue.Undefined;
+        }
+        // Keep in step with the catch in ExecuteSynchronousFunctionBody.
+        catch (Exception ex) when (ShouldCatch(ex))
+        {
+            if (ex is JintException)
+            {
+                c = HandleException(context, ex, temp[i].Statement);
+            }
+            else
+            {
+                var location = context.Engine.HasLastSyntaxElement ? context.Engine.LastSyntaxLocation : temp[i].Statement._statement.Location;
+                ExceptionDataHelper.TryAttachJavaScriptLocation(ex, context.Engine, location);
+                throw;
+            }
+        }
+        finally
+        {
+            context.CompletionValuesObservable = oldCompletionValuesObservable;
+        }
+
+        Abrupt:
+        if (c.Type == CompletionType.Throw)
+        {
+            Throw.JavaScriptException(context.Engine, c.Value, in c);
+        }
+
+        return c.Type == CompletionType.Return ? c.Value : JsValue.Undefined;
     }
 
     /// <summary>

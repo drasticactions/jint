@@ -170,8 +170,8 @@ internal sealed class JintForStatement : JintIterationStatement<ForStatement>
 
     /// <summary>
     /// A tight-loop body contains only statements whose completions are structurally Normal:
-    /// expression statements, empty statements, var/let/const declarations, and if/else chains
-    /// over such statements (including declaration-free brace blocks). Control flow that routes
+    /// expression statements, empty statements, var/let/const declarations, declaration-free brace
+    /// blocks and if/else chains over such statements. Control flow that routes
     /// completions (break/continue/return/labels/loops/switch/try), other declarations, and
     /// AnnexB function-declaration branches all disqualify the body. Shared with the while and
     /// do-while tight lanes, which apply the same predicate to their bodies.
@@ -208,6 +208,10 @@ internal sealed class JintForStatement : JintIterationStatement<ForStatement>
                     is VariableDeclarationKind.Var
                     or VariableDeclarationKind.Let
                     or VariableDeclarationKind.Const;
+
+            case NodeType.BlockStatement:
+                // a nested brace block over such statements, declaring nothing lexically
+                return IsTightBranch(statement);
 
             case NodeType.IfStatement:
                 var ifStatement = (IfStatement) statement;
@@ -806,6 +810,12 @@ internal sealed class JintForStatement : JintIterationStatement<ForStatement>
             return TightForBody(context, flattenActive);
         }
 
+        // A frame that cannot suspend has nothing to resume from, so the flags are all clear.
+        if (context.Engine.ExecutionContext.Suspendable is null)
+        {
+            return ForBodyWithoutSuspendable(context, initialValue, flattenActive);
+        }
+
         // CreatePerIterationEnvironment runs once before the first iteration (spec ForBodyEvaluation
         // step 2). A resume into the loop lands MID-iteration, where the spec creates no new
         // per-iteration environment — and creating one anyway would fork away from the environment a
@@ -942,6 +952,94 @@ internal sealed class JintForStatement : JintIterationStatement<ForStatement>
                 {
                     var returnValue = suspendable.SuspendedValue ?? JsValue.Undefined;
                     return new Completion(CompletionType.Return, returnValue, ((JintStatement) this)._statement);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// <see cref="ForBodyEvaluation"/> in a frame that cannot suspend: a plain synchronous call or script, whose
+    /// execution context carries no generator or async function. Nothing resumes into the loop, nothing suspends
+    /// in its test, body or update and no return is requested, so what is left per iteration is the test, the body,
+    /// its completion and the update, all as <see cref="ForBodyEvaluation"/> has them.
+    /// </summary>
+    private Completion ForBodyWithoutSuspendable(EvaluationContext context, JsValue v, bool flattenActive)
+    {
+        var createsIterationEnvironment = _shouldCreatePerIterationEnvironment && !_canReuseIterationEnvironment;
+        if (createsIterationEnvironment)
+        {
+            CreatePerIterationEnvironment(context);
+        }
+
+        var debugHandler = context.DebugMode ? context.Engine.Debugger : null;
+
+        // Under a debugger the normal block path runs instead: its fresh env shadows the (uninitialized)
+        // flattened slots. Debug mode is fixed for the engine's lifetime.
+        var flattened = flattenActive && debugHandler is null;
+        var test = _test;
+        var increment = _increment;
+
+        while (true)
+        {
+            if (test is not null)
+            {
+                debugHandler?.OnStep(test._expression);
+                if (!test.GetBooleanValue(context))
+                {
+                    return new Completion(CompletionType.Normal, v, ((JintStatement) this)._statement);
+                }
+            }
+
+            Completion result;
+            if (flattened)
+            {
+                // the pooled loop environment carries the body's slots: re-establish their TDZ unless the
+                // block scan proved every slot initializes before any use, and run the block contents in place
+                if (!_flattenedBodySlotsInitBeforeUse)
+                {
+                    var env = (DeclarativeEnvironment) context.Engine.ExecutionContext.LexicalEnvironment;
+                    ResetBodySlotRange(env._slots!, _loopSlotTemplates!, _flattenedHeaderSlotCount);
+                }
+                result = _flattenedBodyBlock!.ExecuteFlattenedContents(context);
+            }
+            else
+            {
+                result = _body.ExecuteWithoutSuspendable(context);
+            }
+
+            if (!result.Value.IsEmpty)
+            {
+                v = result.Value;
+            }
+
+            if (result.Type != CompletionType.Normal)
+            {
+                if (result.Type == CompletionType.Break && (result.Target == null || string.Equals(result.Target, _statement?.LabelSet?.Name, StringComparison.Ordinal)))
+                {
+                    return new Completion(CompletionType.Normal, result.Value, ((JintStatement) this)._statement);
+                }
+
+                if (result.Type != CompletionType.Continue || (result.Target is { } target && !LabelSetContains(target)))
+                {
+                    return result;
+                }
+            }
+
+            if (createsIterationEnvironment)
+            {
+                CreatePerIterationEnvironment(context);
+            }
+
+            if (increment is not null)
+            {
+                debugHandler?.OnStep(increment._expression);
+                if (_incrementCanDiscard)
+                {
+                    increment.EvaluateAndDiscard(context);
+                }
+                else
+                {
+                    increment.Evaluate(context);
                 }
             }
         }

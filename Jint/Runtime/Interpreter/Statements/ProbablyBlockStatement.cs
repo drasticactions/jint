@@ -48,6 +48,21 @@ internal readonly struct ProbablyBlockStatement
     }
 
     /// <summary>
+    /// <see cref="Execute"/> in a frame that cannot suspend (no generator or async function in its execution
+    /// context), which the caller has established.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Completion ExecuteWithoutSuspendable(EvaluationContext context)
+    {
+        if (_blockStatement is not null)
+        {
+            return _blockStatement.ExecuteWithoutSuspendable(context);
+        }
+
+        return _statement!.Execute(context);
+    }
+
+    /// <summary>
     /// Tight-loop entry; see <see cref="JintStatement.ExecuteDiscarded"/>. The enclosing loop's
     /// shape predicate admits block targets only when they carry no lexical declarations, so the
     /// block-env ceremony is skipped along with the per-statement bookkeeping.

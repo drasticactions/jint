@@ -93,6 +93,10 @@ public class StatementLimitThrowPointTests
         "for (var i = 0; i < 6; i++) { if (i % 2 == 0) log('e' + i); else log('o' + i); }",
         // for: if with a nested block branch (the branch block charges too)
         "for (var i = 0; i < 6; i++) { if (i % 2 == 0) { log('e' + i); log('x' + i); } }",
+        // for: nested blocks that declare nothing (each nested list charges for its block)
+        "for (var i = 0; i < 4; i++) { { log('a' + i); log('b' + i); } }",
+        "for (var i = 0; i < 4; i++) { { log('a' + i); } { log('b' + i); } }",
+        "for (var i = 0; i < 4; i++) { { } { { log('a' + i); } } }",
         // for: var declarations mixed in
         "for (var i = 0; i < 4; i++) { var v = i * 2; log('v' + v); }",
         // for: let body (per-iteration environment / flattening)
@@ -101,6 +105,7 @@ public class StatementLimitThrowPointTests
         "var i = 0; while (i < 4) { log('w' + i); i++; }",
         "var i = 0; while (i < 4) { i++; }  log('i' + i);",
         "var i = 0; while (i < 4) i++; log('i' + i);",
+        "var i = 0; while (i < 4) { { log('w' + i); i++; } }",
         // do-while
         "var i = 0; do { log('d' + i); i++; } while (i < 4);",
         "var i = 0; do i++; while (i < 4); log('i' + i);",

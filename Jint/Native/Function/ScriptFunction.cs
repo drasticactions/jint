@@ -706,6 +706,12 @@ public sealed class ScriptFunction : Function, IConstructor
                 return singleReturnBody.ExecuteSingleReturnBody(context);
             }
 
+            if (definition.ValueBody is { } valueBody)
+            {
+                // The same for a longer body whose environment has nothing to dispose.
+                return valueBody.ExecuteValueBody(context);
+            }
+
             return EvaluateInstantiatedBody(context, definition, in calleeContext);
         }
         finally
@@ -956,6 +962,11 @@ public sealed class ScriptFunction : Function, IConstructor
             if (_functionDefinition!.SingleReturnBody is { } singleReturnBody)
             {
                 return singleReturnBody.ExecuteSingleReturnBody(context);
+            }
+
+            if (_functionDefinition.ValueBody is { } valueBody)
+            {
+                return valueBody.ExecuteValueBody(context);
             }
 
             var result = _functionDefinition.EvaluateLeafBody(context);

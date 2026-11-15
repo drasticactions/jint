@@ -58,6 +58,10 @@ internal sealed class JintTryStatement : JintStatement<TryStatement>
     {
         var engine = context.Engine;
         var suspendable = engine.ExecutionContext.Suspendable;
+        if (suspendable is null)
+        {
+            return ExecuteWithoutSuspendable(context, engine);
+        }
 
         // Check if we're resuming from inside the catch or finally block
         // If so, skip the try block and go directly to the appropriate block
@@ -103,6 +107,34 @@ internal sealed class JintTryStatement : JintStatement<TryStatement>
         }
 
         return ExecuteFinalizer(context, b, engine, suspendable);
+    }
+
+    /// <summary>
+    /// The statement in a frame that cannot suspend: a plain synchronous call or script, whose execution context
+    /// carries no generator or async function. Nothing resumes into the catch or the finally block, nothing
+    /// suspends in them, no completion is parked across a suspension and no return is requested, so what is left
+    /// is the three blocks run in order.
+    /// </summary>
+    private Completion ExecuteWithoutSuspendable(EvaluationContext context, Engine engine)
+    {
+        var b = engine._isDebugMode && _handlesExceptions
+            ? ExecuteProtectedBlock(context, engine)
+            : _block.ExecuteWithoutSuspendable(context);
+
+        if (b.Type == CompletionType.Throw)
+        {
+            b = ExecuteCatch(context, b, engine);
+        }
+
+        if (_finalizer is null)
+        {
+            return b.UpdateEmpty(JsValue.Undefined);
+        }
+
+        var f = _finalizer.ExecuteWithoutSuspendable(context);
+
+        // Per spec: if F is normal, let F be B; then return ? UpdateEmpty(F, undefined).
+        return (f.Type == CompletionType.Normal ? b : f).UpdateEmpty(JsValue.Undefined);
     }
 
     /// <summary>

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Jint.Native;
 using Jint.Native.Disposable;
 using Jint.Runtime.Environments;
@@ -10,7 +11,11 @@ internal sealed class JintBlockStatement : JintStatement<NestedBlockStatement>
 {
     private readonly JintStatementList? _statementList;
     private readonly JintStatement? _singleStatement;
+    private readonly JintExpressionStatement? _singleExpression;
     private readonly BlockState _blockState;
+
+    // The block declares nothing lexically, so it runs in the enclosing environment.
+    private readonly bool _hasNoDeclarations;
 
     // exposed so enclosing loop fast paths can reuse the exact handler instances of this block
     internal JintStatement? SingleStatement => _singleStatement;
@@ -27,13 +32,15 @@ internal sealed class JintBlockStatement : JintStatement<NestedBlockStatement>
     public JintBlockStatement(NestedBlockStatement blockStatement) : base(blockStatement)
     {
         _blockState = (BlockState) (blockStatement.UserData ??= BuildState(blockStatement));
+        _hasNoDeclarations = _blockState.Declarations.Count == 0;
 
         if (blockStatement.Body.Count == 1)
         {
             // BuildBlockLevel: a Block's own StatementList is the position Annex B B.3.2 gives a
             // function declaration its var-scope alias in - see JintFunctionDeclarationStatement.
             _singleStatement = BuildBlockLevel(blockStatement.Body[0]);
-            (_singleStatement as JintExpressionStatement)?.MarkStatementPosition(YieldStatementPosition.SingleStatementBlock);
+            _singleExpression = _singleStatement as JintExpressionStatement;
+            _singleExpression?.MarkStatementPosition(YieldStatementPosition.SingleStatementBlock);
         }
         else
         {
@@ -50,7 +57,25 @@ internal sealed class JintBlockStatement : JintStatement<NestedBlockStatement>
     /// <summary>
     /// Optimized for direct access without virtual dispatch.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Completion ExecuteBlock(EvaluationContext context)
+    {
+        if (_hasNoDeclarations)
+        {
+            // No binding to instantiate means no block environment, and so nothing to restore on exit and no
+            // using declaration whose dispose could be in progress on a resume.
+            return _singleStatement is not null ? ExecuteSingle(context) : _statementList!.Execute(context);
+        }
+
+        return ExecuteBlockWithEnvironment(context);
+    }
+
+    /// <summary>
+    /// <see cref="ExecuteBlock"/> for a block with lexical declarations, kept out of line so that a block without
+    /// any does not pay for this frame.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private Completion ExecuteBlockWithEnvironment(EvaluationContext context)
     {
         DeclarativeEnvironment? blockEnv = null;
         Environment? oldEnv = null;
@@ -303,7 +328,72 @@ internal sealed class JintBlockStatement : JintStatement<NestedBlockStatement>
         }
     }
 
+    /// <summary>
+    /// Tight-loop entry for a nested block; see <see cref="JintStatement.ExecuteDiscarded"/>. The enclosing loop's
+    /// shape predicate admits a nested block only when it declares nothing lexically.
+    /// </summary>
+    internal override void ExecuteDiscarded(EvaluationContext context)
+    {
+        if (_hasNoDeclarations)
+        {
+            ExecuteDiscardedContents(context);
+        }
+        else
+        {
+            Execute(context);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private Completion ExecuteSingle(EvaluationContext context)
+    {
+        return context.Engine.ExecutionContext.Suspendable is null
+            ? ExecuteSingleWithoutSuspendable(context)
+            : ExecuteSingleWithSuspendable(context);
+    }
+
+    /// <summary>
+    /// <see cref="ExecuteBlock"/> for a statement list that runs in a frame that cannot suspend (no generator or
+    /// async function in its execution context), which it has already established.
+    /// </summary>
+    internal Completion ExecuteWithoutSuspendable(EvaluationContext context)
+    {
+        if (!_hasNoDeclarations)
+        {
+            return ExecuteBlockWithEnvironment(context);
+        }
+
+        return _singleStatement is not null
+            ? ExecuteSingleWithoutSuspendable(context)
+            : _statementList!.ExecuteNestedWithoutSuspendable(context);
+    }
+
+    /// <summary>
+    /// The single statement in a frame that cannot suspend: there is no suspension and no return request to surface.
+    /// </summary>
+    private Completion ExecuteSingleWithoutSuspendable(EvaluationContext context)
+    {
+        try
+        {
+            return _singleExpression is { } expressionStatement
+                ? new Completion(CompletionType.Normal, expressionStatement.ExecuteWithoutSuspendable(context), expressionStatement._statement)
+                : _singleStatement!.Execute(context);
+        }
+        // Keep in step with the catch in ExecuteSingleWithSuspendable.
+        catch (Exception ex) when (JintStatementList.ShouldCatch(ex))
+        {
+            if (ex is JintException)
+            {
+                return JintStatementList.HandleException(context, ex, _singleStatement);
+            }
+
+            var location = context.Engine.HasLastSyntaxElement ? context.Engine.LastSyntaxLocation : _singleStatement!._statement.Location;
+            ExceptionDataHelper.TryAttachJavaScriptLocation(ex, context.Engine, location);
+            throw;
+        }
+    }
+
+    private Completion ExecuteSingleWithSuspendable(EvaluationContext context)
     {
         Completion blockValue;
         try
