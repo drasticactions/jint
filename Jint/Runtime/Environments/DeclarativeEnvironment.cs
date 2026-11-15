@@ -14,16 +14,14 @@ namespace Jint.Runtime.Environments;
 internal class DeclarativeEnvironment : Environment
 {
     internal HybridDictionary<Binding>? _dictionary;
-    internal readonly bool _catchEnvironment;
     private DisposeCapability? _disposeCapability;
 
     // Fixed-slot binding storage for qualifying functions
     internal Binding[]? _slots;
     internal Key[]? _slotNames;
 
-    public DeclarativeEnvironment(Engine engine, bool catchEnvironment = false) : base(engine)
+    public DeclarativeEnvironment(Engine engine, bool catchEnvironment = false) : base(engine, catchEnvironment)
     {
-        _catchEnvironment = catchEnvironment;
     }
 
     private int SlotIndexOf(Key name)

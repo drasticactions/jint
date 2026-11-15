@@ -14,16 +14,103 @@ public sealed partial class JsObject : ObjectInstance
     // built-ins keep their (smaller) size. In-object properties: a small shaped object keeps its shape
     // reference and its first InlineCapacity slot values in-object (no separate array), so it allocates a
     // SINGLE object; only an object whose layout exceeds InlineCapacity spills the surplus into _overflow.
-    // Null _shape = dictionary mode (mutually exclusive with the base _properties for string keys).
-    // Reached only via `this is JsObject` / the ShapeMode type flag.
-    private Shape? _shape;
+    // Null _shape = dictionary mode (mutually exclusive with the base _properties for string keys, so the two
+    // share the base's _propertyStore field). Reached only via `this is JsObject` / the ShapeMode type flag.
+    private Shape? _shape
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _propertyStore as Shape;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        set => _propertyStore = value;
+    }
+
     private InlineSlots _inline;
-    private JsValue[]? _overflow;
+
+    // The overflow slot array; or, once the object has [[PrivateElements]], their array when it has no overflow and a
+    // PrivateTail holding both when it has. Few objects have private elements, so they share this field with the
+    // overflow array instead of taking one of their own. Both arrays are of their exact element type.
+    private object? _tail;
+
+    private sealed class PrivateTail
+    {
+        internal JsValue[]? Overflow;
+        internal PrivateElement[]? Elements;
+    }
+
+    private JsValue[]? _overflow
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get
+        {
+            var tail = _tail;
+            if (tail is null || tail.GetType() == typeof(JsValue[]))
+            {
+                return Unsafe.As<JsValue[]?>(tail);
+            }
+
+            return (tail as PrivateTail)?.Overflow;
+        }
+        set
+        {
+            var tail = _tail;
+            if (tail is null || tail.GetType() == typeof(JsValue[]))
+            {
+                _tail = value;
+            }
+            else if (tail is PrivateTail privateTail)
+            {
+                privateTail.Overflow = value;
+            }
+            else if (value is not null)
+            {
+                _tail = new PrivateTail { Overflow = value, Elements = Unsafe.As<PrivateElement[]>(tail) };
+            }
+        }
+    }
+
+    /// <summary>The overflow array of an object whose shape has more than InlineCapacity slots.</summary>
+    private JsValue[] ExistingOverflow
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get
+        {
+            var tail = _tail!;
+            return tail.GetType() == typeof(JsValue[]) ? Unsafe.As<JsValue[]>(tail) : ((PrivateTail) tail).Overflow!;
+        }
+    }
 
     // [[PrivateElements]] of an instance of a class declaring #private members, in insertion order and
     // packed from the start (the first null ends the list). Class instances are plain objects, so keeping
     // the list here spares them the engine's weak table, which every other receiver still uses.
-    internal PrivateElement[]? _privateElements;
+    internal PrivateElement[]? _privateElements
+    {
+        get
+        {
+            var tail = _tail;
+            if (tail is null || tail.GetType() == typeof(PrivateElement[]))
+            {
+                return Unsafe.As<PrivateElement[]?>(tail);
+            }
+
+            return (tail as PrivateTail)?.Elements;
+        }
+        set
+        {
+            var tail = _tail;
+            if (tail is null || tail.GetType() == typeof(PrivateElement[]))
+            {
+                _tail = value;
+            }
+            else if (tail is PrivateTail privateTail)
+            {
+                privateTail.Elements = value;
+            }
+            else if (value is not null)
+            {
+                _tail = new PrivateTail { Overflow = Unsafe.As<JsValue[]>(tail), Elements = value };
+            }
+        }
+    }
 
     // Slots [0, InlineCapacity) live in-object; the rest (rare) in _overflow[slot - InlineCapacity].
     private const int InlineCapacity = 4;
@@ -41,7 +128,7 @@ public sealed partial class JsObject : ObjectInstance
     internal Shape ShapeOf
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => _shape!;
+        get => Unsafe.As<Shape>(_propertyStore)!;
     }
 
     // plain objects have no exotic own keys; shape/dictionary state answers exactly
@@ -74,7 +161,7 @@ public sealed partial class JsObject : ObjectInstance
         {
             return _inline[slot]!;
         }
-        return _overflow![slot - InlineCapacity];
+        return ExistingOverflow[slot - InlineCapacity];
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -86,7 +173,7 @@ public sealed partial class JsObject : ObjectInstance
         }
         else
         {
-            WriteOverflowUnchecked(_overflow!, slot - InlineCapacity, value);
+            WriteOverflowUnchecked(ExistingOverflow, slot - InlineCapacity, value);
         }
     }
 
@@ -115,7 +202,10 @@ public sealed partial class JsObject : ObjectInstance
     /// descriptor instead.</summary>
     internal void ClearShape()
     {
-        _shape = null;
+        if (_propertyStore is Shape)
+        {
+            _shape = null;
+        }
         _overflow = null;
         _inline = default; // release in-object slot references so they don't outlive shape mode
         _type &= ~(InternalTypes.ShapeMode | InternalTypes.ShapeBuilding | InternalTypes.HasLazySlots);
@@ -165,7 +255,7 @@ public sealed partial class JsObject : ObjectInstance
     /// </summary>
     internal bool TryShapeAdd(in Key key, JsValue value, out bool created)
     {
-        var shape = _shape!;
+        var shape = ShapeOf;
         if (shape.SlotCount >= Shape.MaxShapeProperties
             || (shape.TransitionCount >= Shape.MaxFanout && !shape.HasTransition(in key)))
         {
@@ -184,15 +274,17 @@ public sealed partial class JsObject : ObjectInstance
         else
         {
             var overflowIndex = slot - InlineCapacity;
-            if (_overflow is null)
+            var overflow = _overflow;
+            if (overflow is null)
             {
-                _overflow = new JsValue[OverflowCapacity(shape, 4)];
+                _overflow = overflow = new JsValue[OverflowCapacity(shape, 4)];
             }
-            else if (overflowIndex >= _overflow.Length)
+            else if (overflowIndex >= overflow.Length)
             {
-                System.Array.Resize(ref _overflow, OverflowCapacity(shape, _overflow.Length * 2));
+                System.Array.Resize(ref overflow, OverflowCapacity(shape, overflow.Length * 2));
+                _overflow = overflow;
             }
-            WriteOverflowUnchecked(_overflow, overflowIndex, value);
+            WriteOverflowUnchecked(overflow, overflowIndex, value);
         }
 
         _shape = shape.Add(in key, out created);

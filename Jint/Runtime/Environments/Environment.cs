@@ -15,9 +15,30 @@ internal abstract class Environment : JsValue
     protected internal readonly Engine _engine;
     protected internal Environment? _outerEnv;
 
+    // The two small fields of the derived records live here, where the runtime places them in the four bytes after
+    // JsValue's type field that would otherwise be padding; declared in the derived classes they would each take
+    // a word at the end of the object. Whether a declarative environment is a catch clause's:
+    internal readonly bool _catchEnvironment;
+
+    // A function environment's this-binding state ([[ThisBindingStatus]], https://tc39.es/ecma262/#sec-function-environment-records).
+    private protected ThisBindingStatus _thisBindingStatus;
+
+    private protected enum ThisBindingStatus : byte
+    {
+        Lexical,
+        Initialized,
+        Uninitialized
+    }
+
     protected Environment(Engine engine) : base(InternalTypes.ObjectEnvironmentRecord)
     {
         _engine = engine;
+    }
+
+    private protected Environment(Engine engine, bool catchEnvironment) : base(InternalTypes.ObjectEnvironmentRecord)
+    {
+        _engine = engine;
+        _catchEnvironment = catchEnvironment;
     }
 
     /// <summary>

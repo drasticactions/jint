@@ -14,15 +14,7 @@ namespace Jint.Runtime.Environments;
 /// </summary>
 internal sealed class FunctionEnvironment : DeclarativeEnvironment
 {
-    private enum ThisBindingStatus
-    {
-        Lexical,
-        Initialized,
-        Uninitialized
-    }
-
     private JsValue? _thisValue;
-    private ThisBindingStatus _thisBindingStatus;
     // Mutable so a cached env can be re-initialized for the next call via Reset (the reuse cache lives
     // on the ScriptFunction instance, so it is always re-bound to the same function).
     internal Function _functionObject;

@@ -43,7 +43,22 @@ public partial class ObjectInstance : JsValue, IEquatable<ObjectInstance>
     // _symbols.
     private bool _hasSymbols;
 
-    internal PropertyDictionary? _properties;
+    // The string-keyed own properties in dictionary mode, or the Shape of a JsObject in shape mode: the two never
+    // coexist (a JsObject leaves shape mode before it takes a dictionary), so one field holds either and a plain
+    // object spares a word.
+    private protected object? _propertyStore;
+
+    internal PropertyDictionary? _properties
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _propertyStore as PropertyDictionary;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        set
+        {
+            Debug.Assert(value is null || _propertyStore is not Shape, "a shape-mode object must leave shape mode before it takes a dictionary");
+            _propertyStore = value;
+        }
+    }
 
     /// <summary>
     /// The symbol-keyed own properties, or <see langword="null"/> when there are none. Few objects have any (built-in

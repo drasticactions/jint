@@ -521,6 +521,8 @@ internal sealed class GlobalEnvironment : Environment
             _global.EnsureDictionaryProperties();
         }
 
+        // A host global that is a plain object in shape mode keeps its string keys in the shape.
+        _global.ConvertToDictionaryMode();
         _global._properties ??= new PropertyDictionary();
         _global._properties.TryAdd(name, new PropertyDescriptor(Undefined, canBeDeleted
             ? PropertyFlag.ConfigurableEnumerableWritable | PropertyFlag.MutableBinding
