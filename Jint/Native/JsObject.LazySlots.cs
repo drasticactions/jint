@@ -14,7 +14,7 @@ public sealed partial class JsObject
     /// it is still a lazy layout slot whose factory has not run. Callers that only need keys, flags or slot
     /// counts must keep using the raw accessors — an existence question never runs a factory.
     /// <para>
-    /// The check is a single type test against a value the caller has already loaded, and the branch is
+    /// The check is two exact type tests against a value the caller has already loaded, and the branch is
     /// perfectly predicted (a given slot is a sentinel at most once in its life). The hot interpreter lanes
     /// avoid even that by gating on <see cref="InternalTypes.HasLazySlots"/> and routing here only for the
     /// objects that can actually have one.
@@ -23,26 +23,25 @@ public sealed partial class JsObject
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal JsValue GetSlotForRead(int slot)
     {
+        // Two exact type tests rather than one test of the abstract base, which would call the cast helper.
         var value = GetSlot(slot);
-        if (value is UnmaterializedSlots sentinel)
+        if (value is LayoutSlots or DeferredClosures)
         {
-            return MaterializeSlot(sentinel, slot);
+            return MaterializeSlot(Unsafe.As<UnmaterializedSlots>(value), slot);
         }
 
         return value;
     }
 
     /// <summary>
-    /// Runs one lazy slot's factory and memoizes the result into the slot, so the slot itself is the memo and
-    /// every read lane sees the value immediately (nothing anywhere caches a slot's value — the inline caches
-    /// cache the slot <em>index</em> and re-read the slot on every hit).
+    /// Produces one lazy slot's value (runs its factory, or creates its closure) and memoizes it into the slot,
+    /// so the slot itself is the memo and every read lane sees the value immediately (nothing anywhere caches a
+    /// slot's value — the inline caches cache the slot <em>index</em> and re-read the slot on every hit).
     /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
     private JsValue MaterializeSlot(UnmaterializedSlots sentinel, int slot)
     {
-        var factory = sentinel.Layout.GetFactory(slot);
-        System.Diagnostics.Debug.Assert(factory is not null, "a slot holding the sentinel must have a factory");
-        var value = factory!(this, sentinel.State) ?? Undefined;
+        var value = sentinel.Materialize(this, slot);
 
         // A factory is morally a getter body, so it may have mutated this very object while it ran: written
         // the property being read, deleted an unrelated one (deopting to a dictionary), or frozen the object.
@@ -87,7 +86,7 @@ public sealed partial class JsObject
     /// </summary>
     internal void InstallLazySlots(JsObjectLayout layout, object? lazySlotState)
     {
-        var sentinel = new UnmaterializedSlots(layout, lazySlotState);
+        var sentinel = new LayoutSlots(layout, lazySlotState);
         var count = layout.Count;
         for (var i = 0; i < count; i++)
         {
@@ -101,28 +100,53 @@ public sealed partial class JsObject
     }
 
     /// <summary>
-    /// The placeholder a lazy layout slot holds until its factory runs, carrying everything that run needs:
-    /// the layout (which owns the per-slot factories) and the per-object state. One instance is shared by all
-    /// of an object's lazy slots, so an object with four lazy members still costs one extra allocation.
+    /// The placeholder a lazy slot holds until its value is produced, carrying everything that needs: a layout
+    /// slot's factory and state (<see cref="LayoutSlots"/>), or the environment and definitions of the function
+    /// expressions assigned to the object (<see cref="DeferredClosures"/>). One instance is shared by the lazy
+    /// slots it describes, so an object with four lazy members still costs one extra allocation.
     /// <para>
     /// Never observable: it is <see cref="Types.Empty"/>, like <see cref="JsEmpty"/>, and every path that
     /// observes a slot's value goes through <see cref="GetSlotForRead"/>, the descriptor view
     /// (<c>SlotPropertyDescriptor</c>) or the dictionary deopt, each of which resolves it first.
     /// </para>
     /// </summary>
-    internal sealed class UnmaterializedSlots : JsValue
+    internal abstract class UnmaterializedSlots : JsValue
+    {
+        private protected UnmaterializedSlots() : base(Types.Empty)
+        {
+        }
+
+        /// <summary>
+        /// Produces the value of <paramref name="slot"/> of <paramref name="owner"/>, the slot index the sentinel
+        /// was stored at (still the index after a deopt has moved the property into a dictionary).
+        /// </summary>
+        internal abstract JsValue Materialize(JsObject owner, int slot);
+
+        public override object? ToObject() => null;
+
+        public override string ToString() => "[unmaterialized lazy slot]";
+    }
+
+    /// <summary>
+    /// The sentinel of a host layout's lazy slots: the layout (which owns the per-slot factories) and the
+    /// per-object state.
+    /// </summary>
+    internal sealed class LayoutSlots : UnmaterializedSlots
     {
         internal readonly JsObjectLayout Layout;
         internal readonly object? State;
 
-        internal UnmaterializedSlots(JsObjectLayout layout, object? state) : base(Types.Empty)
+        internal LayoutSlots(JsObjectLayout layout, object? state)
         {
             Layout = layout;
             State = state;
         }
 
-        public override object? ToObject() => null;
-
-        public override string ToString() => "[unmaterialized lazy slot]";
+        internal override JsValue Materialize(JsObject owner, int slot)
+        {
+            var factory = Layout.GetFactory(slot);
+            System.Diagnostics.Debug.Assert(factory is not null, "a slot holding the sentinel must have a factory");
+            return factory!(owner, State) ?? Undefined;
+        }
     }
 }

@@ -51,7 +51,7 @@ internal sealed class LazySlotPropertyDescriptor : PropertyDescriptor, IFieldBac
             var value = _value;
             if (value is null)
             {
-                _value = value = _sentinel.Layout.GetFactory(_slot)!(_owner, _sentinel.State) ?? JsValue.Undefined;
+                _value = value = _sentinel.Materialize(_owner, _slot);
             }
 
             if (value is not null)

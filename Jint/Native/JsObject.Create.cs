@@ -125,7 +125,7 @@ public sealed partial class JsObject
             // transition budget is spent: build the same object in the ordinary dictionary representation.
             // A lazy property becomes the same descriptor the shaped object's deopt would have produced, so
             // the fallback is behaviorally identical — including that its factory has still not run.
-            var fallbackSentinel = hasLazySlots ? new UnmaterializedSlots(layout, lazySlotState) : null;
+            var fallbackSentinel = hasLazySlots ? new LayoutSlots(layout, lazySlotState) : null;
             for (var i = 0; i < keys.Length; i++)
             {
                 if (fallbackSentinel is not null && layout.GetFactory(i) is not null)

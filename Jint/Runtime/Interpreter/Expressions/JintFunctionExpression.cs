@@ -3,6 +3,7 @@ using Jint.Native.Function;
 using Jint.Native.Object;
 using Jint.Runtime.Descriptors;
 using Jint.Runtime.Environments;
+using Environment = Jint.Runtime.Environments.Environment;
 
 namespace Jint.Runtime.Interpreter.Expressions;
 
@@ -13,6 +14,34 @@ internal sealed class JintFunctionExpression : JintExpression
     public JintFunctionExpression(FunctionExpression function) : base(function)
     {
         _function = new JintFunctionDefinition(function);
+        CanDefer = function is { Id: null, Async: false, Generator: false };
+    }
+
+    /// <summary>
+    /// Whether the function can be created later than its expression runs, by <see cref="InstantiateDeferred"/>:
+    /// an anonymous ordinary function, whose creation needs nothing but the environment and the origin.
+    /// </summary>
+    internal bool CanDefer { get; }
+
+    internal JintFunctionDefinition Definition => _function;
+
+    /// <summary>
+    /// The function an anonymous ordinary function expression would have created when it ran with
+    /// <paramref name="env"/> as its lexical environment, no private environment, and <paramref name="origin"/>'s
+    /// realm and script or module active. The creation of a deferred closure (see
+    /// <see cref="JsObject.TryAddDeferredClosure"/>).
+    /// </summary>
+    internal static ScriptFunction InstantiateDeferred(Engine engine, JintFunctionDefinition function, Environment env, FunctionOrigin origin)
+    {
+        var thisMode = function.Strict
+            ? FunctionThisMode.Strict
+            : FunctionThisMode.Global;
+
+        var closure = new ScriptFunction(engine, function, env, thisMode, origin.Realm.Intrinsics.Function.PrototypeObject);
+        closure._functionOrigin = origin;
+        closure.SetFunctionName(JsString.Empty);
+        closure.MakeConstructor();
+        return closure;
     }
 
     protected override object EvaluateInternal(EvaluationContext context)

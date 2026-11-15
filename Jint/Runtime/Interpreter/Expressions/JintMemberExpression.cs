@@ -1572,6 +1572,41 @@ internal sealed class JintMemberExpression : JintExpression
     }
 
     /// <summary>
+    /// <see cref="TryAssignFast"/> for a statement <c>o.name = function () { ... };</c> whose value nobody reads:
+    /// when the store adds a plain data property to an object under construction, the property becomes a lazy slot
+    /// and the function is created on its first read (<see cref="JsObject.TryAddDeferredClosure"/>). Anything else
+    /// creates the function and stores it as <see cref="TryAssignFast"/> does. Declines, having evaluated nothing,
+    /// under <see cref="TryAssignFast"/>'s gates and in a frame with a private environment, whose functions would
+    /// need it.
+    /// </summary>
+    internal bool TryAssignDeferredFunction(EvaluationContext context, JintFunctionExpression function, ref JsObject.DeferredClosureTransition? transition)
+    {
+        var engine = context.Engine;
+        if (_propertyExpression is not null
+            || _determinedProperty is not JsString determinedProperty
+            || _memberExpression.Optional
+            || _objectExpressionCanShortCircuit
+            || _objectExpression is JintSuperExpression
+            || engine.ExecutionContext.Suspendable is not null
+            || engine.ExecutionContext.PrivateEnvironment is not null)
+        {
+            return false;
+        }
+
+        var baseValue = _objectExpression.GetValue(context);
+        context.PrepareFor(_expression);
+
+        if (baseValue is JsObject target
+            && target.TryAddDeferredClosure(determinedProperty, function.Definition, engine.ExecutionContext.LexicalEnvironment, ref transition))
+        {
+            return true;
+        }
+
+        StoreOnBase(context, baseValue, function.GetValue(context));
+        return true;
+    }
+
+    /// <summary>
     /// The store half of <see cref="TryAssignFast"/>: <c>[[Set]]</c> of this node's literal name on an already
     /// evaluated base, in place when the caches prove an own writable data property and through
     /// <see cref="Engine.PutValue"/> otherwise. Shared with compound assignment, whose right-hand side may have

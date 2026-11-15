@@ -978,10 +978,18 @@ internal sealed class JintAssignmentExpression : JintExpression
         // without allocating it, which the discard lane then stores unboxed into the target's slot.
         private readonly bool _numericRightShape;
 
+        // `o.name = function () { ... }` in statement position, whose function the store may create only when the
+        // property is first read; see JintMemberExpression.TryAssignDeferredFunction. The memo of the definitions
+        // its stores produced lives here, so only these assignments carry it.
+        private readonly bool _deferrableFunctionShape;
+        private JsObject.DeferredClosureTransition? _deferredClosureTransition;
+
         public SimpleAssignmentExpression(AssignmentExpression expression) : base(expression)
         {
             _structurallyNumeric = IsNumericAssignmentShape(expression);
             _numericRightShape = expression.Left is Identifier && IsArithmeticShape(expression.Right);
+            _deferrableFunctionShape = expression.Left is MemberExpression { Computed: false, Optional: false, Object: not Super }
+                                       && expression.Right is FunctionExpression { Id: null, Async: false, Generator: false };
         }
 
         /// <summary>
@@ -1205,7 +1213,7 @@ internal sealed class JintAssignmentExpression : JintExpression
             return true;
         }
 
-        internal override bool HasDiscardFastPath => _structurallyNumeric || _numericRightShape;
+        internal override bool HasDiscardFastPath => _structurallyNumeric || _numericRightShape || _deferrableFunctionShape;
 
         internal override void EvaluateAndDiscard(EvaluationContext context)
         {
@@ -1213,6 +1221,15 @@ internal sealed class JintAssignmentExpression : JintExpression
             {
                 Initialize();
                 _initialized = true;
+            }
+
+            if (_deferrableFunctionShape
+                && JsObject.DeferredClosureTransition.Enabled(_deferredClosureTransition)
+                && _left is JintMemberExpression memberLeft
+                && _right is JintFunctionExpression { CanDefer: true } function
+                && memberLeft.TryAssignDeferredFunction(context, function, ref _deferredClosureTransition))
+            {
+                return;
             }
 
             if (_numericFastPath && TryAssignNumeric(context))

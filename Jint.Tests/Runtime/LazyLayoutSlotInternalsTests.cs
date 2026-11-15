@@ -55,7 +55,7 @@ public class LazyLayoutSlotInternalsTests
         obj.GetSlot(0).Should().BeOfType<JsNumber>();
         var first = obj.GetSlot(1);
         var second = obj.GetSlot(2);
-        first.Should().BeOfType<JsObject.UnmaterializedSlots>();
+        first.Should().BeOfType<JsObject.LayoutSlots>();
         // One allocation for the whole object, not one per lazy member.
         second.Should().BeSameAs(first);
     }

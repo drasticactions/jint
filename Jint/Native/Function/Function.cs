@@ -1127,6 +1127,12 @@ public abstract partial class Function : ObjectInstance, ICallable
     /// type on the lane meant for objects whose own-property set the engine cannot version, and this one keeps
     /// its version accurate itself (below).
     /// </summary>
+    /// <summary>
+    /// Whether <paramref name="obj"/> is the <c>prototype</c> object a function created for itself, which keeps its
+    /// <c>constructor</c> property in a field but has the ordinary [[GetOwnProperty]] and [[Set]] otherwise.
+    /// </summary>
+    internal static bool IsConstructorPrototype(ObjectInstance obj) => obj is ObjectInstanceWithConstructor;
+
     private sealed class ObjectInstanceWithConstructor : ObjectInstance
     {
         private PropertyDescriptor? _constructor;
