@@ -52,16 +52,19 @@ internal sealed class SlotChainMemo
 /// that is new for every object, so <see cref="SlotChainMemo"/>, which pins environments by identity, misses on
 /// every switch and the node walks and re-resolves each time. The memo pins the chain by the slot-name arrays
 /// instead: from the reading environment, every environment up to the one holding the binding is declarative,
-/// keeps all its bindings in slots (no dictionary bindings), and has the recorded slot names, of which only the
-/// last holds the name.
+/// has the recorded slot names (or none, as the recording did), of which only the last holds the name, and has no
+/// dictionary binding of the name.
 /// </summary>
 /// <remarks>
 /// A slot-name array belongs to one function definition, block, catch clause or eval body, and an environment's
-/// slot names never change, so equal arrays mean equal name sets for environments without dictionary bindings:
-/// none of the intermediates owns the name, and the binding sits at the recorded index of the last one. Sloppy
-/// direct eval and AnnexB block functions grow the name set of an existing environment, which goes through its
-/// dictionary and bumps <see cref="Engine._envBindingInjectionEpoch"/>; either fails the check. The holder must
-/// belong to the reading engine, since slot-name arrays are shared by every engine that runs a prepared script.
+/// slot names never change, so an environment's name set is the recorded slot names plus the names of its dictionary
+/// bindings, which the check probes for the one name each time: none of the intermediates owns the name, and the
+/// binding sits at the recorded index of the last one. The dictionary bindings are the <c>arguments</c> object of a
+/// function that uses it and the bindings of an environment without slots, so a method that reads its arguments
+/// keeps the memo. Sloppy direct eval and AnnexB block functions grow the name set of an existing environment,
+/// which goes through its dictionary and bumps <see cref="Engine._envBindingInjectionEpoch"/>; either fails the
+/// check. The holder must belong to the reading engine, since slot-name arrays are shared by every engine that
+/// runs a prepared script.
 /// </remarks>
 internal sealed class SlotLayoutMemo
 {
@@ -72,9 +75,11 @@ internal sealed class SlotLayoutMemo
     internal readonly Key[] TargetNames;
     internal readonly int SlotIndex;
     internal readonly int InjectionEpoch;
+    private readonly Key _key;
 
-    private SlotLayoutMemo(int hops, Key[]? names0, Key[]? names1, Key[]? names2, Key[] targetNames, int slotIndex, int injectionEpoch)
+    private SlotLayoutMemo(int hops, Key[]? names0, Key[]? names1, Key[]? names2, Key[] targetNames, int slotIndex, int injectionEpoch, Key key)
     {
+        _key = key;
         Hops = hops;
         Names0 = names0;
         Names1 = names1;
@@ -87,11 +92,11 @@ internal sealed class SlotLayoutMemo
     /// <summary>
     /// The layout from <paramref name="env"/> to <paramref name="target"/>, which holds <paramref name="key"/> at
     /// <paramref name="slotIndex"/>, or null when the chain does not have one: it is longer than the slot caches
-    /// walk, or an environment on it is not declarative, keeps a binding in its dictionary, or has no slots.
+    /// walk, or an environment on it is not declarative or has a dictionary binding of the name.
     /// </summary>
     internal static SlotLayoutMemo? TryCreate(Engine engine, Environment env, DeclarativeEnvironment target, int slotIndex, Key key)
     {
-        if (target._slotNames is not { } targetNames || target._slots is null || HasDictionaryBindings(target))
+        if (target._slotNames is not { } targetNames || target._slots is null || DictionaryOwns(target, key))
         {
             return null;
         }
@@ -103,13 +108,14 @@ internal sealed class SlotLayoutMemo
         for (var e = env; !ReferenceEquals(e, target); e = e._outerEnv)
         {
             if (hops == SlotLocationCache.MaxChainDepth - 1
-                || e is not DeclarativeEnvironment { _slotNames: { } names } intermediate
-                || HasDictionaryBindings(intermediate)
-                || Contains(names, key))
+                || e is not DeclarativeEnvironment intermediate
+                || DictionaryOwns(intermediate, key)
+                || intermediate._slotNames is { } slotNames && Contains(slotNames, key))
             {
                 return null;
             }
 
+            var names = intermediate._slotNames;
             switch (hops)
             {
                 case 0: names0 = names; break;
@@ -120,7 +126,7 @@ internal sealed class SlotLayoutMemo
             hops++;
         }
 
-        return new SlotLayoutMemo(hops, names0, names1, names2, targetNames, slotIndex, engine._envBindingInjectionEpoch);
+        return new SlotLayoutMemo(hops, names0, names1, names2, targetNames, slotIndex, engine._envBindingInjectionEpoch, key);
     }
 
     /// <summary>The environment holding the binding when the chain from <paramref name="env"/> still has this layout.</summary>
@@ -167,21 +173,21 @@ internal sealed class SlotLayoutMemo
                && target._slots is { } slots
                && (uint) SlotIndex < (uint) slots.Length
                && ReferenceEquals(target._engine, engine)
-               && !HasDictionaryBindings(target)
+               && !DictionaryOwns(target, _key)
             ? target
             : null;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool Matches(Environment? e, Key[]? names)
+    private bool Matches(Environment? e, Key[]? names)
     {
         return e is DeclarativeEnvironment declarative
                && ReferenceEquals(declarative._slotNames, names)
-               && !HasDictionaryBindings(declarative);
+               && !DictionaryOwns(declarative, _key);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool HasDictionaryBindings(DeclarativeEnvironment env) => env._dictionary is { Count: > 0 };
+    private static bool DictionaryOwns(DeclarativeEnvironment env, Key key) => env._dictionary is { Count: > 0 } dictionary && dictionary.ContainsKey(key);
 
     private static bool Contains(Key[] names, Key key)
     {
