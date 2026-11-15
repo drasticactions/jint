@@ -29,8 +29,28 @@ public abstract partial class Function : ObjectInstance, ICallable
     private const int LengthShift = 2;
     private const int NameShift = 4;
 
+    // The materialized descriptors described above, or the function's FunctionRareData once it has one, which then
+    // holds them: one reference for both, so a closure is a word smaller.
     private object? _ownDescriptors;
     private byte _ownPropertyState;
+
+    /// <summary>What <see cref="_ownDescriptors"/> would hold without rare data.</summary>
+    private object? HeldDescriptors
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _ownDescriptors is FunctionRareData rare ? rare.OwnDescriptors : _ownDescriptors;
+        set
+        {
+            if (_ownDescriptors is FunctionRareData rare)
+            {
+                rare.OwnDescriptors = value;
+            }
+            else
+            {
+                _ownDescriptors = value;
+            }
+        }
+    }
 
     /// <summary>
     /// The function's own <c>prototype</c> property, or <see langword="null"/> when it has none. A built-in
@@ -68,9 +88,9 @@ public abstract partial class Function : ObjectInstance, ICallable
             OwnAbsent => null,
             OwnPending => _pendingDescriptor,
             OwnPendingEmpty => _pendingEmptyNameDescriptor,
-            _ => _ownDescriptors is FunctionOwnDescriptors several
+            _ => HeldDescriptors is var held && held is FunctionOwnDescriptors several
                 ? several.Slot(shift)
-                : Unsafe.As<PropertyDescriptor>(_ownDescriptors),
+                : Unsafe.As<PropertyDescriptor>(held),
         };
     }
 
@@ -95,7 +115,7 @@ public abstract partial class Function : ObjectInstance, ICallable
         }
 
         var wasMaterialized = ((_ownPropertyState >> shift) & 3) == OwnMaterialized;
-        var held = _ownDescriptors;
+        var held = HeldDescriptors;
         if (held is FunctionOwnDescriptors several)
         {
             several.Slot(shift) = state == OwnMaterialized ? value : null;
@@ -104,7 +124,7 @@ public abstract partial class Function : ObjectInstance, ICallable
         {
             if (held is null || wasMaterialized)
             {
-                _ownDescriptors = value;
+                HeldDescriptors = value;
             }
             else
             {
@@ -112,12 +132,12 @@ public abstract partial class Function : ObjectInstance, ICallable
                 several = new FunctionOwnDescriptors();
                 several.Slot(MaterializedShift()) = Unsafe.As<PropertyDescriptor>(held);
                 several.Slot(shift) = value;
-                _ownDescriptors = several;
+                HeldDescriptors = several;
             }
         }
         else if (wasMaterialized)
         {
-            _ownDescriptors = null;
+            HeldDescriptors = null;
         }
 
         _ownPropertyState = (byte) ((_ownPropertyState & ~(3 << shift)) | (state << shift));
@@ -216,10 +236,28 @@ public abstract partial class Function : ObjectInstance, ICallable
         get => _functionOrigin.ScriptOrModule;
     }
 
-    // Created by the first store of anything it holds; see FunctionRareData.
-    internal FunctionRareData? _rare;
+    // Created by the first store of anything it holds; see FunctionRareData. It shares the field of the own
+    // descriptors.
+    internal FunctionRareData? _rare
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _ownDescriptors as FunctionRareData;
+    }
 
-    internal FunctionRareData Rare => _rare ??= new FunctionRareData();
+    internal FunctionRareData Rare
+    {
+        get
+        {
+            if (_ownDescriptors is FunctionRareData rare)
+            {
+                return rare;
+            }
+
+            rare = new FunctionRareData { OwnDescriptors = _ownDescriptors };
+            _ownDescriptors = rare;
+            return rare;
+        }
+    }
 
     internal JsValue _homeObject
     {

@@ -12,6 +12,9 @@ namespace Jint.Native.Function;
 /// </summary>
 internal sealed class FunctionRareData
 {
+    // The function's materialized own prototype, length and name descriptors (see Function._ownDescriptors).
+    internal object? OwnDescriptors;
+
     internal JsValue HomeObject = JsValue.Undefined;
     internal PrivateEnvironment? PrivateEnvironment;
 
