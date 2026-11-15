@@ -640,8 +640,10 @@ internal sealed partial class DateTimeFormatPrototype : Prototype
     {
         if (value.IsUndefined())
         {
+            // ! Call(%Date.now%): the engine's clock, which a host can replace, not the machine's.
+            var now = _engine.Options.TimeSystem.GetUtcNow().UtcDateTime;
             originalYear = null;
-            return DateTime.Now;
+            return new DateTime(now.Ticks - now.Ticks % TimeSpan.TicksPerMillisecond, DateTimeKind.Utc);
         }
 
         if (value is JsDate jsDate)
@@ -656,19 +658,9 @@ internal sealed partial class DateTimeFormatPrototype : Prototype
                 Throw.RangeError(_realm, "Invalid time value");
             }
 
-            if (!jsDate.DateTimeRangeValid)
-            {
-                return FromTimeValueUtc(jsDate.DateValue, out originalYear);
-            }
-
-            // ECMA-402 requires formatting in local time unless a specific timezone is provided
-            var dateTime = jsDate.ToDateTime();
-            if (dateTime.Kind == DateTimeKind.Utc || dateTime.Kind == DateTimeKind.Unspecified)
-            {
-                dateTime = dateTime.ToLocalTime();
-            }
-            originalYear = null;
-            return dateTime;
+            // The UTC instant: the formatter converts it into its time zone, which is the engine's when there is no
+            // timeZone option, not the machine's.
+            return FromTimeValueUtc(jsDate.DateValue, out originalYear);
         }
 
         var timeValue = TypeConverter.ToNumber(value);
@@ -680,13 +672,7 @@ internal sealed partial class DateTimeFormatPrototype : Prototype
             Throw.RangeError(_realm, "Invalid time value");
         }
 
-        if (!presentation.DateTimeRangeValid)
-        {
-            return FromTimeValueUtc(presentation, out originalYear);
-        }
-
-        originalYear = null;
-        return presentation.ToDateTime().ToLocalTime();
+        return FromTimeValueUtc(presentation, out originalYear);
     }
 
     /// <summary>
@@ -706,29 +692,7 @@ internal sealed partial class DateTimeFormatPrototype : Prototype
 
         result.CreateDataPropertyOrThrow("numberingSystem", dateTimeFormat.NumberingSystem);
 
-        // timeZone is always present - use local timezone if not specified
-        // Convert Windows timezone IDs to IANA format per ECMA-402
-        string timeZoneId;
-        if (dateTimeFormat.TimeZone != null)
-        {
-            // User explicitly specified timezone - preserve as-is
-            timeZoneId = dateTimeFormat.TimeZone;
-        }
-        else
-        {
-            // Default timezone from system - canonicalize Etc/UTC variants to UTC
-            timeZoneId = TimeZoneInfo.Local.Id;
-            // On Linux, TimeZoneInfo.Local.Id often returns "Etc/UTC" which should be
-            // canonicalized to "UTC" for default timezone (but preserved if user-specified)
-            if (string.Equals(timeZoneId, "Etc/UTC", StringComparison.Ordinal) ||
-                string.Equals(timeZoneId, "Etc/UCT", StringComparison.Ordinal) ||
-                string.Equals(timeZoneId, "Etc/Universal", StringComparison.Ordinal) ||
-                string.Equals(timeZoneId, "Etc/Zulu", StringComparison.Ordinal))
-            {
-                timeZoneId = "UTC";
-            }
-        }
-        result.CreateDataPropertyOrThrow("timeZone", ToIanaTimeZoneId(timeZoneId));
+        result.CreateDataPropertyOrThrow("timeZone", dateTimeFormat.ResolvedTimeZone);
 
         // https://tc39.es/ecma402/#sec-intl.datetimeformat.prototype.resolvedoptions reads a component bag's fields off
         // dtf.[[DateTimeFormat]], the format record the matcher chose, not off the options that asked for it: an
@@ -1189,63 +1153,5 @@ internal sealed partial class DateTimeFormatPrototype : Prototype
         }
 
         return 0;
-    }
-
-    /// <summary>
-    /// Converts a timezone ID to IANA format.
-    /// Windows uses names like "FLE Standard Time" but ECMA-402 requires IANA names like "Europe/Helsinki".
-    /// </summary>
-    private static string ToIanaTimeZoneId(string timeZoneId)
-    {
-        // UTC is already valid
-        if (string.Equals(timeZoneId, "UTC", StringComparison.OrdinalIgnoreCase))
-        {
-            return "UTC";
-        }
-
-        // Offset timezones are already valid (e.g., "+03:00")
-        if (timeZoneId.Length > 0 && (timeZoneId[0] == '+' || timeZoneId[0] == '-'))
-        {
-            return timeZoneId;
-        }
-
-#if NET8_0_OR_GREATER
-        // Try to convert Windows ID to IANA
-        if (TimeZoneInfo.TryConvertWindowsIdToIanaId(timeZoneId, out var ianaId))
-        {
-            return ianaId;
-        }
-#endif
-
-        // Check if it's already an IANA ID (contains '/')
-        if (timeZoneId.Contains('/'))
-        {
-            return timeZoneId;
-        }
-
-        // Fallback: try to get the IANA ID from the TimeZoneInfo
-        try
-        {
-            var tz = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
-#if NET8_0_OR_GREATER
-            // On .NET 6+, check if HasIanaId is available
-            if (tz.HasIanaId)
-            {
-                return tz.Id;
-            }
-            // Try conversion again with the found timezone
-            if (TimeZoneInfo.TryConvertWindowsIdToIanaId(tz.Id, out ianaId))
-            {
-                return ianaId;
-            }
-#endif
-        }
-        catch
-        {
-            // Ignore errors
-        }
-
-        // Last resort: return as-is (won't pass validation but better than crashing)
-        return timeZoneId;
     }
 }

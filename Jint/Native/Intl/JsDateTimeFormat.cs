@@ -87,6 +87,18 @@ internal sealed class JsDateTimeFormat : ObjectInstance
 
     private readonly Data.ResolvedNumberingSystem _numberingSystem;
 
+    /// <summary>The system zone a named <c>timeZone</c> option resolved to, once it is first needed.</summary>
+    private TimeZoneInfo? _namedTimeZone;
+
+    /// <summary>The identifier of the engine's time zone, for a formatter without a <c>timeZone</c> option.</summary>
+    private string? _defaultTimeZone;
+
+    /// <summary>
+    /// The UTC offset of the wall-clock time being written, which its time zone name is the name of: daylight or
+    /// standard time, and the offset itself for the localized GMT format.
+    /// </summary>
+    private TimeSpan _writtenOffset;
+
     /// <summary>The pattern the format matcher chose for a component bag, once it is first needed.</summary>
     private DateTimeFormatPattern? _componentPattern;
 
@@ -246,62 +258,89 @@ internal sealed class JsDateTimeFormat : ObjectInstance
         return builder.ToString();
     }
 
-    private static DateTime ConvertToTimeZone(DateTime dateTime, string timeZoneId)
+    /// <summary>
+    /// The offset from UTC of this formatter's time zone at the instant <paramref name="utc"/>. Without a
+    /// <c>timeZone</c> option that is the engine's time zone, read through
+    /// <see cref="Runtime.ITimeSystem.GetUtcOffset"/> as <c>Date</c> reads it, so a formatter and
+    /// <c>Date.prototype.getHours</c> agree on the wall clock.
+    /// </summary>
+    private TimeSpan GetUtcOffset(DateTime utc)
     {
-        if (string.Equals(timeZoneId, "UTC", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(timeZoneId, "+00:00", StringComparison.Ordinal))
+        if (TimeZone is null)
         {
-            // Convert to UTC
-            if (dateTime.Kind == DateTimeKind.Local)
-            {
-                return dateTime.ToUniversalTime();
-            }
-            return DateTime.SpecifyKind(dateTime, DateTimeKind.Utc);
+            var epochMilliseconds = (utc.Ticks - Date.DateConstructor.Epoch.Ticks) / TimeSpan.TicksPerMillisecond;
+            return _engine.Options.TimeSystem.GetUtcOffset(epochMilliseconds);
         }
 
-        // Check for offset timezone format like "+03:00", "-07:30"
-        var offset = TryParseOffset(timeZoneId);
+        if (string.Equals(TimeZone, "UTC", StringComparison.OrdinalIgnoreCase))
+        {
+            return TimeSpan.Zero;
+        }
+
+        var offset = TryParseOffset(TimeZone);
         if (offset.HasValue)
         {
-            // Convert to UTC first
-            if (dateTime.Kind == DateTimeKind.Local)
-            {
-                dateTime = dateTime.ToUniversalTime();
-            }
-            dateTime = DateTime.SpecifyKind(dateTime, DateTimeKind.Utc);
-
-            // Apply the offset, saturating rather than throwing. The last instant DateTime can hold has no
-            // DateTime to land on once a positive offset is added, and Add answers that with an
-            // ArgumentOutOfRangeException — a CLR exception, which leaves engine.Evaluate without ever
-            // reaching a script try/catch. TimeZoneInfo.ConvertTimeFromUtc, the named-zone branch below,
-            // clamps at MinValue/MaxValue in exactly this situation, so the two branches now agree.
-            var shiftedTicks = dateTime.Ticks + offset.Value.Ticks;
-            if (shiftedTicks < DateTime.MinValue.Ticks)
-            {
-                shiftedTicks = DateTime.MinValue.Ticks;
-            }
-            else if (shiftedTicks > DateTime.MaxValue.Ticks)
-            {
-                shiftedTicks = DateTime.MaxValue.Ticks;
-            }
-
-            return new DateTime(shiftedTicks, DateTimeKind.Utc);
+            return offset.Value;
         }
 
-        try
+        if (_namedTimeZone is null && !Data.TimeZoneData.TryFindSystemTimeZone(TimeZone, out _namedTimeZone))
         {
-            var timeZone = Data.TimeZoneData.FindSystemTimeZone(timeZoneId);
-            if (dateTime.Kind == DateTimeKind.Local)
-            {
-                dateTime = dateTime.ToUniversalTime();
-            }
-            return TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(dateTime, DateTimeKind.Utc), timeZone);
+            // A zone the system cannot find is written as UTC rather than failing the format.
+            return TimeSpan.Zero;
         }
-        catch
+
+        return _namedTimeZone.GetUtcOffset(utc);
+    }
+
+    /// <summary>
+    /// [[TimeZone]]: the <c>timeZone</c> option, or the identifier of the engine's time zone when there was none, which
+    /// https://tc39.es/ecma402/#sec-createdatetimeformat takes from SystemTimeZoneIdentifier.
+    /// </summary>
+    internal string ResolvedTimeZone
+        => TimeZone ?? (_defaultTimeZone ??= SystemTimeZoneIdentifier(_engine.Options.TimeSystem.DefaultTimeZone));
+
+    /// <summary>
+    /// https://tc39.es/ecma262/#sec-systemtimezoneidentifier for <paramref name="zone"/>: the primary IANA identifier,
+    /// so a Link names its zone and every name of UTC is <c>UTC</c>. A zone the IANA database does not name, such as
+    /// one a host built with <c>TimeZoneInfo.CreateCustomTimeZone</c>, is its offset when it keeps one, and its own
+    /// identifier otherwise.
+    /// </summary>
+    internal static string SystemTimeZoneIdentifier(TimeZoneInfo zone)
+    {
+        var id = zone.Id;
+#if NET8_0_OR_GREATER
+        if (!zone.HasIanaId && TimeZoneInfo.TryConvertWindowsIdToIanaId(id, out var ianaId))
         {
-            // If timezone lookup fails, return as-is
-            return dateTime;
+            id = ianaId;
         }
+#endif
+
+        var canonical = Data.TimeZoneData.FindCanonical(id);
+        if (canonical is null)
+        {
+            if (zone.SupportsDaylightSavingTime)
+            {
+                return id;
+            }
+
+            var minutes = (int) System.Math.Round(zone.BaseUtcOffset.TotalMinutes);
+            var absolute = System.Math.Abs(minutes);
+            return (minutes < 0 ? "-" : "+")
+                   + (absolute / 60).ToString("D2", System.Globalization.CultureInfo.InvariantCulture)
+                   + ":"
+                   + (absolute % 60).ToString("D2", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        if (Data.TimeZoneData.TryGetLinkTarget(canonical, out var target))
+        {
+            canonical = target;
+        }
+
+        return string.Equals(canonical, "UTC", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(canonical, "Etc/UTC", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(canonical, "Etc/GMT", StringComparison.OrdinalIgnoreCase)
+            ? "UTC"
+            : canonical;
     }
 
     /// <summary>
@@ -983,7 +1022,7 @@ internal sealed class JsDateTimeFormat : ObjectInstance
         // For plain Temporal types (isPlain=true), skip timezone conversion
         if (!isPlain)
         {
-            dateTime = ToFormatterTimeZone(dateTime, ref originalYear);
+            dateTime = ToFormatterTimeZone(dateTime, ref originalYear, out _writtenOffset);
         }
 
         return FormatLocalToParts(dateTime, originalYear, isPlain);
@@ -992,19 +1031,26 @@ internal sealed class JsDateTimeFormat : ObjectInstance
     /// <summary>
     /// The wall-clock time of <paramref name="dateTime"/> in this formatter's time zone, or the engine's default one.
     /// </summary>
-    private DateTime ToFormatterTimeZone(DateTime dateTime, ref int? originalYear)
+    private DateTime ToFormatterTimeZone(DateTime dateTime, ref int? originalYear, out TimeSpan offset)
     {
         var beforeConversion = dateTime;
-        if (TimeZone != null)
+        var utc = dateTime.Kind == DateTimeKind.Local ? dateTime.ToUniversalTime() : DateTime.SpecifyKind(dateTime, DateTimeKind.Utc);
+        offset = GetUtcOffset(utc);
+
+        // Saturate rather than throw: the last instant a DateTime holds has no DateTime to land on once a positive
+        // offset is added, and the ArgumentOutOfRangeException Add answers that with is a CLR exception, which leaves
+        // engine.Evaluate without ever reaching a script try/catch.
+        var ticks = utc.Ticks + offset.Ticks;
+        if (ticks < DateTime.MinValue.Ticks)
         {
-            dateTime = ConvertToTimeZone(dateTime, TimeZone);
+            ticks = DateTime.MinValue.Ticks;
         }
-        else if (dateTime.Kind == DateTimeKind.Utc)
+        else if (ticks > DateTime.MaxValue.Ticks)
         {
-            // No explicit timezone: convert UTC to engine's default timezone
-            var defaultTz = _engine.Options.TimeSystem.DefaultTimeZone;
-            dateTime = TimeZoneInfo.ConvertTimeFromUtc(dateTime, defaultTz);
+            ticks = DateTime.MaxValue.Ticks;
         }
+
+        dateTime = new DateTime(ticks, DateTimeKind.Unspecified);
 
         // A conversion can carry the representative date over a year boundary - an instant just
         // after midnight on 1 January in a zone behind UTC belongs to the previous year - and
@@ -1201,169 +1247,100 @@ internal sealed class JsDateTimeFormat : ObjectInstance
             if (string.Equals(style, "full", StringComparison.Ordinal))
             {
                 result.Add(new DateTimePart("literal", " "));
-                result.Add(new DateTimePart("timeZoneName", GetTimeZoneDisplayName(dateTime, longName: true, generic: false)));
+                result.Add(new DateTimePart("timeZoneName", GetFormattedTimeZoneName("long")));
             }
             else if (string.Equals(style, "long", StringComparison.Ordinal))
             {
                 result.Add(new DateTimePart("literal", " "));
-                result.Add(new DateTimePart("timeZoneName", GetTimeZoneDisplayName(dateTime, longName: false, generic: false)));
+                result.Add(new DateTimePart("timeZoneName", GetFormattedTimeZoneName("short")));
             }
         }
     }
 
-    private string GetTimeZoneDisplayName(DateTime utcDateTime, bool longName, bool generic)
+    /// <summary>
+    /// The time zone name a <c>timeZoneName</c> of <paramref name="style"/> writes for the wall-clock time being written
+    /// (<see cref="_writtenOffset"/>), with the names ICU gives in English: a zone's specific name for daylight or
+    /// standard time, its generic name, and the localized GMT format (<c>GMT+9</c>, <c>GMT-05:00</c>) where it has no
+    /// name of the style asked for and for the offset styles.
+    /// </summary>
+    private string GetFormattedTimeZoneName(string? style)
     {
-        if (TimeZone != null)
+        var offset = _writtenOffset;
+        if (string.Equals(style, "shortOffset", StringComparison.Ordinal))
         {
-            if (string.Equals(TimeZone, "UTC", StringComparison.OrdinalIgnoreCase))
+            return FormatGmtOffset(offset, longName: false);
+        }
+
+        if (string.Equals(style, "longOffset", StringComparison.Ordinal))
+        {
+            return FormatGmtOffset(offset, longName: true);
+        }
+
+        var longName = string.Equals(style, "long", StringComparison.Ordinal) || string.Equals(style, "longGeneric", StringComparison.Ordinal);
+        var generic = string.Equals(style, "shortGeneric", StringComparison.Ordinal) || string.Equals(style, "longGeneric", StringComparison.Ordinal);
+        var timeZone = ResolvedTimeZone;
+        if (string.Equals(timeZone, "UTC", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!generic)
             {
                 return longName ? "Coordinated Universal Time" : "UTC";
             }
-
-            // Handle offset timezone format like "+00:00", "+03:00", "-07:30"
-            var offset = TryParseOffset(TimeZone);
-            if (offset.HasValue)
+        }
+        else if (timeZone.Length > 0 && timeZone[0] is '+' or '-')
+        {
+            if (offset == TimeSpan.Zero)
             {
-                return FormatGmtOffset(offset.Value, longName);
+                return longName ? "Greenwich Mean Time" : "GMT";
+            }
+        }
+        else if (Data.TimeZoneNameData.Find(timeZone) is { } names)
+        {
+            string? name;
+            if (generic)
+            {
+                name = longName ? names.LongGeneric : names.ShortGeneric;
+            }
+            else
+            {
+                var daylight = offset.TotalMinutes > names.StandardOffsetMinutes;
+                name = longName
+                    ? daylight ? names.LongDaylight : names.LongStandard
+                    : daylight ? names.ShortDaylight : names.ShortStandard;
             }
 
-            // Try CLDR metazone data first (provides locale-correct names)
-            var isDst = false;
-            Data.TimeZoneData.TryFindSystemTimeZone(TimeZone, out var timeZoneInfo);
-            if (timeZoneInfo is not null)
+            if (name is not null)
             {
-                try
-                {
-                    isDst = timeZoneInfo.IsDaylightSavingTime(DateTime.SpecifyKind(utcDateTime, DateTimeKind.Utc));
-                }
-                catch
-                {
-                    // If the DST check fails, isDst stays false.
-                }
+                return name;
             }
-
-            var cldrName = Data.MetaZoneData.GetDisplayName(TimeZone, isDst, longName, generic);
-            if (cldrName != null)
-            {
-                return cldrName;
-            }
-
-            // Fallback to .NET TimeZoneInfo names
-            if (timeZoneInfo is not null)
-            {
-                if (longName)
-                {
-                    return isDst ? timeZoneInfo.DaylightName : timeZoneInfo.StandardName;
-                }
-                var parts = TimeZone.Split('/');
-                return parts[parts.Length - 1].Replace('_', ' ');
-            }
-
-            var fallbackParts = TimeZone.Split('/');
-            return longName ? TimeZone : fallbackParts[fallbackParts.Length - 1];
-        }
-        // No explicit timezone: use the engine's default timezone
-        var defaultTz = _engine.Options.TimeSystem.DefaultTimeZone;
-
-        var defaultIsDst = false;
-        try
-        {
-            defaultIsDst = defaultTz.IsDaylightSavingTime(DateTime.SpecifyKind(utcDateTime, DateTimeKind.Utc));
-        }
-        catch
-        {
-            // If DST check fails, defaultIsDst stays false
         }
 
-        // Try to get an IANA timezone ID for the CLDR lookup.
-        // The IanaToMetaZone table also includes Windows timezone ID aliases for .NET Framework compatibility.
-        var defaultTzId = defaultTz.Id;
-#if NET8_0_OR_GREATER
-        if (!defaultTz.HasIanaId && TimeZoneInfo.TryConvertWindowsIdToIanaId(defaultTzId, out var defaultIanaId))
-        {
-            defaultTzId = defaultIanaId;
-        }
-#endif
-
-        var defaultCldrName = Data.MetaZoneData.GetDisplayName(defaultTzId, defaultIsDst, longName, generic);
-        if (defaultCldrName != null)
-        {
-            return defaultCldrName;
-        }
-
-        // Fallback to .NET TimeZoneInfo names
-        if (longName)
-        {
-            return defaultIsDst ? defaultTz.DaylightName : defaultTz.StandardName;
-        }
-
-        // For short names: try to parse an abbreviation from IANA-style IDs (e.g. "America/New_York" → "New York")
-        // Windows timezone IDs don't contain '/', so fall back to DST-aware names
-        if (defaultTzId.Contains('/'))
-        {
-            var defaultParts = defaultTzId.Split('/');
-            return defaultParts[defaultParts.Length - 1].Replace('_', ' ');
-        }
-
-        return defaultIsDst ? defaultTz.DaylightName : defaultTz.StandardName;
+        return FormatGmtOffset(offset, longName);
     }
 
     /// <summary>
-    /// Formats a GMT offset display name. Short: "GMT+1", Long: "GMT+01:00".
+    /// The localized GMT format of an offset: <c>GMT+9</c>, <c>GMT-3:30</c> and <c>GMT+0</c> short, <c>GMT+09:00</c> and
+    /// <c>GMT+00:00</c> long, with the seconds of an offset that has them.
     /// </summary>
     private static string FormatGmtOffset(TimeSpan offset, bool longName)
     {
-        if (offset == TimeSpan.Zero)
+        var negative = offset < TimeSpan.Zero;
+        var absolute = negative ? offset.Negate() : offset;
+        var hours = (int) absolute.TotalHours;
+        var invariant = System.Globalization.CultureInfo.InvariantCulture;
+        var builder = new StringBuilder("GMT", 16);
+        builder.Append(negative ? '-' : '+');
+        builder.Append(longName ? hours.ToString("D2", invariant) : hours.ToString(invariant));
+        if (longName || absolute.Minutes != 0 || absolute.Seconds != 0)
         {
-            return "GMT";
+            builder.Append(':').Append(absolute.Minutes.ToString("D2", invariant));
         }
 
-        var sign = offset < TimeSpan.Zero ? "-" : "+";
-        var absOffset = offset < TimeSpan.Zero ? offset.Negate() : offset;
-
-        if (longName)
+        if (absolute.Seconds != 0)
         {
-            return $"GMT{sign}{absOffset.Hours:D2}:{absOffset.Minutes:D2}";
+            builder.Append(':').Append(absolute.Seconds.ToString("D2", invariant));
         }
 
-        if (absOffset.Minutes == 0)
-        {
-            return $"GMT{sign}{absOffset.Hours}";
-        }
-
-        return $"GMT{sign}{absOffset.Hours}:{absOffset.Minutes:D2}";
-    }
-
-    /// <summary>
-    /// Gets the formatted timezone name in the given style: the <c>timeZoneName</c> the format record holds.
-    /// </summary>
-    private string GetFormattedTimeZoneName(DateTime dateTime, string? style)
-    {
-        if (string.Equals(style, "long", StringComparison.Ordinal))
-        {
-            return GetTimeZoneDisplayName(dateTime, longName: true, generic: false);
-        }
-        if (string.Equals(style, "longGeneric", StringComparison.Ordinal))
-        {
-            return GetTimeZoneDisplayName(dateTime, longName: true, generic: true);
-        }
-        if (string.Equals(style, "short", StringComparison.Ordinal))
-        {
-            return GetTimeZoneDisplayName(dateTime, longName: false, generic: false);
-        }
-        if (string.Equals(style, "shortGeneric", StringComparison.Ordinal))
-        {
-            return GetTimeZoneDisplayName(dateTime, longName: false, generic: true);
-        }
-        if (string.Equals(style, "longOffset", StringComparison.Ordinal))
-        {
-            return "GMT" + dateTime.ToString("zzz", CultureInfo);
-        }
-        if (string.Equals(style, "shortOffset", StringComparison.Ordinal))
-        {
-            return "GMT" + dateTime.ToString("zzz", CultureInfo);
-        }
-        return GetTimeZoneDisplayName(dateTime, longName: false, generic: false);
+        return builder.ToString();
     }
 
     /// <summary>
@@ -1599,7 +1576,7 @@ internal sealed class JsDateTimeFormat : ObjectInstance
                 result.Add(new DateTimePart("fractionalSecond", FormatPadded(fraction, System.Math.Min(length, 3))));
                 break;
             case 'z' or 'Z' or 'O' or 'v' or 'V' or 'X' or 'x':
-                result.Add(new DateTimePart("timeZoneName", GetFormattedTimeZoneName(dateTime, DateTimeFormatPattern.TimeZoneNameStyle(run.Field, length))));
+                result.Add(new DateTimePart("timeZoneName", GetFormattedTimeZoneName(DateTimeFormatPattern.TimeZoneNameStyle(run.Field, length))));
                 break;
             default:
                 // A letter ECMA-402 has no part for; CLDR's Gregorian patterns write none.
@@ -1836,10 +1813,11 @@ internal sealed class JsDateTimeFormat : ObjectInstance
     /// </remarks>
     internal List<DateTimeRangePart> FormatRangeToParts(DateTime start, int? startYear, DateTime end, int? endYear, bool isPlain = false)
     {
+        TimeSpan startOffset = default, endOffset = default;
         if (!isPlain)
         {
-            start = ToFormatterTimeZone(start, ref startYear);
-            end = ToFormatterTimeZone(end, ref endYear);
+            start = ToFormatterTimeZone(start, ref startYear, out startOffset);
+            end = ToFormatterTimeZone(end, ref endYear, out endOffset);
         }
 
         var startCalendar = ResolveCalendarFieldsForFormatting(start, startYear);
@@ -1899,6 +1877,7 @@ internal sealed class JsDateTimeFormat : ObjectInstance
         List<DateTimeRangePart> result;
         if (range is null)
         {
+            _writtenOffset = startOffset;
             var single = FormatLocalToParts(start, startYear, isPlain);
             result = new List<DateTimeRangePart>(single.Count);
             foreach (var part in single)
@@ -1918,10 +1897,12 @@ internal sealed class JsDateTimeFormat : ObjectInstance
         {
             if (sources[i] == DateTimeRangeSource.EndRange)
             {
+                _writtenOffset = endOffset;
                 AppendRun(parts, in runs[i], hostNames?[i], rangeFields, end, endYear, in endCalendar);
             }
             else
             {
+                _writtenOffset = startOffset;
                 AppendRun(parts, in runs[i], hostNames?[i], rangeFields, start, startYear, in startCalendar);
             }
         }
@@ -2112,7 +2093,7 @@ internal sealed class JsDateTimeFormat : ObjectInstance
         if (TimeZoneName != null)
         {
             result.Add(new DateTimePart("literal", " "));
-            result.Add(new DateTimePart("timeZoneName", GetFormattedTimeZoneName(dateTime, TimeZoneName)));
+            result.Add(new DateTimePart("timeZoneName", GetFormattedTimeZoneName(TimeZoneName)));
         }
 
         // If no parts were added, use default format
