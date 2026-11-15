@@ -236,14 +236,14 @@ internal sealed class HybridDictionary<TValue> : IEngineDictionary<Key, TValue>,
 
     /// <summary>
     /// Clears all entries while keeping the backing dictionary's grown capacity, for pooled owners
-    /// (function environments) that refill with the same key count on every reuse. The cheap list
-    /// backing is cleared normally; only the dictionary's array growth is worth preserving.
+    /// (function environments) that refill with the same key count on every reuse. The list backing
+    /// keeps its nodes for the next adds, and the dictionary its grown arrays.
     /// See <see cref="StringDictionarySlim{TValue}.ClearPreservingCapacity"/>.
     /// </summary>
     public void ClearPreservingCapacity()
     {
         _dictionary?.ClearPreservingCapacity();
-        _list?.Clear();
+        _list?.ClearPreservingNodes();
     }
 
     public bool ContainsKey(Key key)

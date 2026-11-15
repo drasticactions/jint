@@ -12,6 +12,10 @@ internal sealed class ListDictionary<TValue> : DictionaryBase<TValue>, IEnumerab
     private int _count;
     private bool _checkExistingKeys;
 
+    // Nodes that ClearPreservingNodes took off the list, for the next adds: an environment parked for the next call
+    // of its function binds the same names again.
+    private DictionaryNode _spare;
+
     public ListDictionary(Key key, TValue value, bool checkExistingKeys)
     {
         _checkExistingKeys = checkExistingKeys;
@@ -127,11 +131,23 @@ internal sealed class ListDictionary<TValue> : DictionaryBase<TValue>, IEnumerab
 
     private DictionaryNode AddNode(Key key, TValue value, DictionaryNode last)
     {
-        var newNode = new DictionaryNode
+        var newNode = _spare;
+        if (newNode is not null)
         {
-            Key = key,
-            Value = value
-        };
+            _spare = newNode.Next;
+            newNode.Next = null;
+            newNode.Key = key;
+            newNode.Value = value;
+        }
+        else
+        {
+            newNode = new DictionaryNode
+            {
+                Key = key,
+                Value = value
+            };
+        }
+
         if (_head is null)
         {
             _head = newNode;
@@ -148,6 +164,36 @@ internal sealed class ListDictionary<TValue> : DictionaryBase<TValue>, IEnumerab
     {
         _count = 0;
         _head = null;
+    }
+
+    /// <summary>
+    /// Clears all entries and keeps their nodes for the next adds. The entries' keys and values are released; no
+    /// reference to a node or its value may be held across the clear.
+    /// </summary>
+    public void ClearPreservingNodes()
+    {
+        var node = _head;
+        if (node is null)
+        {
+            return;
+        }
+
+        while (true)
+        {
+            node.Key = default;
+            node.Value = default;
+            if (node.Next is null)
+            {
+                break;
+            }
+
+            node = node.Next;
+        }
+
+        node.Next = _spare;
+        _spare = _head;
+        _head = null;
+        _count = 0;
     }
 
     internal bool CheckExistingKeys
