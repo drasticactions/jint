@@ -5351,7 +5351,8 @@ public sealed partial class Engine : IDisposable
                     {
                         if (declaration.IsConstantDeclaration)
                         {
-                            dictionary.CreateImmutableBinding(bn, strict);
+                            // A const is a strict binding in sloppy code too, so every assignment to it throws.
+                            dictionary.CreateImmutableBinding(bn, strict: true);
                         }
                         else
                         {

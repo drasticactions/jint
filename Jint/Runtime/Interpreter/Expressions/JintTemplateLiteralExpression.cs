@@ -85,9 +85,9 @@ internal sealed class JintTemplateLiteralExpression : JintExpression
                 }
 
                 string text;
-                if (value.IsString())
+                // A host may derive a value of type String that is not a JsString; ToStringNonString reads it.
+                if (value.IsString() && value is JsString str)
                 {
-                    var str = value.AsStringNoTypeCheck();
                     text = str._value;
                     if (text is null || text.Length >= JsString.MinDeferredConcatenationLength)
                     {

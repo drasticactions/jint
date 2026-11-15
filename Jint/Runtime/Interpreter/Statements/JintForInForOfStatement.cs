@@ -730,7 +730,10 @@ internal sealed class JintForInForOfStatement : JintIterationStatement<Statement
                             {
                                 Throw.ReferenceError(engine.Realm, "Invalid left-hand side in assignment");
                             }
-                            if (lhsKind == LhsKind.LexicalBinding || _leftNode.Type == NodeType.Identifier && !reference.IsUnresolvableReference)
+                            // An assignment or var head is a PutValue, which a const, a strict immutable binding
+                            // or a binding still in its temporal dead zone rejects; only a lexical head initializes.
+                            // https://tc39.es/ecma262/#sec-runtime-semantics-forin-div-ofbodyevaluation-lhs-stmt-iterator-lhskind-labelset
+                            if (lhsKind == LhsKind.LexicalBinding)
                             {
                                 reference.InitializeReferencedBinding(nextValue, _disposeHint);
                             }

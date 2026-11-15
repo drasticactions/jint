@@ -139,20 +139,6 @@ public static class JsValueExtensions
         return Unsafe.As<ObjectInstance>(value);
     }
 
-    /// <summary>
-    /// Reinterprets a value the caller has already proven to be a string with <see cref="JsValue.IsString"/>.
-    /// <see cref="InternalTypes.String"/> is set only by <see cref="JsString"/>, its three nested
-    /// subclasses (ConcatenatedString, SlicedString, RopeString) and <see cref="LazyJsString"/>, all of
-    /// which are <see cref="JsString"/>.
-    /// </summary>
-    [Pure]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static JsString AsStringNoTypeCheck(this JsValue value)
-    {
-        Debug.Assert(value.IsString() && value is JsString);
-        return Unsafe.As<JsString>(value);
-    }
-
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static BigInteger AsBigInt(this JsValue value)
     {

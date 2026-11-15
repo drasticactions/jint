@@ -632,9 +632,10 @@ internal sealed class JintMemberExpression : JintExpression
             // wrapper is needed for spec-compliant numeric-index lookup like t['0'] returning
             // the indexed char via StringInstance.GetOwnProperty's ToNumber coercion. v4.8.0
             // allocated for these too via Engine.GetValue's ToObject path.
-            if (baseValue.IsString() && CommonProperties.Length.Equals(determinedProperty))
+            // The type test after the flag one: a host may derive a value of type String that is not a JsString.
+            if (baseValue.IsString() && baseValue is JsString lengthReceiver && CommonProperties.Length.Equals(determinedProperty))
             {
-                return JsNumber.Create((uint) baseValue.AsStringNoTypeCheck().Length);
+                return JsNumber.Create((uint) lengthReceiver.Length);
             }
 
             return baseValue.GetV(engine.Realm, determinedProperty);
@@ -679,10 +680,11 @@ internal sealed class JintMemberExpression : JintExpression
             }
 
             // A string key on an object: what Engine.GetValue does with the Reference below, [[Get]] with the base as
-            // the receiver (a string is already a property key), without the Reference.
-            if (property.IsString() && baseValue.IsObject())
+            // the receiver (a string is already a property key), without the Reference. A host may derive a key of
+            // type String that is not a JsString; the Reference path converts it.
+            if (property.IsString() && baseValue.IsObject() && property is JsString stringKey)
             {
-                return ReadComputedStringKey(baseValue.AsObjectNoTypeCheck(), Unsafe.As<JsString>(property));
+                return ReadComputedStringKey(baseValue.AsObjectNoTypeCheck(), stringKey);
             }
 
             var rentedReference = engine._referencePool.Rent(baseValue, property, engine.ExecutionContext.Strict, thisValue: null);
@@ -997,9 +999,9 @@ internal sealed class JintMemberExpression : JintExpression
             return true;
         }
 
-        if (_stringReceiverCallEligible && baseValue.IsString())
+        // A host may derive a value of type String that is not a JsString; it takes the Reference path.
+        if (_stringReceiverCallEligible && baseValue.IsString() && baseValue is JsString jsString)
         {
-            var jsString = baseValue.AsStringNoTypeCheck();
 
             // Primitive-string member call (str.slice(...)): the name can never be an own property of a
             // boxed string (build-time proof), so resolve straight off the realm's %String.prototype% —
