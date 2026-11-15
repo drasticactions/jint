@@ -52,6 +52,11 @@ internal sealed class JintMemberExpression : JintExpression
     // immutable, so the miss holds for every object of that shape.
     private Shape? _cachedOwnMissShape;
 
+    // The computed-read lane's key for _cachedShape/_cachedShapeSlot: a computed node has no determined name, so
+    // the entry also names the key string it was resolved for (ReadComputedStringKey). The static lanes never run
+    // on a computed node, so the two never share an entry.
+    private JsString? _cachedComputedKey;
+
     // Prototype-member inline cache: resolves `obj.member` where `member` lives anywhere on obj's prototype
     // chain (arr.push, date.getTime, and — since the chain form below — a getter or method a
     // `class C extends B extends A` declares on A.prototype, or a DOM member declared on Node.prototype and
@@ -673,6 +678,13 @@ internal sealed class JintMemberExpression : JintExpression
                 return arrayLikeValue;
             }
 
+            // A string key on an object: what Engine.GetValue does with the Reference below, [[Get]] with the base as
+            // the receiver (a string is already a property key), without the Reference.
+            if (property.IsString() && baseValue.IsObject())
+            {
+                return ReadComputedStringKey(baseValue.AsObjectNoTypeCheck(), Unsafe.As<JsString>(property));
+            }
+
             var rentedReference = engine._referencePool.Rent(baseValue, property, engine.ExecutionContext.Strict, thisValue: null);
             return CompleteReadFromReference(context, engine, rentedReference);
         }
@@ -701,6 +713,44 @@ internal sealed class JintMemberExpression : JintExpression
         }
 
         return CompleteReadFromReference(context, engine, reference);
+    }
+
+    /// <summary>
+    /// <c>o[key]</c> for a string key and an object <c>o</c>. A shape-mode receiver is read through the shape cache,
+    /// whose entry holds for the key it was resolved for: the same string object, or, after one compare, a string
+    /// of the same text (which then becomes the entry's key). A shape holds only plain data properties, so its slot
+    /// is what [[Get]] returns; any other receiver, and a key the shape has no slot for, take [[Get]].
+    /// </summary>
+    private JsValue ReadComputedStringKey(ObjectInstance baseObject, JsString key)
+    {
+        if ((baseObject._type & (InternalTypes.ShapeMode | InternalTypes.HasLazySlots)) == InternalTypes.ShapeMode)
+        {
+            var shapeObj = Unsafe.As<JsObject>(baseObject);
+            var shape = shapeObj.ShapeOf;
+            if (ReferenceEquals(shape, _cachedShape) && _cachedComputedKey is { } cachedKey)
+            {
+                if (ReferenceEquals(key, cachedKey))
+                {
+                    return shapeObj.GetSlot(_cachedShapeSlot);
+                }
+
+                if (string.Equals(key.ToString(), cachedKey.ToString(), StringComparison.Ordinal))
+                {
+                    _cachedComputedKey = key;
+                    return shapeObj.GetSlot(_cachedShapeSlot);
+                }
+            }
+
+            if (shape.TryGetSlot(key.ToString(), out var slot))
+            {
+                _cachedShape = shape;
+                _cachedShapeSlot = slot;
+                _cachedComputedKey = key;
+                return shapeObj.GetSlot(slot);
+            }
+        }
+
+        return baseObject.Get(key, baseObject);
     }
 
     /// <summary>

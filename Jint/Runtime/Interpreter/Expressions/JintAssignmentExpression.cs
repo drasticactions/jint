@@ -1310,6 +1310,54 @@ internal sealed class JintAssignmentExpression : JintExpression
         }
 
         /// <summary>
+        /// Stores <paramref name="right"/>'s value into the slot binding <paramref name="left"/> resolves to, for a
+        /// `var` initializer that needs no function naming: <see cref="TryStoreNumericInSlot"/> for any value, so the
+        /// store skips <see cref="AssignToIdentifier"/>'s environment walk and name scan. Declines before evaluating
+        /// anything for a suspendable frame, a binding that is not slot-stored, a const or an uninitialized binding;
+        /// the binding is re-validated after the right-hand side runs.
+        /// </summary>
+        internal static bool TryStoreInSlot(EvaluationContext context, ref SlotLocationCache cache, JintIdentifierExpression left, JintExpression right)
+        {
+            var engine = context.Engine;
+            ref readonly var executionContext = ref engine.ExecutionContext;
+            if (executionContext.Suspendable is not null)
+            {
+                return false;
+            }
+
+            if (!cache.TryResolve(engine, executionContext.LexicalEnvironment, left.Identifier, out var environment, out var slotIndex))
+            {
+                return false;
+            }
+
+            var slots = environment._slots;
+            if (slots is null || (uint) slotIndex >= (uint) slots.Length)
+            {
+                return false;
+            }
+
+            ref var binding = ref slots[slotIndex];
+            if (!binding.Mutable || !binding.IsInitialized())
+            {
+                return false;
+            }
+
+            var value = right.GetValue(context);
+            if (binding.Mutable && binding.IsInitialized())
+            {
+                binding = binding.ChangeValue(value);
+            }
+            else
+            {
+                // degenerate: the right-hand side changed the binding's state; the full store
+                // produces the exact semantics
+                environment.SetMutableBinding(left.Identifier, value, engine.ExecutionContext.Strict);
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Discard-mode fast path: a plain assignment whose left side is a slot-stored number and whose
         /// right side is `a op b` over number-slot/literal operands computes on raw doubles and stores
         /// unboxed, with no JsNumber materialization. Operand reads are pure slot reads (never getters),

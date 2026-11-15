@@ -39,7 +39,11 @@ internal sealed class JintVariableDeclaration : JintStatement<VariableDeclaratio
         internal bool InitIsNumeric;
         internal SlotLane? Lane;
 
-        // Where a numeric `var` initializer's binding lives, when it is a slot.
+        // A `var` identifier target with an initializer that needs no naming (no function or class definition):
+        // its value is stored through NumericSlot like a numeric one, without the environment walk and name scan.
+        internal bool VarInitIsUnnamed;
+
+        // Where a `var` initializer's binding lives, when it is a slot.
         internal SlotLocationCache NumericSlot;
     }
 
@@ -109,6 +113,10 @@ internal sealed class JintVariableDeclaration : JintStatement<VariableDeclaratio
                 CanUseSlotLane = canUseSlotLane,
                 InitIsNumeric = init is { HasNumericFastPath: true }
                     && (statement.Kind == VariableDeclarationKind.Var ? leftIdentifier is { HasEvalOrArguments: false } : canUseSlotLane),
+                VarInitIsUnnamed = statement.Kind == VariableDeclarationKind.Var
+                    && leftIdentifier is { HasEvalOrArguments: false }
+                    && declaration.Init is not null and not ClassExpression
+                    && !declaration.Init.IsFunctionDefinition(),
             };
         }
 
@@ -300,6 +308,18 @@ internal sealed class JintVariableDeclaration : JintStatement<VariableDeclaratio
                         if (declaration.InitIsNumeric
                             && declaration.LeftIdentifierExpression._cachedGlobalEnv is null
                             && JintAssignmentExpression.SimpleAssignmentExpression.TryStoreNumericInSlot(
+                                context,
+                                ref declaration.NumericSlot,
+                                declaration.LeftIdentifierExpression,
+                                declaration.Init))
+                        {
+                            continue;
+                        }
+
+                        if (!declaration.InitIsNumeric
+                            && declaration.VarInitIsUnnamed
+                            && declaration.LeftIdentifierExpression._cachedGlobalEnv is null
+                            && JintAssignmentExpression.SimpleAssignmentExpression.TryStoreInSlot(
                                 context,
                                 ref declaration.NumericSlot,
                                 declaration.LeftIdentifierExpression,
