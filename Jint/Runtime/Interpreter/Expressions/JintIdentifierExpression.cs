@@ -258,7 +258,7 @@ internal sealed class JintIdentifierExpression : JintExpression
                     // PeekValue rather than Value: an owned string is marked by HandOn below, which tests the
                     // value's _type bit in place of the arguments type test this lane always made.
                     ref var binding = ref slots[idx];
-                    value = binding.HasReferenceValue
+                    value = binding.HoldsReferenceOrNothing
                         ? binding.PeekValue
                         : DeclarativeEnvironment.MaterializeUnboxedOrNull(ref binding);
                     if (value is null)
@@ -425,7 +425,7 @@ internal sealed class JintIdentifierExpression : JintExpression
                 if (slots is not null && (uint) idx < (uint) slots.Length)
                 {
                     ref var binding = ref slots[idx];
-                    value = binding.HasReferenceValue
+                    value = binding.HoldsReferenceOrNothing
                         ? binding.PeekValue
                         : DeclarativeEnvironment.MaterializeUnboxedOrNull(ref binding);
                     return value is null ? null : HandOn(value);

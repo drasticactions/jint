@@ -800,7 +800,7 @@ internal sealed class JintAssignmentExpression : JintExpression
         // other than it is new: otherwise the receiver is ToPrimitive's answer, which may be any existing string,
         // and an empty append returns its receiver.
         var outcome = CompoundOutcome.Done;
-        if (ReferenceEquals(environment._slots, slots) && binding.Mutable && binding.IsInitialized())
+        if (ReferenceEquals(environment._slots, slots) && binding.IsAssignable)
         {
             binding = originalLeftValue is JsString
                       && newLeftValue is JsString.ConcatenatedString produced
@@ -1167,7 +1167,7 @@ internal sealed class JintAssignmentExpression : JintExpression
             // already targeted this same local `slots` array, so a mid-evaluation reallocation of
             // environment._slots was (and still is) not observed here.
             ref var binding = ref slots[slotIndex];
-            if (!binding.Mutable || !binding.IsInitialized())
+            if (!binding.IsAssignable)
             {
                 return false;
             }
@@ -1198,9 +1198,9 @@ internal sealed class JintAssignmentExpression : JintExpression
 
             // Re-validated, not re-resolved: the right-hand side may have written or (degenerately)
             // deleted the binding, so the flags are read live before storing through the same ref.
-            if (binding.Mutable && binding.IsInitialized())
+            if (binding.IsAssignable)
             {
-                binding = binding.ChangeValue(rval);
+                binding = binding.ChangeMutableValue(rval);
             }
             else
             {
@@ -1306,15 +1306,22 @@ internal sealed class JintAssignmentExpression : JintExpression
 
             // Held across the right-hand side as TryAssignSlot holds it: the store targets this same array.
             ref var binding = ref slots[slotIndex];
-            if (!binding.Mutable || !binding.IsInitialized())
+            if (!binding.IsAssignable)
             {
                 return false;
             }
 
             var value = right.EvaluateNumeric(context, out var number);
-            if (binding.Mutable && binding.IsInitialized())
+            if (binding.IsAssignable)
             {
-                binding = value is null ? binding.WithUnboxedNumber(number) : binding.ChangeValue(value);
+                if (value is null)
+                {
+                    Binding.StoreUnboxedNumber(ref binding, number);
+                }
+                else
+                {
+                    binding = binding.ChangeMutableValue(value);
+                }
             }
             else
             {
@@ -1354,15 +1361,15 @@ internal sealed class JintAssignmentExpression : JintExpression
             }
 
             ref var binding = ref slots[slotIndex];
-            if (!binding.Mutable || !binding.IsInitialized())
+            if (!binding.IsAssignable)
             {
                 return false;
             }
 
             var value = right.GetValue(context);
-            if (binding.Mutable && binding.IsInitialized())
+            if (binding.IsAssignable)
             {
-                binding = binding.ChangeValue(value);
+                binding = binding.ChangeMutableValue(value);
             }
             else
             {

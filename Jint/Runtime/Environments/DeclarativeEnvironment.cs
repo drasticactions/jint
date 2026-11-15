@@ -45,8 +45,7 @@ internal class DeclarativeEnvironment : Environment
     [MethodImpl(MethodImplOptions.NoInlining)]
     internal static JsValue? ReadSlotSlow(ref Binding binding)
     {
-        // The unboxed number first: it is the case numeric code reaches here with, and an unboxed number may carry a
-        // stale OwnsString (see Binding.WithUnboxedNumber), which must not be acted on.
+        // The unboxed number first: it is the case numeric code reaches here with.
         if (binding.IsUnboxedNumber)
         {
             var number = JsNumber.Create(binding.UnboxedNumber);
@@ -101,9 +100,11 @@ internal class DeclarativeEnvironment : Environment
 
     /// <summary>
     /// Reads a slot-stored binding as a raw number for the numeric read-modify-write fast
-    /// paths. Succeeds only for initialized, mutable bindings currently holding a number
-    /// (unboxed or as a JsNumber), so that <see cref="SetNumberSlot"/> may store unchecked.
+    /// paths. Succeeds only for initialized bindings that are nothing but mutable (a var, a let
+    /// or a parameter) and currently hold a number (unboxed or as a JsNumber), so that
+    /// <see cref="SetNumberSlot"/> may store unchecked.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal bool TryGetNumberSlot(int slotIndex, out double value)
     {
         // bounds-checked like the identifier slot-cache read path: a cached index is
@@ -115,25 +116,7 @@ internal class DeclarativeEnvironment : Environment
             return false;
         }
 
-        ref var binding = ref slots[slotIndex];
-        if (binding.Mutable)
-        {
-            if (binding.IsUnboxedNumber)
-            {
-                value = binding.UnboxedNumber;
-                return true;
-            }
-
-            // A number is never owned, and nothing but its double leaves this method.
-            if (binding.PeekValue is JsNumber number)
-            {
-                value = number._value;
-                return true;
-            }
-        }
-
-        value = 0;
-        return false;
+        return slots[slotIndex].TryGetMutableNumber(out value);
     }
 
     /// <summary>
@@ -187,19 +170,21 @@ internal class DeclarativeEnvironment : Environment
         }
 
         ref var binding = ref slots[slotIndex];
-        value = binding.HasReferenceValue ? binding.PeekValue : MaterializeUnboxedOrNull(ref binding);
+        value = binding.HoldsReferenceOrNothing ? binding.PeekValue : MaterializeUnboxedOrNull(ref binding);
         return value is not null;
     }
 
     /// <summary>
     /// Stores a raw number into a slot previously validated by <see cref="TryGetNumberSlot"/>
-    /// without materializing a JsNumber.
+    /// without materializing a JsNumber or reading the binding it replaces: the binding is nothing
+    /// but mutable, and a store does not change what it was declared as.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void SetNumberSlot(int slotIndex, double value)
     {
         ref var binding = ref _slots![slotIndex];
         Debug.Assert(binding.Mutable && binding.IsInitialized());
-        binding = binding.WithUnboxedNumber(value);
+        Binding.StoreMutableNumber(ref binding, value);
     }
 
     /// <summary>
@@ -233,7 +218,7 @@ internal class DeclarativeEnvironment : Environment
     internal bool TryStoreOwnedString(Key name, JsString.ConcatenatedString value)
     {
         ref var binding = ref FindBinding(name);
-        if (Unsafe.IsNullRef(ref binding) || !binding.Mutable || !binding.IsInitialized())
+        if (Unsafe.IsNullRef(ref binding) || !binding.IsAssignable)
         {
             return false;
         }
@@ -289,7 +274,7 @@ internal class DeclarativeEnvironment : Environment
             return false;
         }
 
-        // the unboxed number first, since it may carry a stale OwnsString (see Binding.WithUnboxedNumber)
+        // the unboxed number first: its value field holds no value
         if (binding.IsUnboxedNumber)
         {
             ownsString = false;
@@ -336,7 +321,7 @@ internal class DeclarativeEnvironment : Environment
             if (index >= 0)
             {
                 ref var slot = ref _slots[index];
-                if (ReferenceEquals(slot.Value, value))
+                if (slot.HasReferenceValue && ReferenceEquals(slot.PeekValue, value))
                 {
                     slot = slot.ChangeValue(JsValue.Undefined);
                 }
@@ -455,8 +440,7 @@ internal class DeclarativeEnvironment : Environment
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void InitializeSlotNumber(int index, double value)
     {
-        ref var binding = ref _slots![index];
-        binding = binding.WithUnboxedNumber(value);
+        Binding.StoreUnboxedNumber(ref _slots![index], value);
     }
 
     internal sealed override void InitializeBinding(Key name, JsValue value, DisposeHint hint)
