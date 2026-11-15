@@ -446,6 +446,19 @@ internal class DeclarativeEnvironment : Environment
         binding = binding.ChangeValue(value);
     }
 
+    /// <summary>
+    /// <see cref="InitializeSlotBinding"/> for a `let` or `const` whose initializer produced a Number it never boxed:
+    /// the binding starts out unboxed, as a numeric store into a mutable slot leaves it. Every slot reader
+    /// materializes an unboxed number whatever the binding's mutability, and the numeric write lanes test
+    /// <see cref="Binding.Mutable"/> first, so a const stays read-only.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal void InitializeSlotNumber(int index, double value)
+    {
+        ref var binding = ref _slots![index];
+        binding = binding.WithUnboxedNumber(value);
+    }
+
     internal sealed override void InitializeBinding(Key name, JsValue value, DisposeHint hint)
     {
         if (_slots is not null)

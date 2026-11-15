@@ -163,6 +163,37 @@ internal sealed class JintIdentifierExpression : JintExpression
         return engine._referencePool.Rent(identifierEnvironment, _identifier.Value, strict, thisValue: null);
     }
 
+    /// <summary>
+    /// An unboxed number in the slot <see cref="GetValue"/>'s cache resolved in the current environment itself (its
+    /// hop-0 hit) is handed over raw: GetValue would materialize it, and write the box back, only for the numeric
+    /// consumer to unwrap it again. Every other read is GetValue's.
+    /// </summary>
+    internal override JsValue? EvaluateNumeric(EvaluationContext context, out double number)
+    {
+        var cachedSlotEnv = _cachedSlotEnv;
+        if (cachedSlotEnv is not null
+            && ReferenceEquals(context.Engine.ExecutionContext.LexicalEnvironment, cachedSlotEnv)
+            && _identifier.CalculatedValue is null)
+        {
+            var slots = cachedSlotEnv._slots;
+            var idx = _cachedSlotIndex;
+            if (slots is not null && (uint) idx < (uint) slots.Length)
+            {
+                ref var binding = ref slots[idx];
+                if (binding.IsUnboxedNumber)
+                {
+                    // need to notify correct node when taking shortcut
+                    context.PrepareFor(_expression);
+                    number = binding.UnboxedNumber;
+                    return null;
+                }
+            }
+        }
+
+        number = 0;
+        return GetValue(context);
+    }
+
     public override JsValue GetValue(EvaluationContext context)
     {
         // need to notify correct node when taking shortcut

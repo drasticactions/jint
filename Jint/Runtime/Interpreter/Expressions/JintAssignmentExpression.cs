@@ -26,6 +26,10 @@ internal sealed class JintAssignmentExpression : JintExpression
     // before it still does after it. Not a regex literal: that is an object, and converting it runs its toString.
     private readonly bool _rightIsLiteral;
 
+    // The right-hand side computes numbers without allocating them (JintExpression.EvaluateNumeric), so an arithmetic
+    // compound assignment boxes only the value it stores.
+    private readonly bool _rightIsNumeric;
+
     // Slot-location cache for the discard-mode fast path; see SlotLocationCache for the
     // validity reasoning (with-statement shadowing, pooling, cross-engine sharing).
     private SlotLocationCache _slotCache;
@@ -58,6 +62,7 @@ internal sealed class JintAssignmentExpression : JintExpression
 
         _right = Build(expression.Right);
         _operator = expression.Operator;
+        _rightIsNumeric = _right.HasNumericFastPath;
         _rightIsLiteral = expression.Right is Literal
         {
             Kind: TokenKind.StringLiteral or TokenKind.NumericLiteral or TokenKind.BooleanLiteral or TokenKind.NullLiteral or TokenKind.BigIntLiteral
@@ -367,16 +372,14 @@ internal sealed class JintAssignmentExpression : JintExpression
 
         if (member.TryReadOwnDataForCompound(context, baseValue, out var originalLeftValue))
         {
-            var rval = _right.GetValue(context);
-            var newValue = ComputeCompound(context, originalLeftValue, rval);
+            var newValue = ComputeCompoundOfRight(context, originalLeftValue);
             member.StoreOnBase(context, baseValue, newValue);
             return newValue;
         }
 
         var lref = member.RentReferenceForBase(engine, baseValue);
         originalLeftValue = engine.GetValue(lref, returnReferenceToPool: false);
-        var right = _right.GetValue(context);
-        var result = ComputeCompound(context, originalLeftValue, right);
+        var result = ComputeCompoundOfRight(context, originalLeftValue);
         engine.PutValue(lref, result);
         engine._referencePool.Return(lref);
         return result;
@@ -450,6 +453,59 @@ internal sealed class JintAssignmentExpression : JintExpression
                  && !ReferenceEquals(produced, left)
                  && environment.TryStoreOwnedString(name, produced);
         return result;
+    }
+
+    /// <summary>
+    /// Evaluates the right-hand side and computes the compound result for a left-hand value already read, in a frame
+    /// that cannot suspend. A numeric right-hand side hands its number over unboxed, and a Number left value with it
+    /// takes the IEEE double operation, so only the stored result is allocated.
+    /// </summary>
+    private JsValue ComputeCompoundOfRight(EvaluationContext context, JsValue originalLeftValue)
+    {
+        if (!_rightIsNumeric)
+        {
+            return ComputeCompound(context, originalLeftValue, _right.GetValue(context));
+        }
+
+        var rval = _right.EvaluateNumeric(context, out var right);
+        if (rval is null)
+        {
+            if (originalLeftValue is JsNumber leftNumber && TryComputeArithmetic(_operator, leftNumber._value, right, out var result))
+            {
+                return JsNumber.Create(result);
+            }
+
+            rval = JsNumber.Create(right);
+        }
+
+        return ComputeCompound(context, originalLeftValue, rval);
+    }
+
+    /// <summary>
+    /// The arithmetic compound operators on two Numbers, which are the IEEE double operations (Number::add,
+    /// ::subtract, ::multiply, ::divide). False for every other operator.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool TryComputeArithmetic(Operator op, double left, double right, out double result)
+    {
+        switch (op)
+        {
+            case Operator.AdditionAssignment:
+                result = left + right;
+                return true;
+            case Operator.SubtractionAssignment:
+                result = left - right;
+                return true;
+            case Operator.MultiplicationAssignment:
+                result = left * right;
+                return true;
+            case Operator.DivisionAssignment:
+                result = left / right;
+                return true;
+            default:
+                result = 0;
+                return false;
+        }
     }
 
     /// <summary>
@@ -621,11 +677,11 @@ internal sealed class JintAssignmentExpression : JintExpression
             return TryCompoundSlotValue(context, declarativeEnvironment, slotIndex, out _) != CompoundOutcome.Declined;
         }
 
-        var rval = _right.GetValue(context);
+        double right = 0;
+        var rval = _rightIsNumeric ? _right.EvaluateNumeric(context, out right) : _right.GetValue(context);
 
-        if (rval is JsNumber rightNumber && _operator != Operator.ExponentiationAssignment)
+        if (IsNumericResult(rval, ref right) && _operator != Operator.ExponentiationAssignment)
         {
-            var right = rightNumber._value;
             double result;
             switch (_operator)
             {
@@ -675,7 +731,7 @@ internal sealed class JintAssignmentExpression : JintExpression
         }
 
         // rare: number op= non-number (string concat, BigInt mix error, exponentiation)
-        var newLeftValue = ComputeCompound(context, JsNumber.Create(left), rval);
+        var newLeftValue = ComputeCompound(context, JsNumber.Create(left), rval ?? JsNumber.Create(right));
         declarativeEnvironment.SetMutableBinding(_leftIdentifier.Identifier.Key, newLeftValue, context.Engine.ExecutionContext.Strict);
         return true;
     }
@@ -918,10 +974,24 @@ internal sealed class JintAssignmentExpression : JintExpression
         private bool _rightIsAnonymousClassExpression;
         private bool _rightNeedsFunctionName;
 
+        // `identifier = <arithmetic>`: a statement-position assignment whose right-hand side may compute a number
+        // without allocating it, which the discard lane then stores unboxed into the target's slot.
+        private readonly bool _numericRightShape;
+
         public SimpleAssignmentExpression(AssignmentExpression expression) : base(expression)
         {
             _structurallyNumeric = IsNumericAssignmentShape(expression);
+            _numericRightShape = expression.Left is Identifier && IsArithmeticShape(expression.Right);
         }
+
+        /// <summary>
+        /// The AST shapes whose handlers have a numeric lane (<see cref="JintExpression.HasNumericFastPath"/>): the
+        /// arithmetic binary operators and unary minus and plus. Decided from the AST because
+        /// <see cref="HasDiscardFastPath"/> is asked before the operands are built.
+        /// </summary>
+        private static bool IsArithmeticShape(Expression expression) => expression
+            is NonLogicalBinaryExpression { Operator: Operator.Addition or Operator.Subtraction or Operator.Multiplication or Operator.Division or Operator.Remainder }
+            or NonUpdateUnaryExpression { Operator: Operator.UnaryNegation or Operator.UnaryPlus };
 
         private static bool IsNumericAssignmentShape(AssignmentExpression expression)
         {
@@ -1135,7 +1205,7 @@ internal sealed class JintAssignmentExpression : JintExpression
             return true;
         }
 
-        internal override bool HasDiscardFastPath => _structurallyNumeric;
+        internal override bool HasDiscardFastPath => _structurallyNumeric || _numericRightShape;
 
         internal override void EvaluateAndDiscard(EvaluationContext context)
         {
@@ -1150,7 +1220,93 @@ internal sealed class JintAssignmentExpression : JintExpression
                 return;
             }
 
-            EvaluateInternal(context);
+            if (_numericRightShape
+                && _right.HasNumericFastPath
+                && _leftIdentifier!._cachedGlobalEnv is null
+                && !_evalOrArguments
+                && !_leftIsCoverParenthesized
+                && TryAssignSlotUnboxed(context))
+            {
+                return;
+            }
+
+            if (_structurallyNumeric)
+            {
+                EvaluateInternal(context);
+            }
+            else
+            {
+                // the shapes routed here for the unboxed store alone keep GetValue's node tracking
+                GetValue(context);
+            }
+        }
+
+        /// <summary>
+        /// <see cref="TryAssignSlot"/> for an arithmetic right-hand side whose value nobody reads: a Number result is
+        /// stored unboxed, so neither it nor the subtree's intermediate results are allocated, and a later numeric
+        /// read of the binding takes the raw double. Any other result is stored as TryAssignSlot stores it. The same
+        /// gates decline before anything is evaluated, and the binding is re-validated after the right-hand side runs.
+        /// The right-hand side is no function or class definition, so nothing is named.
+        /// </summary>
+        private bool TryAssignSlotUnboxed(EvaluationContext context)
+        {
+            var engine = context.Engine;
+            var oldSyntaxElement = engine.MarkLastSyntaxElement();
+            context.PrepareFor(_expression);
+
+            var assigned = TryStoreNumericInSlot(context, ref _lhsSlotCache, _leftIdentifier!, _right);
+
+            engine.RestoreLastSyntaxElement(in oldSyntaxElement);
+            return assigned;
+        }
+
+        /// <summary>
+        /// Stores <paramref name="right"/>'s value into the slot binding <paramref name="left"/> resolves to, unboxed
+        /// when it is a Number, for an assignment or a `var` initializer whose value nobody reads. Declines before
+        /// evaluating anything for a suspendable frame, a binding that is not slot-stored, a const or an uninitialized
+        /// binding, so the caller's generic path produces the exact errors; the binding is re-validated after the
+        /// right-hand side runs. The right-hand side must need no function naming.
+        /// </summary>
+        internal static bool TryStoreNumericInSlot(EvaluationContext context, ref SlotLocationCache cache, JintIdentifierExpression left, JintExpression right)
+        {
+            var engine = context.Engine;
+            ref readonly var executionContext = ref engine.ExecutionContext;
+            if (executionContext.Suspendable is not null)
+            {
+                return false;
+            }
+
+            if (!cache.TryResolve(engine, executionContext.LexicalEnvironment, left.Identifier, out var environment, out var slotIndex))
+            {
+                return false;
+            }
+
+            var slots = environment._slots;
+            if (slots is null || (uint) slotIndex >= (uint) slots.Length)
+            {
+                return false;
+            }
+
+            // Held across the right-hand side as TryAssignSlot holds it: the store targets this same array.
+            ref var binding = ref slots[slotIndex];
+            if (!binding.Mutable || !binding.IsInitialized())
+            {
+                return false;
+            }
+
+            var value = right.EvaluateNumeric(context, out var number);
+            if (binding.Mutable && binding.IsInitialized())
+            {
+                binding = value is null ? binding.WithUnboxedNumber(number) : binding.ChangeValue(value);
+            }
+            else
+            {
+                // degenerate: the right-hand side changed the binding's state; the full store
+                // produces the exact semantics
+                environment.SetMutableBinding(left.Identifier, value ?? JsNumber.Create(number), engine.ExecutionContext.Strict);
+            }
+
+            return true;
         }
 
         /// <summary>

@@ -33,7 +33,14 @@ internal sealed class JintVariableDeclaration : JintStatement<VariableDeclaratio
         internal JintIdentifierExpression? LeftIdentifierExpression;
         internal bool EvalOrArguments;
         internal bool CanUseSlotLane;
+
+        // An initializer that computes numbers without allocating them (JintExpression.EvaluateNumeric): the `let`/`const`
+        // slot lane, or a `var` through NumericSlot, stores its Number result unboxed.
+        internal bool InitIsNumeric;
         internal SlotLane? Lane;
+
+        // Where a numeric `var` initializer's binding lives, when it is a slot.
+        internal SlotLocationCache NumericSlot;
     }
 
     /// <summary>
@@ -100,6 +107,8 @@ internal sealed class JintVariableDeclaration : JintStatement<VariableDeclaratio
                 EvalOrArguments = leftIdentifier?.HasEvalOrArguments == true,
                 Init = init,
                 CanUseSlotLane = canUseSlotLane,
+                InitIsNumeric = init is { HasNumericFastPath: true }
+                    && (statement.Kind == VariableDeclarationKind.Var ? leftIdentifier is { HasEvalOrArguments: false } : canUseSlotLane),
             };
         }
 
@@ -194,6 +203,21 @@ internal sealed class JintVariableDeclaration : JintStatement<VariableDeclaratio
                         {
                             laneValue = JsValue.Undefined;
                         }
+                        else if (declaration.InitIsNumeric)
+                        {
+                            var numeric = declaration.Init.EvaluateNumeric(context, out var number);
+                            if (numeric is null)
+                            {
+                                denv.InitializeSlotNumber(lane.Index, number);
+                                continue;
+                            }
+
+                            laneValue = numeric;
+                            if (context.IsSuspended())
+                            {
+                                return Suspended(suspendable, i, laneValue);
+                            }
+                        }
                         else
                         {
                             laneValue = declaration.Init.GetValue(context);
@@ -273,6 +297,17 @@ internal sealed class JintVariableDeclaration : JintStatement<VariableDeclaratio
                 {
                     if (declaration.LeftIdentifierExpression is not null)
                     {
+                        if (declaration.InitIsNumeric
+                            && declaration.LeftIdentifierExpression._cachedGlobalEnv is null
+                            && JintAssignmentExpression.SimpleAssignmentExpression.TryStoreNumericInSlot(
+                                context,
+                                ref declaration.NumericSlot,
+                                declaration.LeftIdentifierExpression,
+                                declaration.Init))
+                        {
+                            continue;
+                        }
+
                         var assigned = JintAssignmentExpression.SimpleAssignmentExpression.AssignToIdentifier(
                             context,
                             declaration.LeftIdentifierExpression,

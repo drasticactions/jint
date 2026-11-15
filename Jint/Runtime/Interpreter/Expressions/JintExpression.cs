@@ -144,6 +144,49 @@ internal abstract class JintExpression
     }
 
     /// <summary>
+    /// True when this expression type overrides <see cref="EvaluateNumeric"/> to compute a number
+    /// without allocating it (the arithmetic operators and unary <c>-</c>/<c>+</c>). An operator node
+    /// asks its operands at build time and evaluates them through <see cref="EvaluateNumeric"/> only
+    /// when one of them answers true, so every other shape keeps its exact current call sequence.
+    /// </summary>
+    internal virtual bool HasNumericFastPath => false;
+
+    /// <summary>
+    /// Evaluates the expression exactly as <see cref="GetValue"/> does — same steps, same order, same
+    /// side effects, same exceptions — but may hand a Number result over as a raw double instead of a
+    /// <see cref="JsNumber"/>: it returns null with the number in <paramref name="number"/>, or the
+    /// value (which may also be a JsNumber) otherwise. The intermediate results of an arithmetic
+    /// subtree (<c>a * b + c * d</c>) then never allocate; only the value that is stored or escapes
+    /// is boxed, by the consumer.
+    /// </summary>
+    internal virtual JsValue? EvaluateNumeric(EvaluationContext context, out double number)
+    {
+        number = 0;
+        return GetValue(context);
+    }
+
+    /// <summary>
+    /// The double of an <see cref="EvaluateNumeric"/> result when it is a Number: true for a raw
+    /// result (null, <paramref name="number"/> already set) and for a JsNumber, false otherwise.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private protected static bool IsNumericResult(JsValue? value, ref double number)
+    {
+        if (value is null)
+        {
+            return true;
+        }
+
+        if (value is JsNumber boxed)
+        {
+            number = boxed._value;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Resolves this expression as a boolean value.
     /// Comparison expressions override this to avoid creating a JsBoolean wrapper.
     /// </summary>

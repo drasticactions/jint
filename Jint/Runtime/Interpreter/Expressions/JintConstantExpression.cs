@@ -19,4 +19,10 @@ internal sealed class JintConstantExpression : JintExpression
     public override JsValue GetValue(EvaluationContext context) => _value;
 
     protected override object EvaluateInternal(EvaluationContext context) => _value;
+
+    internal override JsValue? EvaluateNumeric(EvaluationContext context, out double number)
+    {
+        number = 0;
+        return _value;
+    }
 }

@@ -165,6 +165,45 @@ internal sealed class JintUnaryExpression : JintExpression
         return EvaluateJsValue(context);
     }
 
+    internal override bool HasNumericFastPath => _operator is Operator.UnaryNegation or Operator.UnaryPlus;
+
+    /// <summary>
+    /// <c>-x</c> and <c>+x</c> of a Number operand on its raw double: negation is Number::unaryMinus
+    /// (zero flips to -0, NaN stays NaN) and unary plus is the number itself. Any other operand takes the
+    /// steps <see cref="EvaluateJsValue"/> takes after evaluating it, so a valueOf runs exactly once.
+    /// </summary>
+    internal override JsValue? EvaluateNumeric(EvaluationContext context, out double number)
+    {
+        if (_operator is Operator.UnaryNegation or Operator.UnaryPlus
+            && !context.OperatorOverloadingAllowed
+            && context.Engine.ExecutionContext.Suspendable is null)
+        {
+            // need to notify correct node when taking shortcut
+            context.PrepareFor(_expression);
+            var value = _argument.EvaluateNumeric(context, out number);
+            if (IsNumericResult(value, ref number))
+            {
+                if (_operator == Operator.UnaryNegation)
+                {
+                    number = -number;
+                }
+
+                return null;
+            }
+
+            if (_operator == Operator.UnaryNegation)
+            {
+                return EvaluateMinus(value!);
+            }
+
+            number = TypeConverter.ToNumber(value!);
+            return null;
+        }
+
+        number = 0;
+        return GetValue(context);
+    }
+
     public override bool GetBooleanValue(EvaluationContext context)
     {
         // `!x` in a boolean context (if/while/ternary/nested !) is exactly !ToBoolean(x), so the

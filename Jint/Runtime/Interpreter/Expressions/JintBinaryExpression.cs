@@ -33,17 +33,139 @@ internal abstract class JintBinaryExpression : JintExpression
     private protected readonly JintExpression _left;
     private protected readonly JintExpression _right;
 
+    // An operand computes numbers without allocating them (see JintExpression.EvaluateNumeric), so this node
+    // evaluates its operands through that lane.
+    private protected readonly bool _numericOperands;
+
     private JintBinaryExpression(NonLogicalBinaryExpression expression) : base(expression)
     {
         // TODO check https://tc39.es/ecma262/#sec-applystringornumericbinaryoperator
         _left = JintStackProbeExpression.BuildOperand(expression.Left);
         _right = JintStackProbeExpression.BuildOperand(expression.Right);
+        _numericOperands = HasNumericOperand(expression.Operator, _left, _right);
     }
 
     private JintBinaryExpression(NonLogicalBinaryExpression expression, JintExpression left, JintExpression right) : base(expression)
     {
         _left = left;
         _right = right;
+        _numericOperands = HasNumericOperand(expression.Operator, _left, _right);
+    }
+
+    /// <summary>
+    /// Whether this node evaluates its operands through <see cref="JintExpression.EvaluateNumeric"/>: an operand
+    /// with a numeric lane, or, for an operator that converts both operands to numbers or compares them, an
+    /// identifier, whose slot may hold an unboxed number. A <c>+</c> of an identifier keeps the plain reads, since
+    /// so many of them concatenate strings.
+    /// </summary>
+    private static bool HasNumericOperand(Operator op, JintExpression left, JintExpression right)
+    {
+        if (left.HasNumericFastPath || right.HasNumericFastPath)
+        {
+            return true;
+        }
+
+        return op is Operator.Subtraction or Operator.Multiplication or Operator.Division or Operator.Remainder
+                   or Operator.LessThan or Operator.GreaterThan or Operator.LessThanOrEqual or Operator.GreaterThanOrEqual
+               && (left is JintIdentifierExpression || right is JintIdentifierExpression);
+    }
+
+    /// <summary>
+    /// Evaluates both operands, left then right, as <see cref="TryEvaluateOperands"/> does, and answers
+    /// true with their doubles when both are Numbers and operator overloading is off — the case in which
+    /// every arithmetic and relational operator is the plain IEEE double operation. An operand with a
+    /// numeric lane hands its number over without allocating it. Otherwise false, with both values in
+    /// <paramref name="leftValue"/> and <paramref name="rightValue"/> (a raw number boxed now), or both
+    /// null when the frame suspended. Nothing is converted here, so ToPrimitive and its user code run
+    /// after both operands, in the operator's own order.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private protected bool TryEvaluateNumberOperands(
+        EvaluationContext context,
+        out double left,
+        out double right,
+        out JsValue? leftValue,
+        out JsValue? rightValue)
+    {
+        if (_numericOperands
+            && !context.OperatorOverloadingAllowed
+            && context.Engine.ExecutionContext.Suspendable is null)
+        {
+            // A frame without a suspendable keeps none for as long as it runs, so neither operand can suspend it.
+            leftValue = _left.EvaluateNumeric(context, out left);
+            rightValue = _right.EvaluateNumeric(context, out right);
+            if (IsNumericResult(leftValue, ref left) && IsNumericResult(rightValue, ref right))
+            {
+                return true;
+            }
+
+            leftValue ??= JsNumber.Create(left);
+            rightValue ??= JsNumber.Create(right);
+            return false;
+        }
+
+        if (!TryEvaluateOperands(context, out var leftOperand, out var rightOperand))
+        {
+            left = 0;
+            right = 0;
+            leftValue = null;
+            rightValue = null;
+            return false;
+        }
+
+        leftValue = leftOperand;
+        rightValue = rightOperand;
+        if (leftOperand is JsNumber leftNumber && rightOperand is JsNumber rightNumber && !context.OperatorOverloadingAllowed)
+        {
+            left = leftNumber._value;
+            right = rightNumber._value;
+            return true;
+        }
+
+        left = 0;
+        right = 0;
+        return false;
+    }
+
+    /// <summary>
+    /// <see cref="JintExpression.Evaluate"/>'s node tracking around an arithmetic node's numeric evaluation, so
+    /// an error raised in it reports this node as the generic path does.
+    /// </summary>
+    private protected abstract class NumericBinaryExpression : JintBinaryExpression
+    {
+        protected NumericBinaryExpression(NonLogicalBinaryExpression expression) : base(expression)
+        {
+        }
+
+        protected NumericBinaryExpression(NonLogicalBinaryExpression expression, JintExpression left, JintExpression right) : base(expression, left, right)
+        {
+        }
+
+        internal sealed override bool HasNumericFastPath => true;
+
+        protected sealed override object EvaluateInternal(EvaluationContext context)
+        {
+            return EvaluateNumericCore(context, out var number) ?? JsNumber.Create(number);
+        }
+
+        internal sealed override JsValue? EvaluateNumeric(EvaluationContext context, out double number)
+        {
+            var engine = context.Engine;
+            var oldSyntaxElement = engine.MarkLastSyntaxElement();
+            context.PrepareFor(_expression);
+
+            var result = EvaluateNumericCore(context, out number);
+
+            engine.RestoreLastSyntaxElement(in oldSyntaxElement);
+            return result;
+        }
+
+        /// <summary>
+        /// The operator's value: null with the number in <paramref name="number"/> when it is a Number,
+        /// the value itself otherwise (a BigInt, a string, an operator overload's result, or undefined
+        /// for a suspended frame).
+        /// </summary>
+        protected abstract JsValue? EvaluateNumericCore(EvaluationContext context, out double number);
     }
 
     /// <summary>
@@ -1194,8 +1316,15 @@ internal abstract class JintBinaryExpression : JintExpression
     /// True when an operand is a literal that is certainly a number, so no ToPrimitive call and no
     /// string outcome is possible from it.
     /// </summary>
+    /// <summary>
+    /// Whether the operand's value can never be a string: a numeric literal, or an arithmetic operator
+    /// other than <c>+</c> (a Number or a BigInt, whatever its operands). Such a pair cannot open a
+    /// concatenation, so its <c>+</c> keeps the pairwise node and its numeric lanes.
+    /// </summary>
     private static bool IsStaticallyNumeric(Expression expression)
-        => expression is NumericLiteral;
+        => expression is NumericLiteral
+            or NonLogicalBinaryExpression { Operator: Operator.Subtraction or Operator.Multiplication or Operator.Division or Operator.Remainder }
+            or NonUpdateUnaryExpression { Operator: Operator.UnaryNegation };
 
     private static void CollectAdditionOperands(Expression expression, List<Expression> operands)
     {
@@ -1210,27 +1339,6 @@ internal abstract class JintBinaryExpression : JintExpression
 
         operands.Add(current);
         operands.Reverse();
-    }
-
-    /// <summary>
-    /// The relational operators' lane for two evaluated number operands: their doubles compare
-    /// directly, with IEEE semantics giving false for NaN exactly as the generic path does. It
-    /// declines when operator overloading is allowed, like the other number lanes: overload
-    /// resolution sees a JS number as a CLR double, and its result goes through the object converters.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool TryGetNumberOperands(EvaluationContext context, JsValue left, JsValue right, out double leftNumber, out double rightNumber)
-    {
-        if (left.IsNumber() && right.IsNumber() && !context.OperatorOverloadingAllowed)
-        {
-            leftNumber = Unsafe.As<JsNumber>(left)._value;
-            rightNumber = Unsafe.As<JsNumber>(right)._value;
-            return true;
-        }
-
-        leftNumber = 0;
-        rightNumber = 0;
-        return false;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1565,15 +1673,18 @@ internal abstract class JintBinaryExpression : JintExpression
                 return unboxedLeft < unboxedRight ? JsBoolean.True : JsBoolean.False;
             }
 
-            if (!TryEvaluateOperands(context, out var left, out var right))
+            if (TryEvaluateNumberOperands(context, out var leftNumber, out var rightNumber, out var leftValue, out var rightValue))
+            {
+                return leftNumber < rightNumber ? JsBoolean.True : JsBoolean.False;
+            }
+
+            if (leftValue is null)
             {
                 return JsValue.Undefined;
             }
 
-            if (TryGetNumberOperands(context, left, right, out var leftNumber, out var rightNumber))
-            {
-                return leftNumber < rightNumber ? JsBoolean.True : JsBoolean.False;
-            }
+            var left = leftValue;
+            var right = rightValue!;
 
             if (context.OperatorOverloadingAllowed
                 && TryOperatorOverloading(context, left, right, "op_LessThan", out var opResult))
@@ -1593,15 +1704,18 @@ internal abstract class JintBinaryExpression : JintExpression
                 return unboxedLeft < unboxedRight;
             }
 
-            if (!TryEvaluateOperands(context, out var left, out var right))
+            if (TryEvaluateNumberOperands(context, out var leftNumber, out var rightNumber, out var leftValue, out var rightValue))
+            {
+                return leftNumber < rightNumber;
+            }
+
+            if (leftValue is null)
             {
                 return false;
             }
 
-            if (TryGetNumberOperands(context, left, right, out var leftNumber, out var rightNumber))
-            {
-                return leftNumber < rightNumber;
-            }
+            var left = leftValue;
+            var right = rightValue!;
 
             if (context.OperatorOverloadingAllowed
                 && TryOperatorOverloading(context, left, right, "op_LessThan", out var opResult))
@@ -1631,15 +1745,18 @@ internal abstract class JintBinaryExpression : JintExpression
                 return unboxedLeft > unboxedRight ? JsBoolean.True : JsBoolean.False;
             }
 
-            if (!TryEvaluateOperands(context, out var left, out var right))
+            if (TryEvaluateNumberOperands(context, out var leftNumber, out var rightNumber, out var leftValue, out var rightValue))
+            {
+                return leftNumber > rightNumber ? JsBoolean.True : JsBoolean.False;
+            }
+
+            if (leftValue is null)
             {
                 return JsValue.Undefined;
             }
 
-            if (TryGetNumberOperands(context, left, right, out var leftNumber, out var rightNumber))
-            {
-                return leftNumber > rightNumber ? JsBoolean.True : JsBoolean.False;
-            }
+            var left = leftValue;
+            var right = rightValue!;
 
             if (context.OperatorOverloadingAllowed
                 && TryOperatorOverloading(context, left, right, "op_GreaterThan", out var opResult))
@@ -1659,15 +1776,18 @@ internal abstract class JintBinaryExpression : JintExpression
                 return unboxedLeft > unboxedRight;
             }
 
-            if (!TryEvaluateOperands(context, out var left, out var right))
+            if (TryEvaluateNumberOperands(context, out var leftNumber, out var rightNumber, out var leftValue, out var rightValue))
+            {
+                return leftNumber > rightNumber;
+            }
+
+            if (leftValue is null)
             {
                 return false;
             }
 
-            if (TryGetNumberOperands(context, left, right, out var leftNumber, out var rightNumber))
-            {
-                return leftNumber > rightNumber;
-            }
+            var left = leftValue;
+            var right = rightValue!;
 
             if (context.OperatorOverloadingAllowed
                 && TryOperatorOverloading(context, left, right, "op_GreaterThan", out var opResult))
@@ -1723,18 +1843,47 @@ internal abstract class JintBinaryExpression : JintExpression
             return JintStackProbeExpression.BuildOperand(left);
         }
 
+        internal override bool HasNumericFastPath => true;
+
         protected override object EvaluateInternal(EvaluationContext context)
         {
-            if (_numericLane is not null && _numericLane.Lane.TryGetOperands(context, out var unboxedLeft, out var unboxedRight))
+            return EvaluatePair(context, out var number) ?? JsNumber.Create(number);
+        }
+
+        internal override JsValue? EvaluateNumeric(EvaluationContext context, out double number)
+        {
+            var engine = context.Engine;
+            var oldSyntaxElement = engine.MarkLastSyntaxElement();
+            context.PrepareFor(_expression);
+
+            var result = EvaluatePair(context, out number);
+
+            engine.RestoreLastSyntaxElement(in oldSyntaxElement);
+            return result;
+        }
+
+        /// <summary>
+        /// The pairwise <c>+</c>: null with the sum in <paramref name="number"/> when both operands are
+        /// Numbers, the value itself otherwise (a string, a BigInt, an operator overload's result, or
+        /// undefined for a suspended frame).
+        /// </summary>
+        private JsValue? EvaluatePair(EvaluationContext context, out double number)
+        {
+            if ((_numericLane is not null && _numericLane.Lane.TryGetOperands(context, out var unboxedLeft, out var unboxedRight))
+                || TryEvaluateNumberOperands(context, out unboxedLeft, out unboxedRight, out var leftValue, out var rightValue))
             {
-                return JsNumber.Create(unboxedLeft + unboxedRight);
+                number = unboxedLeft + unboxedRight;
+                return null;
             }
 
-            if (!TryEvaluateOperands(context, out var left, out var right))
+            number = 0;
+            if (leftValue is null)
             {
                 return JsValue.Undefined;
             }
 
+            var left = leftValue;
+            var right = rightValue!;
             if (context.OperatorOverloadingAllowed
                 && TryOperatorOverloading(context, left, right, "op_Addition", out var opResult))
             {
@@ -1748,7 +1897,8 @@ internal abstract class JintBinaryExpression : JintExpression
 
             if (left._type == InternalTypes.Number && right._type == InternalTypes.Number)
             {
-                return JsNumber.Create(Unsafe.As<JsNumber>(left)._value + Unsafe.As<JsNumber>(right)._value);
+                number = Unsafe.As<JsNumber>(left)._value + Unsafe.As<JsNumber>(right)._value;
+                return null;
             }
 
             var lprim = TypeConverter.ToPrimitive(left);
@@ -1905,6 +2055,15 @@ internal abstract class JintBinaryExpression : JintExpression
         {
             _operandExpressions = operandExpressions;
             _probeDepth = SyntaxNesting.ProbeDepth;
+        }
+
+        // A chain that may concatenate keeps its own evaluation: the pairwise lane is only one of its two.
+        internal override bool HasNumericFastPath => false;
+
+        internal override JsValue? EvaluateNumeric(EvaluationContext context, out double number)
+        {
+            number = 0;
+            return GetValue(context);
         }
 
         private void EnsureInitialized()
@@ -2323,7 +2482,7 @@ internal abstract class JintBinaryExpression : JintExpression
         }
     }
 
-    private sealed class MinusBinaryExpression : JintBinaryExpression
+    private sealed class MinusBinaryExpression : NumericBinaryExpression
     {
         private NumericOperandLane _numericLane;
 
@@ -2332,18 +2491,23 @@ internal abstract class JintBinaryExpression : JintExpression
             _numericLane.Initialize(_left, _right);
         }
 
-        protected override object EvaluateInternal(EvaluationContext context)
+        protected override JsValue? EvaluateNumericCore(EvaluationContext context, out double number)
         {
-            if (_numericLane.TryGetOperands(context, out var unboxedLeft, out var unboxedRight))
+            if (_numericLane.TryGetOperands(context, out var unboxedLeft, out var unboxedRight)
+                || TryEvaluateNumberOperands(context, out unboxedLeft, out unboxedRight, out var leftValue, out var rightValue))
             {
-                return JsNumber.Create(unboxedLeft - unboxedRight);
+                number = unboxedLeft - unboxedRight;
+                return null;
             }
 
-            if (!TryEvaluateOperands(context, out var left, out var right))
+            number = 0;
+            if (leftValue is null)
             {
                 return JsValue.Undefined;
             }
 
+            var left = leftValue;
+            var right = rightValue!;
             if (context.OperatorOverloadingAllowed
                 && TryOperatorOverloading(context, left, right, "op_Subtraction", out var opResult))
             {
@@ -2357,28 +2521,25 @@ internal abstract class JintBinaryExpression : JintExpression
 
             if (left._type == InternalTypes.Number && right._type == InternalTypes.Number)
             {
-                return JsNumber.Create(Unsafe.As<JsNumber>(left)._value - Unsafe.As<JsNumber>(right)._value);
+                number = Unsafe.As<JsNumber>(left)._value - Unsafe.As<JsNumber>(right)._value;
+                return null;
             }
 
             left = TypeConverter.ToNumeric(left);
             right = TypeConverter.ToNumeric(right);
 
-            JsValue number;
             if (AreNonBigIntOperands(left, right))
             {
-                number = JsNumber.Create(left.AsNumber() - right.AsNumber());
-            }
-            else
-            {
-                JintBinaryExpression.AssertValidBigIntArithmeticOperands(left, right);
-                number = JsBigInt.Create(TypeConverter.ToBigInt(left) - TypeConverter.ToBigInt(right));
+                number = left.AsNumber() - right.AsNumber();
+                return null;
             }
 
-            return number;
+            JintBinaryExpression.AssertValidBigIntArithmeticOperands(left, right);
+            return JsBigInt.Create(TypeConverter.ToBigInt(left) - TypeConverter.ToBigInt(right));
         }
     }
 
-    private sealed class TimesBinaryExpression : JintBinaryExpression
+    private sealed class TimesBinaryExpression : NumericBinaryExpression
     {
         private NumericOperandLane _numericLane;
 
@@ -2387,20 +2548,25 @@ internal abstract class JintBinaryExpression : JintExpression
             _numericLane.Initialize(_left, _right);
         }
 
-        protected override object EvaluateInternal(EvaluationContext context)
+        protected override JsValue? EvaluateNumericCore(EvaluationContext context, out double number)
         {
-            if (_numericLane.TryGetOperands(context, out var unboxedLeft, out var unboxedRight))
+            if (_numericLane.TryGetOperands(context, out var unboxedLeft, out var unboxedRight)
+                || TryEvaluateNumberOperands(context, out unboxedLeft, out unboxedRight, out var leftValue, out var rightValue))
             {
                 // raw-double multiply is Number::multiply bit for bit, including -0 for zero
                 // products of opposite signs
-                return JsNumber.Create(unboxedLeft * unboxedRight);
+                number = unboxedLeft * unboxedRight;
+                return null;
             }
 
-            if (!TryEvaluateOperands(context, out var left, out var right))
+            number = 0;
+            if (leftValue is null)
             {
                 return JsValue.Undefined;
             }
 
+            var left = leftValue;
+            var right = rightValue!;
             JsValue result;
             if (context.OperatorOverloadingAllowed
                 && TryOperatorOverloading(context, left, right, "op_Multiply", out var opResult))
@@ -2418,7 +2584,8 @@ internal abstract class JintBinaryExpression : JintExpression
             }
             else if (left._type == InternalTypes.Number && right._type == InternalTypes.Number)
             {
-                result = JsNumber.Create(Unsafe.As<JsNumber>(left)._value * Unsafe.As<JsNumber>(right)._value);
+                number = Unsafe.As<JsNumber>(left)._value * Unsafe.As<JsNumber>(right)._value;
+                return null;
             }
             else
             {
@@ -2427,7 +2594,8 @@ internal abstract class JintBinaryExpression : JintExpression
 
                 if (leftNumeric.IsNumber() && rightNumeric.IsNumber())
                 {
-                    result = JsNumber.Create(leftNumeric.AsNumber() * rightNumeric.AsNumber());
+                    number = leftNumeric.AsNumber() * rightNumeric.AsNumber();
+                    return null;
                 }
                 else
                 {
@@ -2440,7 +2608,7 @@ internal abstract class JintBinaryExpression : JintExpression
         }
     }
 
-    private sealed class DivideBinaryExpression : JintBinaryExpression
+    private sealed class DivideBinaryExpression : NumericBinaryExpression
     {
         private NumericOperandLane _numericLane;
 
@@ -2449,18 +2617,24 @@ internal abstract class JintBinaryExpression : JintExpression
             _numericLane.Initialize(_left, _right);
         }
 
-        protected override object EvaluateInternal(EvaluationContext context)
+        protected override JsValue? EvaluateNumericCore(EvaluationContext context, out double number)
         {
-            if (_numericLane.TryGetOperands(context, out var unboxedLeft, out var unboxedRight))
+            // IEEE 754 division is Number::divide for every pair of Numbers, integers included
+            if (_numericLane.TryGetOperands(context, out var unboxedLeft, out var unboxedRight)
+                || TryEvaluateNumberOperands(context, out unboxedLeft, out unboxedRight, out var leftValue, out var rightValue))
             {
-                return JsNumber.Create(unboxedLeft / unboxedRight);
+                number = unboxedLeft / unboxedRight;
+                return null;
             }
 
-            if (!TryEvaluateOperands(context, out var left, out var right))
+            number = 0;
+            if (leftValue is null)
             {
                 return JsValue.Undefined;
             }
 
+            var left = leftValue;
+            var right = rightValue!;
             if (context.OperatorOverloadingAllowed
                 && TryOperatorOverloading(context, left, right, "op_Division", out var opResult))
             {
@@ -2469,7 +2643,8 @@ internal abstract class JintBinaryExpression : JintExpression
 
             if (left._type == InternalTypes.Number && right._type == InternalTypes.Number)
             {
-                return JsNumber.Create(Unsafe.As<JsNumber>(left)._value / Unsafe.As<JsNumber>(right)._value);
+                number = Unsafe.As<JsNumber>(left)._value / Unsafe.As<JsNumber>(right)._value;
+                return null;
             }
 
             left = TypeConverter.ToNumeric(left);
@@ -2575,16 +2750,19 @@ internal abstract class JintBinaryExpression : JintExpression
                 return result ? JsBoolean.True : JsBoolean.False;
             }
 
-            if (!TryEvaluateOperands(context, out var leftValue, out var rightValue))
-            {
-                return JsValue.Undefined;
-            }
-
-            if (TryGetNumberOperands(context, leftValue, rightValue, out var leftNumber, out var rightNumber))
+            if (TryEvaluateNumberOperands(context, out var leftNumber, out var rightNumber, out var evaluatedLeft, out var evaluatedRight))
             {
                 var result = _leftFirst ? leftNumber >= rightNumber : leftNumber <= rightNumber;
                 return result ? JsBoolean.True : JsBoolean.False;
             }
+
+            if (evaluatedLeft is null)
+            {
+                return JsValue.Undefined;
+            }
+
+            var leftValue = evaluatedLeft;
+            var rightValue = evaluatedRight!;
 
             if (context.OperatorOverloadingAllowed
                 && TryOperatorOverloading(context, leftValue, rightValue, _leftFirst ? "op_GreaterThanOrEqual" : "op_LessThanOrEqual", out var opResult))
@@ -2607,15 +2785,18 @@ internal abstract class JintBinaryExpression : JintExpression
                 return _leftFirst ? unboxedLeft >= unboxedRight : unboxedLeft <= unboxedRight;
             }
 
-            if (!TryEvaluateOperands(context, out var leftValue, out var rightValue))
+            if (TryEvaluateNumberOperands(context, out var leftNumber, out var rightNumber, out var evaluatedLeft, out var evaluatedRight))
+            {
+                return _leftFirst ? leftNumber >= rightNumber : leftNumber <= rightNumber;
+            }
+
+            if (evaluatedLeft is null)
             {
                 return false;
             }
 
-            if (TryGetNumberOperands(context, leftValue, rightValue, out var leftNumber, out var rightNumber))
-            {
-                return _leftFirst ? leftNumber >= rightNumber : leftNumber <= rightNumber;
-            }
+            var leftValue = evaluatedLeft;
+            var rightValue = evaluatedRight!;
 
             if (context.OperatorOverloadingAllowed
                 && TryOperatorOverloading(context, leftValue, rightValue, _leftFirst ? "op_GreaterThanOrEqual" : "op_LessThanOrEqual", out var opResult))
@@ -2824,7 +3005,7 @@ internal abstract class JintBinaryExpression : JintExpression
         }
     }
 
-    private sealed class ModuloBinaryExpression : JintBinaryExpression
+    private sealed class ModuloBinaryExpression : NumericBinaryExpression
     {
         private NumericOperandLane _numericLane;
 
@@ -2833,20 +3014,25 @@ internal abstract class JintBinaryExpression : JintExpression
             _numericLane.Initialize(_left, _right);
         }
 
-        protected override object EvaluateInternal(EvaluationContext context)
+        protected override JsValue? EvaluateNumericCore(EvaluationContext context, out double number)
         {
-            if (_numericLane.TryGetOperands(context, out var unboxedLeft, out var unboxedRight))
+            if (_numericLane.TryGetOperands(context, out var unboxedLeft, out var unboxedRight)
+                || TryEvaluateNumberOperands(context, out unboxedLeft, out unboxedRight, out var leftValue, out var rightValue))
             {
                 // Number::remainder: reuse the raw-number operation, preserving -0 and
                 // special values without materializing slot-stored numeric operands.
-                return JsNumber.Create(RemainderUnboxed(unboxedLeft, unboxedRight));
+                number = RemainderUnboxed(unboxedLeft, unboxedRight);
+                return null;
             }
 
-            if (!TryEvaluateOperands(context, out var left, out var right))
+            number = 0;
+            if (leftValue is null)
             {
                 return JsValue.Undefined;
             }
 
+            var left = leftValue;
+            var right = rightValue!;
             if (context.OperatorOverloadingAllowed
                 && TryOperatorOverloading(context, left, right, "op_Modulus", out var opResult))
             {
