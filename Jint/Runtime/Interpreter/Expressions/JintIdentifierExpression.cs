@@ -31,6 +31,8 @@ internal sealed class JintIdentifierExpression : JintExpression
     // The layout of the chain the slot cache resolved through, made when the node resolves again under another
     // chain; see SlotLayoutMemo.
     private SlotLayoutMemo? _slotLayout;
+    // Where the binding is when its environment keeps it by name, not in a slot; see DictionaryBindingLayout.
+    private DictionaryBindingLayout? _dictionaryLayout;
 
     // Version-based inline cache for global bindings: when resolution (from any scope depth)
     // lands on a plain writable data property of the real GlobalObject, remember the
@@ -270,6 +272,20 @@ internal sealed class JintIdentifierExpression : JintExpression
         }
 
 
+        if (_dictionaryLayout is { } dictionaryLayout)
+        {
+            ref var dictionaryBinding = ref dictionaryLayout.Follow(engine, env);
+            if (!Unsafe.IsNullRef(ref dictionaryBinding))
+            {
+                value = dictionaryBinding.Value;
+                if (value is null)
+                {
+                    ThrowNotInitialized(engine);
+                }
+                return HandOn(value);
+            }
+        }
+
         // Global-binding fast path: top-level identifier reads hit the cached descriptor
         // directly, skipping the property dictionary lookup entirely. The null pre-check keeps
         // the cost for non-global identifiers to a single field test; the out-of-line validator
@@ -354,6 +370,12 @@ internal sealed class JintIdentifierExpression : JintExpression
                 _cachedSlotIndex = slotIndex;
                 return true;
             }
+
+            if (DictionaryBindingLayout.TryCreate(engine, env, denv, key) is { } dictionaryLayout)
+            {
+                _dictionaryLayout = dictionaryLayout;
+                return true;
+            }
         }
         else if (identifierEnvironment is GlobalEnvironment globalEnv)
         {
@@ -408,6 +430,16 @@ internal sealed class JintIdentifierExpression : JintExpression
                         : DeclarativeEnvironment.MaterializeUnboxedOrNull(ref binding);
                     return value is null ? null : HandOn(value);
                 }
+            }
+        }
+
+        if (_dictionaryLayout is { } dictionaryLayout)
+        {
+            ref var dictionaryBinding = ref dictionaryLayout.Follow(engine, env);
+            if (!Unsafe.IsNullRef(ref dictionaryBinding))
+            {
+                value = dictionaryBinding.Value;
+                return value is null ? null : HandOn(value);
             }
         }
 

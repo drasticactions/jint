@@ -187,9 +187,9 @@ internal sealed class SlotLayoutMemo
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool DictionaryOwns(DeclarativeEnvironment env, Key key) => env._dictionary is { Count: > 0 } dictionary && dictionary.ContainsKey(key);
+    internal static bool DictionaryOwns(DeclarativeEnvironment env, Key key) => env._dictionary is { Count: > 0 } dictionary && dictionary.ContainsKey(key);
 
-    private static bool Contains(Key[] names, Key key)
+    internal static bool Contains(Key[] names, Key key)
     {
         foreach (var name in names)
         {

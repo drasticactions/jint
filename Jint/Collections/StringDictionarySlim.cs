@@ -293,6 +293,50 @@ internal sealed class StringDictionarySlim<TValue> : DictionaryBase<TValue>, IRe
         return true;
     }
 
+    /// <summary>
+    /// The index of the entry of <paramref name="key"/>, and the name it is stored under, for a reader that keeps the
+    /// position and reads it back with <see cref="GetValueRefAt"/>; -1 when the key is not present.
+    /// </summary>
+    internal int FindEntryIndex(Key key, out string storedName)
+    {
+        Entry[] entries = _entries;
+        int bucketIndex = key.HashCode & (_buckets.Length - 1);
+        for (int i = _buckets[bucketIndex] - 1;
+             (uint) i < (uint) entries.Length; i = entries[i].next)
+        {
+            if (key.Name == entries[i].key.Name)
+            {
+                storedName = entries[i].key.Name;
+                return i;
+            }
+        }
+
+        storedName = null;
+        return -1;
+    }
+
+    /// <summary>
+    /// The value of the entry at <paramref name="index"/> when it is still stored there under
+    /// <paramref name="storedName"/> (the very string <see cref="FindEntryIndex"/> reported), otherwise a null ref. An
+    /// entry stays at its index until it is removed (the slot is cleared) or the entries are compacted or reallocated
+    /// (the slot then holds another key or none), so a hit is the entry of that name whatever happened in between.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal ref TValue GetValueRefAt(int index, string storedName)
+    {
+        Entry[] entries = _entries;
+        if ((uint) index < (uint) entries.Length)
+        {
+            ref var entry = ref entries[index];
+            if (ReferenceEquals(entry.key.Name, storedName))
+            {
+                return ref entry.value;
+            }
+        }
+
+        return ref Unsafe.NullRef<TValue>();
+    }
+
     public override ref TValue GetValueRefOrNullRef(Key key)
     {
         Entry[] entries = _entries;
