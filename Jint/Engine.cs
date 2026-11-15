@@ -1818,6 +1818,28 @@ public sealed partial class Engine : IDisposable
     // instances of JS classes that declare #private members ever allocate an entry here.
     internal ConditionalWeakTable<ObjectInstance, PrivateElementHolder>? _privateElementStore;
 
+    // The symbol-keyed own properties of the objects that have any, kept off ObjectInstance for the same reason as
+    // the private elements above: most objects never have one. ObjectInstance._symbols reads and writes it.
+    private ConditionalWeakTable<ObjectInstance, SymbolDictionary>? _objectSymbols;
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal SymbolDictionary? GetObjectSymbols(ObjectInstance owner)
+    {
+        return _objectSymbols!.TryGetValue(owner, out var symbols) ? symbols : null;
+    }
+
+    internal void SetObjectSymbols(ObjectInstance owner, SymbolDictionary symbols)
+    {
+        var table = _objectSymbols ??= new ConditionalWeakTable<ObjectInstance, SymbolDictionary>();
+        table.Remove(owner);
+        table.Add(owner, symbols);
+    }
+
+    internal void RemoveObjectSymbols(ObjectInstance owner)
+    {
+        _objectSymbols?.Remove(owner);
+    }
+
     // WebIDL callback interfaces need the object's creation realm, including null-prototype objects and
     // revoked proxies. Keep secondary-realm records weakly, without another pointer on every JS object.
     internal ConditionalWeakTable<ObjectInstance, Realm>? _secondaryObjectRealms;

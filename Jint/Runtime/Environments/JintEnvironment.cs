@@ -191,10 +191,9 @@ internal static class JintEnvironment
         if (state is { EnvironmentMayEscape: false, IsDirectRecursive: false }
             && newTarget.IsUndefined())
         {
-            if ((ScriptFunction) f is { _envReuse: { } envReuse } scriptFunction)
+            if (((ScriptFunction) f).TakeReusableEnvironment() is { } reused)
             {
-                scriptFunction._envReuse = null;
-                env = (FunctionEnvironment) envReuse;
+                env = reused;
                 env.Reset(f, newTarget, f._environment);
             }
             else if (f._functionDefinition!.IsDynamic

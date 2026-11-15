@@ -39,15 +39,51 @@ public partial class ObjectInstance : JsValue, IEquatable<ObjectInstance>
     private bool _extensible;
     private readonly ObjectClass _class;
 
-    internal PropertyDictionary? _properties;
-    internal SymbolDictionary? _symbols;
+    // Whether the engine's symbol table holds a dictionary of this object's symbol-keyed own properties; see
+    // _symbols.
+    private bool _hasSymbols;
 
-    // Hidden-class shape storage (a Shape + flat JsValue[] slot array) lives on JsObject, not here, so
-    // the broad ObjectInstance population (JsDate, JsArray, TypedArray, wrappers, built-ins) keeps its
-    // size. Only JsObject (plain object literals, `new Ctor()` this, `new Object()`) can be in shape
-    // mode; the base property methods reach it via `this is JsObject`. Shape mode is mutually exclusive
-    // with _properties for string keys; _symbols is orthogonal. Anything a shape can't represent (delete,
-    // accessor/non-CEW define, freeze/seal, prototype change, bulk install) deopts back to _properties.
+    internal PropertyDictionary? _properties;
+
+    /// <summary>
+    /// The symbol-keyed own properties, or <see langword="null"/> when there are none. Few objects have any (built-in
+    /// prototypes and constructors, iterables), so the dictionary is not a field of every object: a built-in that
+    /// has one keeps it in a field of its own type (see <see cref="GetOwnSymbols"/>), any other object in the
+    /// engine's weak table, and an object without one answers from its own flag.
+    /// </summary>
+    internal SymbolDictionary? _symbols
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _hasSymbols ? GetOwnSymbols() : null;
+        set
+        {
+            if (value is null && !_hasSymbols)
+            {
+                return;
+            }
+
+            StoreOwnSymbols(value);
+            _hasSymbols = value is not null;
+        }
+    }
+
+    /// <summary>
+    /// Where <see cref="_symbols"/> is kept once the object has one. The built-ins whose symbol properties
+    /// script reads in hot paths (<c>instanceof</c>, iteration, species) override the pair with a field.
+    /// </summary>
+    private protected virtual SymbolDictionary? GetOwnSymbols() => _engine.GetObjectSymbols(this);
+
+    private protected virtual void StoreOwnSymbols(SymbolDictionary? symbols)
+    {
+        if (symbols is null)
+        {
+            _engine.RemoveObjectSymbols(this);
+        }
+        else
+        {
+            _engine.SetObjectSymbols(this, symbols);
+        }
+    }
 
     /// <summary>
     /// Bumped whenever own-property shape changes (descriptor added/replaced/removed via SetProperty / RemoveOwnProperty).
@@ -372,8 +408,13 @@ public partial class ObjectInstance : JsValue, IEquatable<ObjectInstance>
         {
             // same pre-initialization hazard as SetProperty(Key): Initialize() replaces _symbols
             EnsureInitialized();
-            _symbols ??= new SymbolDictionary();
-            _symbols[(JsSymbol) propertyKey] = value;
+            var symbols = _symbols;
+            if (symbols is null)
+            {
+                _symbols = symbols = new SymbolDictionary();
+            }
+
+            symbols[(JsSymbol) propertyKey] = value;
         }
     }
 

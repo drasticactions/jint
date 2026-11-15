@@ -17,6 +17,13 @@ namespace Jint.Native.Function;
 [JsThrowerAccessor("caller")]
 internal sealed partial class FunctionPrototype : Function
 {
+    // This built-in's symbol-keyed own properties; see ObjectInstance._symbols.
+    private SymbolDictionary? _ownSymbols;
+
+    private protected override SymbolDictionary? GetOwnSymbols() => _ownSymbols;
+
+    private protected override void StoreOwnSymbols(SymbolDictionary? symbols) => _ownSymbols = symbols;
+
     internal FunctionPrototype(
         Engine engine,
         Realm realm,

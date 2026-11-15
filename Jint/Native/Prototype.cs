@@ -5,6 +5,13 @@ namespace Jint.Native;
 
 public abstract class Prototype : ObjectInstance
 {
+    // This built-in's symbol-keyed own properties; see ObjectInstance._symbols.
+    private SymbolDictionary? _ownSymbols;
+
+    private protected override SymbolDictionary? GetOwnSymbols() => _ownSymbols;
+
+    private protected override void StoreOwnSymbols(SymbolDictionary? symbols) => _ownSymbols = symbols;
+
     internal readonly Realm _realm;
 
     private protected Prototype(Engine engine, Realm realm) : base(engine, type: InternalTypes.Object | InternalTypes.PlainObject)

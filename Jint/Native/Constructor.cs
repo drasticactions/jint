@@ -11,6 +11,13 @@ namespace Jint.Native;
 /// </summary>
 public abstract class Constructor : Function.Function, IConstructor
 {
+    // This built-in's symbol-keyed own properties; see ObjectInstance._symbols.
+    private SymbolDictionary? _ownSymbols;
+
+    private protected override SymbolDictionary? GetOwnSymbols() => _ownSymbols;
+
+    private protected override void StoreOwnSymbols(SymbolDictionary? symbols) => _ownSymbols = symbols;
+
     /// <summary>
     /// Creates the constructor object against <paramref name="engine"/>'s principal realm.
     /// </summary>

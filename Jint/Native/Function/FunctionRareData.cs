@@ -15,6 +15,10 @@ internal sealed class FunctionRareData
     // The function's materialized own prototype, length and name descriptors (see Function._ownDescriptors).
     internal object? OwnDescriptors;
 
+    // The environment the function's next call reuses once the function has rare data or descriptors (see
+    // Function.HeldEnvironment).
+    internal object? EnvReuse;
+
     internal JsValue HomeObject = JsValue.Undefined;
     internal PrivateEnvironment? PrivateEnvironment;
 

@@ -30,25 +30,101 @@ public abstract partial class Function : ObjectInstance, ICallable
     private const int NameShift = 4;
 
     // The materialized descriptors described above, or the function's FunctionRareData once it has one, which then
-    // holds them: one reference for both, so a closure is a word smaller.
-    private object? _ownDescriptors;
+    // holds them: one reference for both, so a closure is a word smaller. A script function with neither keeps the
+    // environment its next call reuses here as well (see ScriptFunction.TakeReusableEnvironment); once it has
+    // descriptors or rare data, that environment moves into the rare data.
+    private protected object? _ownDescriptors;
     private byte _ownPropertyState;
 
-    /// <summary>What <see cref="_ownDescriptors"/> would hold without rare data.</summary>
+    /// <summary>What <see cref="_ownDescriptors"/> would hold without rare data or a reusable environment.</summary>
     private object? HeldDescriptors
     {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => _ownDescriptors is FunctionRareData rare ? rare.OwnDescriptors : _ownDescriptors;
+        get
+        {
+            var held = _ownDescriptors;
+            if (held is FunctionRareData rare)
+            {
+                return rare.OwnDescriptors;
+            }
+
+            return IsReusableEnvironment(held) ? null : held;
+        }
         set
         {
-            if (_ownDescriptors is FunctionRareData rare)
+            var held = _ownDescriptors;
+            if (held is FunctionRareData rare)
             {
                 rare.OwnDescriptors = value;
+            }
+            else if (IsReusableEnvironment(held))
+            {
+                if (value is not null)
+                {
+                    Rare.OwnDescriptors = value;
+                }
             }
             else
             {
                 _ownDescriptors = value;
             }
+        }
+    }
+
+    /// <summary>
+    /// <see cref="HeldDescriptors"/> while at least one own descriptor is materialized, when the field cannot hold an
+    /// environment: a materialized descriptor sends the environment to the rare data.
+    /// </summary>
+    private object? MaterializedDescriptors
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _ownDescriptors is FunctionRareData rare ? rare.OwnDescriptors : _ownDescriptors;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private protected static bool IsReusableEnvironment(object? held) => held is FunctionEnvironment or RecursiveEnvPool;
+
+    /// <summary>The reusable call environment kept in <see cref="_ownDescriptors"/> or the rare data.</summary>
+    private protected object? HeldEnvironment
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get
+        {
+            var held = _ownDescriptors;
+            if (IsReusableEnvironment(held))
+            {
+                return held;
+            }
+
+            return held is FunctionRareData rare ? rare.EnvReuse : null;
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        set
+        {
+            var held = _ownDescriptors;
+            if (held is null)
+            {
+                _ownDescriptors = value;
+            }
+            else if (held is FunctionRareData rare)
+            {
+                rare.EnvReuse = value;
+            }
+            else
+            {
+                StoreEnvironmentBesideDescriptors(value);
+            }
+        }
+    }
+
+    private void StoreEnvironmentBesideDescriptors(object? value)
+    {
+        if (IsReusableEnvironment(_ownDescriptors))
+        {
+            _ownDescriptors = value;
+        }
+        else if (value is not null)
+        {
+            Rare.EnvReuse = value;
         }
     }
 
@@ -88,7 +164,7 @@ public abstract partial class Function : ObjectInstance, ICallable
             OwnAbsent => null,
             OwnPending => _pendingDescriptor,
             OwnPendingEmpty => _pendingEmptyNameDescriptor,
-            _ => HeldDescriptors is var held && held is FunctionOwnDescriptors several
+            _ => MaterializedDescriptors is var held && held is FunctionOwnDescriptors several
                 ? several.Slot(shift)
                 : Unsafe.As<PropertyDescriptor>(held),
         };
@@ -253,7 +329,10 @@ public abstract partial class Function : ObjectInstance, ICallable
                 return rare;
             }
 
-            rare = new FunctionRareData { OwnDescriptors = _ownDescriptors };
+            var held = _ownDescriptors;
+            rare = IsReusableEnvironment(held)
+                ? new FunctionRareData { EnvReuse = held }
+                : new FunctionRareData { OwnDescriptors = held };
             _ownDescriptors = rare;
             return rare;
         }

@@ -53,6 +53,71 @@ public class ClosureFootprintTests
     }
 
     [Test]
+    public void AKeptEnvironmentAndTheOwnDescriptorsShareAField()
+    {
+        var engine = new Engine();
+        engine.Execute("function make() { return function (x) { var y = x * 2; return y; }; } var f = make(); var g = make();");
+        var f = (ScriptFunction) engine.GetValue("f");
+
+        // the environment first, then descriptors: both survive, and the calls keep reusing it
+        engine.Evaluate("f(1) + f(2)").AsNumber().Should().Be(6);
+        f._envReuse.Should().NotBeNull();
+        f._rare.Should().BeNull();
+        engine.Evaluate("""
+            Object.defineProperty(f, 'length', { value: 7 });
+            f.prototype.k = 1;
+            [f.length, f.name === '', Object.getOwnPropertyNames(f).join(), f(3), f(4)].join()
+            """).AsString().Should().Be("7,true,length,name,prototype,arguments,caller,6,8");
+        f._envReuse.Should().NotBeNull();
+        engine.Evaluate("delete f.length; delete f.name; [f(5), f.hasOwnProperty('length'), f.hasOwnProperty('name')].join()").AsString().Should().Be("10,false,false");
+
+        // descriptors first, then the environment
+        engine.Evaluate("g.length + ':' + g.prototype.constructor.length").AsString().Should().Be("1:1");
+        engine.Evaluate("g(1) + g(2) + g(3)").AsNumber().Should().Be(12);
+        ((ScriptFunction) engine.GetValue("g"))._envReuse.Should().NotBeNull();
+        engine.Evaluate("[g.length, Object.getOwnPropertyNames(g).join(), g(10)].join()").AsString().Should().Be("1,length,name,prototype,arguments,caller,20");
+    }
+
+    [Test]
+    public void SymbolKeyedPropertiesOfAnyObjectBehaveAsOwnProperties()
+    {
+        var engine = new Engine();
+        engine.Evaluate("""
+            var a = Symbol('a'), b = Symbol('b');
+            var results = [];
+            function check(o) {
+              o.s = 1; o[a] = 2; o[1] = 3; o[b] = 4;
+              var keys = Reflect.ownKeys(o).filter(function (k) { return k === a || k === b || k === 's' || k === '1'; });
+              var first = keys.map(String).join('/');
+              delete o[a];
+              var second = Object.getOwnPropertySymbols(o).map(String).join('/');
+              o[a] = 5;
+              results.push(first + ' ' + second + ' ' + o[a] + o[b] + (a in o) + Object.getOwnPropertySymbols(o).length);
+            }
+            check({});
+            check(function () { });
+            check(() => 1);
+            check([]);
+            check(new Map());
+            check(Object.create(null));
+            results.join('|')
+            """).AsString().Should().Be(string.Join("|", Enumerable.Repeat("1/s/Symbol(a)/Symbol(b) Symbol(b) 54true2", 6)));
+
+        // the built-ins' own symbols still answer, and script can replace them
+        engine.Evaluate("""
+            var arr = [1, 2];
+            var spread = [...arr].length;
+            var tag = Object.prototype.toString.call(new Map());
+            var inst = arr instanceof Array;
+            var it = Array.prototype[Symbol.iterator];
+            Array.prototype[Symbol.iterator] = function* () { yield 9; };
+            var replaced = [...arr].join();
+            Array.prototype[Symbol.iterator] = it;
+            [spread, tag, inst, replaced, [...arr].join(), typeof Math[Symbol.toStringTag]].join()
+            """).AsString().Should().Be("2,[object Map],true,9,1,2,string");
+    }
+
+    [Test]
     public void APlainClosureHasNoRareData()
     {
         var engine = new Engine();

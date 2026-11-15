@@ -151,8 +151,34 @@ public sealed class ScriptFunction : Function, IConstructor
     // for ordinary functions, or a RecursiveEnvPool for direct-recursive ones. Held per function instance
     // (thus per engine) rather than on the shared JintFunctionDefinition.State so a prepared script reused
     // across engines never pins an engine via a cached environment (issue #2560). Cleared slot arrays hold
-    // no engine references and stay shared on State._cachedSlots.
-    internal object? _envReuse;
+    // no engine references and stay shared on State._cachedSlots. Kept in the field of the function's own
+    // descriptors while it has none (see Function.HeldEnvironment), so a closure carries no field for it.
+    internal object? _envReuse
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => HeldEnvironment;
+        set => HeldEnvironment = value;
+    }
+
+    /// <summary>Takes the environment a previous call of this function left for the next one, if any.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal FunctionEnvironment? TakeReusableEnvironment()
+    {
+        var held = _ownDescriptors;
+        if (held is FunctionEnvironment environment)
+        {
+            _ownDescriptors = null;
+            return environment;
+        }
+
+        if (held is FunctionRareData { EnvReuse: FunctionEnvironment rareEnvironment } rare)
+        {
+            rare.EnvReuse = null;
+            return rareEnvironment;
+        }
+
+        return null;
+    }
 
     // Whether a call of this instance has returned its environment. The first one is not kept: a closure made for
     // every object (a method a constructor defines) is mostly called once, and its kept environment would live
