@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Jint.Runtime.Interpreter.Expressions;
 
 namespace Jint.Runtime.Environments;
 
@@ -243,7 +244,7 @@ internal struct SlotLocationCache
     private SlotLayoutMemo? _layout;
 
     /// <summary>
-    /// Resolves the slot location for <paramref name="name"/> against the current lexical
+    /// Resolves the slot location for <paramref name="identifier"/> against the current lexical
     /// environment, using and maintaining the cache. Returns false when the binding is not
     /// slot-stored, the cached location is not safely reachable, or resolution must go
     /// through the full materialized path.
@@ -252,7 +253,7 @@ internal struct SlotLocationCache
     public bool TryResolve(
         Engine engine,
         Environment env,
-        Environment.BindingName name,
+        JintIdentifierExpression identifier,
         out DeclarativeEnvironment slotEnv,
         out int slotIndex)
     {
@@ -296,7 +297,7 @@ internal struct SlotLocationCache
             return false;
         }
 
-        return TryResolveNonLocal(engine, env, name, out slotEnv, out slotIndex);
+        return TryResolveNonLocal(engine, env, identifier, out slotEnv, out slotIndex);
     }
 
     /// <summary>
@@ -310,10 +311,11 @@ internal struct SlotLocationCache
     private bool TryResolveNonLocal(
         Engine engine,
         Environment env,
-        Environment.BindingName name,
+        JintIdentifierExpression identifier,
         out DeclarativeEnvironment slotEnv,
         out int slotIndex)
     {
+        var name = identifier.Identifier;
         var cached = _cachedSlotEnv;
         if (cached is not null && ReferenceEquals(cached._engine, engine))
         {
@@ -322,8 +324,12 @@ internal struct SlotLocationCache
             var layout = _layout;
             if (layout is not null && layout.Follow(engine, env) is { } target)
             {
+                // The chain memo pins the chain of the environment the cache leaves; the node may never run under it
+                // again, so it goes with it rather than keep that chain alive.
+                _chainMemo = null;
                 _cachedSlotEnv = target;
                 _cachedSlotIndex = layout.SlotIndex;
+                identifier.ReleaseEnvironmentsOtherThan(engine, target);
                 slotEnv = target;
                 slotIndex = layout.SlotIndex;
                 return true;
@@ -352,7 +358,33 @@ internal struct SlotLocationCache
             return false;
         }
 
-        return ResolveAndPopulate(engine, env, name, out slotEnv, out slotIndex);
+        if (ResolveAndPopulate(engine, env, name, out slotEnv, out slotIndex))
+        {
+            identifier.ReleaseEnvironmentsOtherThan(engine, slotEnv);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Lets go of the cached environment unless it is <paramref name="keep"/>, which another cache of the same
+    /// identifier now reads the binding in: a lane that reads the identifier through that other cache does not come
+    /// back here, so this one would keep the environment of a call that has ended, and everything it reaches, alive.
+    /// The slot index and the layout stay, so the next read here finds the binding again through the layout.
+    /// </summary>
+    internal void Release(Engine engine, DeclarativeEnvironment keep)
+    {
+        var cached = _cachedSlotEnv;
+        if (cached is not null && !ReferenceEquals(cached, keep) && ReferenceEquals(cached._engine, engine))
+        {
+            var released = engine.ReleasedSlotEnvironment;
+            if (!ReferenceEquals(cached, released))
+            {
+                _cachedSlotEnv = released;
+                _chainMemo = null;
+            }
+        }
     }
 
     /// <summary>
@@ -547,13 +579,13 @@ internal struct SlotLocationCache
                         : null;
                     _cachedSlotEnv = declarativeEnvironment;
                     _cachedSlotIndex = index;
-                    if ((uint) (depth - 1) < MaxChainDepth - 1)
-                    {
-                        // Found at hops 1-3: every traversed environment was declarative and
-                        // did not own the name — exactly the walk's success condition, so the
-                        // memo can be published without a second walk on the next read.
-                        _chainMemo = new SlotChainMemo(env, next1, next2, engine._envBindingInjectionEpoch);
-                    }
+                    // Found at hops 1-3: every traversed environment was declarative and
+                    // did not own the name — exactly the walk's success condition, so the
+                    // memo can be published without a second walk on the next read. Found
+                    // anywhere else, a memo of an earlier chain would only keep that chain alive.
+                    _chainMemo = (uint) (depth - 1) < MaxChainDepth - 1
+                        ? new SlotChainMemo(env, next1, next2, engine._envBindingInjectionEpoch)
+                        : null;
                     slotEnv = declarativeEnvironment;
                     slotIndex = index;
                     return true;
@@ -576,8 +608,12 @@ internal struct SlotLocationCache
             depth++;
         }
 
-        // the binding for this node can never be slot-stored; stop attempting
+        // the binding for this node can never be slot-stored; stop attempting, and let go of the
+        // environment an earlier resolution cached, which this node no longer reads through
         _disabled = true;
+        _cachedSlotEnv = null;
+        _chainMemo = null;
+        _layout = null;
         return false;
     }
 }

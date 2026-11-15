@@ -2255,6 +2255,12 @@ public sealed partial class Engine : IDisposable
     internal const int ParkedEnvironmentCount = 64;
     private ParkedEnvironment[]? _parkedEnvironments;
 
+    // What a slot cache holds in place of an environment it let go of (SlotLocationCache.Release): an environment no
+    // code ever runs under, so the cache misses on it and finds the binding again through its layout, which it keeps.
+    private DeclarativeEnvironment? _releasedSlotEnvironment;
+
+    internal DeclarativeEnvironment ReleasedSlotEnvironment => _releasedSlotEnvironment ??= new DeclarativeEnvironment(this);
+
     private struct ParkedEnvironment
     {
         internal JintFunctionDefinition.State? State;

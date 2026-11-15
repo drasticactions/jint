@@ -85,7 +85,7 @@ internal sealed class JintUpdateExpression : JintExpression
             return false;
         }
 
-        if (!_slotCache.TryResolve(engine, engine.ExecutionContext.LexicalEnvironment, _leftIdentifier.Identifier, out var environment, out var slotIndex)
+        if (!_slotCache.TryResolve(engine, engine.ExecutionContext.LexicalEnvironment, _leftIdentifier, out var environment, out var slotIndex)
             || !environment.TryGetNumberSlot(slotIndex, out var value))
         {
             return false;
@@ -121,7 +121,7 @@ internal sealed class JintUpdateExpression : JintExpression
             return false;
         }
 
-        if (!_slotCache.TryResolve(engine, engine.ExecutionContext.LexicalEnvironment, _leftIdentifier!.Identifier, out var environment, out var slotIndex)
+        if (!_slotCache.TryResolve(engine, engine.ExecutionContext.LexicalEnvironment, _leftIdentifier!, out var environment, out var slotIndex)
             || !environment.TryGetNumberSlot(slotIndex, out var value))
         {
             result = null;

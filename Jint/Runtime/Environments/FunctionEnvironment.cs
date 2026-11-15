@@ -73,13 +73,15 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
 
 
     /// <summary>
-    /// Lets go of what the call bound — its this value, outer environment and dictionary bindings — while the
-    /// environment waits, parked by the engine, for a call of another instance of its function; <see cref="Reset"/>
-    /// binds the function, this and outer environment again. The function is kept: it is the last instance that
-    /// ran, and the engine drops its parked environments with its other interpreter caches.
+    /// Lets go of what the call bound — its function, this value, outer environment and dictionary bindings — while
+    /// the environment waits, parked by the engine, for a call of another instance of its function;
+    /// <see cref="Reset"/> binds the function, this and outer environment again. The function goes too: it is the
+    /// instance whose call ended, and it holds its closure's environment, which the page may have let go of, and
+    /// a parked environment can wait for the engine's lifetime.
     /// </summary>
     internal void Detach()
     {
+        _functionObject = null!;
         _thisValue = null;
         _outerEnv = null;
         _dictionary?.ClearPreservingCapacity();

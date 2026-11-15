@@ -9,6 +9,11 @@ namespace Jint.Runtime.Interpreter.Expressions;
 internal sealed class JintIdentifierExpression : JintExpression
 {
     private readonly Environment.BindingName _identifier;
+
+    // The environment the last resolution found the binding in when that was the current one, for a binding none of
+    // the caches below reads: one an environment keeps by name, or a global or with-object binding. A binding in a
+    // slot or a remembered dictionary layout is read through those caches first, which would never replace this
+    // field, so it would keep the environment of a call that ended long ago, and all it reaches, alive.
     private Environment? _cachedEnvironment;
     private bool _cachedStrict;
 
@@ -118,7 +123,7 @@ internal sealed class JintIdentifierExpression : JintExpression
     internal bool TryReadNumber(EvaluationContext context, out double value)
     {
         var engine = context.Engine;
-        if (_numberSlotCache.TryResolve(engine, engine.ExecutionContext.LexicalEnvironment, _identifier, out var slotEnv, out var slotIndex))
+        if (_numberSlotCache.TryResolve(engine, engine.ExecutionContext.LexicalEnvironment, this, out var slotEnv, out var slotIndex))
         {
             return slotEnv.TryGetNumberSlot(slotIndex, out value);
         }
@@ -156,7 +161,10 @@ internal sealed class JintIdentifierExpression : JintExpression
             return engine._referencePool.Rent(Reference.Unresolvable, _identifier.Value, strict, thisValue: null);
         }
 
-        if (ReferenceEquals(identifierEnvironment, env))
+        // A binding in a slot is not kept here: the slot caches of the assignment, update and call lanes read it before
+        // they fall back to this evaluation, so the field would keep the environment of a call that has ended.
+        if (ReferenceEquals(identifierEnvironment, env)
+            && (env is not DeclarativeEnvironment declarative || declarative.FindSlotIndex(_identifier.Key) < 0))
         {
             _cachedEnvironment = env;
             _cachedStrict = strict;
@@ -241,10 +249,13 @@ internal sealed class JintIdentifierExpression : JintExpression
                 var reached = SlotLocationCache.ReachAtOuterHopOrLayout(engine, env, cachedSlotEnv, identifier.Key, ref _slotChainMemo, layout);
                 if (reached is not null && !ReferenceEquals(reached, cachedSlotEnv))
                 {
-                    // another closure instance's environment with the same layout: the index is the layout's
+                    // another closure instance's environment with the same layout: the index is the layout's, and
+                    // the chain memo, which pins the chain of the environment left behind, goes with it
                     idx = layout!.SlotIndex;
                     _cachedSlotEnv = reached;
                     _cachedSlotIndex = idx;
+                    _slotChainMemo = null;
+                    _numberSlotCache.Release(engine, reached);
                 }
 
                 cachedSlotEnv = reached;
@@ -320,7 +331,11 @@ internal sealed class JintIdentifierExpression : JintExpression
                      out var identifierEnvironment,
                      out value))
         {
-            if (ReferenceEquals(identifierEnvironment, env))
+            // The slot, dictionary-layout and global caches answer before this one, so an environment they remember
+            // is not kept here as well; the global environment lives as long as the engine and is kept for when the
+            // global cache's versions move.
+            var remembered = RememberResolution(engine, env, identifierEnvironment);
+            if (ReferenceEquals(identifierEnvironment, env) && (!remembered || env is GlobalEnvironment))
             {
                 _cachedEnvironment = env;
                 _cachedStrict = strict;
@@ -329,8 +344,6 @@ internal sealed class JintIdentifierExpression : JintExpression
             {
                 _cachedEnvironment = null;
             }
-
-            RememberResolution(engine, env, identifierEnvironment);
 
             if (value is null)
             {
@@ -368,10 +381,21 @@ internal sealed class JintIdentifierExpression : JintExpression
                     : null;
                 _cachedSlotEnv = denv;
                 _cachedSlotIndex = slotIndex;
+                // the memo of the chain the cache resolved through before; the next read walks and memoizes this one
+                _slotChainMemo = null;
+                _numberSlotCache.Release(engine, denv);
                 return true;
             }
+        }
 
-            if (DictionaryBindingLayout.TryCreate(engine, env, denv, key) is { } dictionaryLayout)
+        // Not a slot: what the slot cache holds belongs to a chain this read did not resolve through, and the caches
+        // below read before the slot cache's walk could replace it.
+        _cachedSlotEnv = null;
+        _slotChainMemo = null;
+
+        if (identifierEnvironment is DeclarativeEnvironment dictionaryEnvironment)
+        {
+            if (DictionaryBindingLayout.TryCreate(engine, env, dictionaryEnvironment, _identifier.Key) is { } dictionaryLayout)
             {
                 _dictionaryLayout = dictionaryLayout;
                 return true;
@@ -386,6 +410,32 @@ internal sealed class JintIdentifierExpression : JintExpression
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Lets go of the environments this node's own read caches hold, other than <paramref name="target"/>, once a
+    /// lane reading this identifier through a slot cache of its own has found the binding in
+    /// <paramref name="target"/>. Such a lane reads the slot without coming here, so these caches, filled by the
+    /// evaluations before the lane served or by its fallbacks, would go on holding the environment of a call that
+    /// ended long ago. The slot cache keeps its index and layout and finds the binding again through them.
+    /// </summary>
+    internal void ReleaseEnvironmentsOtherThan(Engine engine, DeclarativeEnvironment target)
+    {
+        var cachedSlotEnv = _cachedSlotEnv;
+        if (cachedSlotEnv is not null && !ReferenceEquals(cachedSlotEnv, target) && ReferenceEquals(cachedSlotEnv._engine, engine))
+        {
+            var released = engine.ReleasedSlotEnvironment;
+            if (!ReferenceEquals(cachedSlotEnv, released))
+            {
+                _cachedSlotEnv = released;
+                _slotChainMemo = null;
+            }
+        }
+
+        if (_cachedEnvironment is { } cachedEnvironment && !ReferenceEquals(cachedEnvironment, target) && cachedEnvironment is not GlobalEnvironment)
+        {
+            _cachedEnvironment = null;
+        }
     }
 
     /// <summary>
@@ -414,6 +464,8 @@ internal sealed class JintIdentifierExpression : JintExpression
                     idx = layout!.SlotIndex;
                     _cachedSlotEnv = reached;
                     _cachedSlotIndex = idx;
+                    _slotChainMemo = null;
+                    _numberSlotCache.Release(engine, reached);
                 }
 
                 cachedSlotEnv = reached;
@@ -467,10 +519,17 @@ internal sealed class JintIdentifierExpression : JintExpression
     [MethodImpl(MethodImplOptions.NoInlining)]
     internal void RememberCalleeResolution(Engine engine, Environment identifierEnvironment)
     {
-        if (_calleeCacheMisses < MaxCalleeCacheMisses
-            && !RememberResolution(engine, engine.ExecutionContext.LexicalEnvironment, identifierEnvironment))
+        if (_calleeCacheMisses < MaxCalleeCacheMisses)
         {
-            _calleeCacheMisses++;
+            if (!RememberResolution(engine, engine.ExecutionContext.LexicalEnvironment, identifierEnvironment))
+            {
+                _calleeCacheMisses++;
+            }
+            else if (identifierEnvironment is not GlobalEnvironment)
+            {
+                // the cache just filled reads the callee before the reference evaluation that kept this environment
+                _cachedEnvironment = null;
+            }
         }
     }
 
@@ -570,13 +629,14 @@ internal sealed class JintIdentifierExpression : JintExpression
 
             if (ReferenceEquals(search, cachedGlobalEnv))
             {
-                var idle = memo is null || memo.Hits >= NestedChainMemoProductiveHits
+                var idle = memo is not null && memo.Hits >= NestedChainMemoProductiveHits
                     ? 0
                     : unchecked((byte) (_nestedChainMemoIdleWalks + 1));
-                if (idle < NestedChainMemoEagerWalks || idle % NestedChainMemoRetryPeriod == 0)
-                {
-                    _nestedChainMemo = new NestedChainMemo(env, next1, next2, next3, engine._envBindingInjectionEpoch);
-                }
+                // A memo not republished is dropped rather than kept: it pins the chain of an earlier call, which
+                // this read just showed it is not running under, and nothing else may keep that chain alive.
+                _nestedChainMemo = idle < NestedChainMemoEagerWalks || idle % NestedChainMemoRetryPeriod == 0
+                    ? new NestedChainMemo(env, next1, next2, next3, engine._envBindingInjectionEpoch)
+                    : null;
 
                 _nestedChainMemoIdleWalks = (byte) idle;
                 return _cachedGlobalDescriptor;

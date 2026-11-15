@@ -234,7 +234,7 @@ internal abstract class JintBinaryExpression : JintExpression
             }
 
             var env = engine.ExecutionContext.LexicalEnvironment;
-            if (!_slotCache.TryResolve(engine, env, identifier.Identifier, out var environment, out var slotIndex)
+            if (!_slotCache.TryResolve(engine, env, identifier, out var environment, out var slotIndex)
                 || !environment.TryGetNumberSlotForRead(slotIndex, out left))
             {
                 // top-level vars are global-object properties, never slots: fall back to the
@@ -257,7 +257,7 @@ internal abstract class JintBinaryExpression : JintExpression
                 return TryReadLengthBound(rightIdentifier, ref _rightSlotCache, engine, env, out right);
             }
 
-            if (_rightSlotCache.TryResolve(engine, env, rightIdentifier.Identifier, out var rightEnvironment, out var rightSlotIndex)
+            if (_rightSlotCache.TryResolve(engine, env, rightIdentifier, out var rightEnvironment, out var rightSlotIndex)
                 && rightEnvironment.TryGetNumberSlotForRead(rightSlotIndex, out right))
             {
                 return true;
@@ -281,7 +281,7 @@ internal abstract class JintBinaryExpression : JintExpression
         private static bool TryReadLengthBound(JintIdentifierExpression baseIdentifier, ref SlotLocationCache cache, Engine engine, Environments.Environment env, out double value)
         {
             value = 0;
-            if (!cache.TryResolve(engine, env, baseIdentifier.Identifier, out var baseEnv, out var slot)
+            if (!cache.TryResolve(engine, env, baseIdentifier, out var baseEnv, out var slot)
                 || !baseEnv.TryGetSlotValueForRead(slot, out var baseValue))
             {
                 return false;
@@ -387,7 +387,7 @@ internal abstract class JintBinaryExpression : JintExpression
 
             double leftValue;
             var env = engine.ExecutionContext.LexicalEnvironment;
-            if (!_slotCache.TryResolve(engine, env, identifier.Identifier, out var environment, out var slotIndex)
+            if (!_slotCache.TryResolve(engine, env, identifier, out var environment, out var slotIndex)
                 || !environment.TryGetNumberSlotForRead(slotIndex, out leftValue))
             {
                 if (identifier._cachedGlobalEnv is null || !TryReadGlobalNumber(identifier, engine, env, out leftValue))
@@ -402,7 +402,7 @@ internal abstract class JintBinaryExpression : JintExpression
             {
                 rightValue = _constant;
             }
-            else if (!(_rightSlotCache.TryResolve(engine, env, rightIdentifier.Identifier, out var rightEnvironment, out var rightSlotIndex)
+            else if (!(_rightSlotCache.TryResolve(engine, env, rightIdentifier, out var rightEnvironment, out var rightSlotIndex)
                        && rightEnvironment.TryGetNumberSlotForRead(rightSlotIndex, out rightValue)))
             {
                 if (rightIdentifier._cachedGlobalEnv is null || !TryReadGlobalNumber(rightIdentifier, engine, env, out rightValue))
@@ -509,7 +509,7 @@ internal abstract class JintBinaryExpression : JintExpression
 
             var leftIdentifier = _leftIdentifier;
             if (leftIdentifier is not null
-                && (!_leftSlotCache.TryResolve(engine, env, leftIdentifier.Identifier, out var leftEnvironment, out var leftSlotIndex)
+                && (!_leftSlotCache.TryResolve(engine, env, leftIdentifier, out var leftEnvironment, out var leftSlotIndex)
                     || !leftEnvironment.TryGetNumberSlotForRead(leftSlotIndex, out left)))
             {
                 if (leftIdentifier._cachedGlobalEnv is null || !TryReadGlobalNumber(leftIdentifier, engine, env, out left))
@@ -520,7 +520,7 @@ internal abstract class JintBinaryExpression : JintExpression
 
             var rightIdentifier = _rightIdentifier;
             if (rightIdentifier is not null
-                && (!_rightSlotCache.TryResolve(engine, env, rightIdentifier.Identifier, out var rightEnvironment, out var rightSlotIndex)
+                && (!_rightSlotCache.TryResolve(engine, env, rightIdentifier, out var rightEnvironment, out var rightSlotIndex)
                     || !rightEnvironment.TryGetNumberSlotForRead(rightSlotIndex, out right)))
             {
                 if (rightIdentifier._cachedGlobalEnv is null || !TryReadGlobalNumber(rightIdentifier, engine, env, out right))
@@ -734,18 +734,18 @@ internal abstract class JintBinaryExpression : JintExpression
                     return true;
 
                 case 1:
-                    if (leaf.Cache.TryResolve(engine, env, leaf.Identifier!.Identifier, out var identifierEnv, out var slotIndex)
+                    if (leaf.Cache.TryResolve(engine, env, leaf.Identifier!, out var identifierEnv, out var slotIndex)
                         && identifierEnv.TryGetNumberSlotForRead(slotIndex, out value))
                     {
                         return true;
                     }
 
                     value = 0;
-                    return leaf.Identifier._cachedGlobalEnv is not null && TryReadGlobalNumber(leaf.Identifier, engine, env, out value);
+                    return leaf.Identifier!._cachedGlobalEnv is not null && TryReadGlobalNumber(leaf.Identifier, engine, env, out value);
 
                 default:
                     value = 0;
-                    if (!leaf.Cache.TryResolve(engine, env, leaf.Identifier!.Identifier, out var baseEnv, out var baseSlot)
+                    if (!leaf.Cache.TryResolve(engine, env, leaf.Identifier!, out var baseEnv, out var baseSlot)
                         || !baseEnv.TryGetSlotValueForRead(baseSlot, out var baseValue)
                         || baseValue is not JsArray array
                         || !array.CanUseFastAccess)
@@ -789,7 +789,7 @@ internal abstract class JintBinaryExpression : JintExpression
             }
 
             index = 0;
-            if (!cache.TryResolve(engine, env, indexIdentifier.Identifier, out var indexEnv, out var indexSlot)
+            if (!cache.TryResolve(engine, env, indexIdentifier, out var indexEnv, out var indexSlot)
                 || !indexEnv.TryGetNumberSlotForRead(indexSlot, out var indexNumber))
             {
                 return false;
@@ -845,7 +845,7 @@ internal abstract class JintBinaryExpression : JintExpression
             }
 
             var env = engine.ExecutionContext.LexicalEnvironment;
-            if (!_slotCache.TryResolve(engine, env, identifier.Identifier, out var environment, out var slotIndex)
+            if (!_slotCache.TryResolve(engine, env, identifier, out var environment, out var slotIndex)
                 || !environment.TryGetNumberSlotForRead(slotIndex, out var value))
             {
                 if (identifier._cachedGlobalEnv is null || !TryReadGlobalNumber(identifier, engine, env, out value))

@@ -633,10 +633,11 @@ A mapping strongly holds its keys and values (`MEMORY-MANAGEMENT.md`: values are
 references)"). A captured mapping is reachable from a `PromiseReaction`, a `TimerEntry`, a `GeneratorInstance` or
 a host `AsyncContextSnapshot`, so anything in it lives at least that long. Two Jint-specific amplifiers:
 
-- **A warmed call site retains its last callee**, and a `ScriptFunction` retains the environment it closed over
-  (`JintCallExpression._regCallee`). If that closure was created inside a `run`, nothing about AsyncContext makes
-  this worse — but a host debugging a retention report will now find mappings in the graph and needs the
-  documentation to say they are bounded per site, not accumulating.
+- **A warmed identifier site retains the environment it last resolved in**, and that environment the values it
+  binds. If it was created inside a `run`, nothing about AsyncContext makes this worse — but a host debugging a
+  retention report will now find mappings in the graph and needs the documentation to say they are bounded per
+  site, not accumulating. (A call site no longer retains an interpreted callee: the register lane is armed for the
+  callee's definition, `JintCallExpression._regDefinition`.)
 - **A pooled engine keeps its `Agent`.** The mapping field self-disarms, so a pooled engine does not accumulate;
   but a `Snapshot` a host holds in CLR does keep its mapping alive for as long as the host holds it. The
   `AsyncContextSnapshot` doc comment must say so.

@@ -98,7 +98,7 @@ internal sealed class JintAssignmentExpression : JintExpression
             && _leftIdentifier is not null
             && !context.OperatorOverloadingAllowed
             && _operator is not (Operator.NullishCoalescingAssignment or Operator.LogicalAndAssignment or Operator.LogicalOrAssignment)
-            && _slotCache.TryResolve(engine, engine.ExecutionContext.LexicalEnvironment, _leftIdentifier.Identifier, out var slotEnvironment, out var fastSlotIndex)
+            && _slotCache.TryResolve(engine, engine.ExecutionContext.LexicalEnvironment, _leftIdentifier, out var slotEnvironment, out var fastSlotIndex)
             && (outcome = TryCompoundSlotValue(context, slotEnvironment, fastSlotIndex, out result)) != CompoundOutcome.Declined)
         {
             return outcome == CompoundOutcome.DoneOwned ? HandOut(result) : result;
@@ -667,7 +667,7 @@ internal sealed class JintAssignmentExpression : JintExpression
             return false;
         }
 
-        if (!_slotCache.TryResolve(engine, engine.ExecutionContext.LexicalEnvironment, _leftIdentifier.Identifier, out var declarativeEnvironment, out var slotIndex))
+        if (!_slotCache.TryResolve(engine, engine.ExecutionContext.LexicalEnvironment, _leftIdentifier, out var declarativeEnvironment, out var slotIndex))
         {
             return false;
         }
@@ -1151,7 +1151,7 @@ internal sealed class JintAssignmentExpression : JintExpression
                 return false;
             }
 
-            if (!_lhsSlotCache.TryResolve(engine, executionContext.LexicalEnvironment, _leftIdentifier!.Identifier, out var environment, out var slotIndex))
+            if (!_lhsSlotCache.TryResolve(engine, executionContext.LexicalEnvironment, _leftIdentifier!, out var environment, out var slotIndex))
             {
                 return false;
             }
@@ -1176,7 +1176,7 @@ internal sealed class JintAssignmentExpression : JintExpression
             var right = _right;
             if (_rightIsAnonymousClassExpression)
             {
-                completion = ((JintClassExpression) right).EvaluateWithName(context, _leftIdentifier.Identifier.Value.ToString());
+                completion = ((JintClassExpression) right).EvaluateWithName(context, _leftIdentifier!.Identifier.Value.ToString());
             }
             else
             {
@@ -1193,7 +1193,7 @@ internal sealed class JintAssignmentExpression : JintExpression
 
             if (_rightNeedsFunctionName)
             {
-                ((Function) rval).SetFunctionName(_leftIdentifier.Identifier.Value);
+                ((Function) rval).SetFunctionName(_leftIdentifier!.Identifier.Value);
             }
 
             // Re-validated, not re-resolved: the right-hand side may have written or (degenerately)
@@ -1206,7 +1206,7 @@ internal sealed class JintAssignmentExpression : JintExpression
             {
                 // degenerate: the right-hand side changed the binding's state; the full store
                 // produces the exact semantics
-                environment.SetMutableBinding(_leftIdentifier.Identifier, rval, engine.ExecutionContext.Strict);
+                environment.SetMutableBinding(_leftIdentifier!.Identifier, rval, engine.ExecutionContext.Strict);
             }
 
             result = rval;
@@ -1293,7 +1293,7 @@ internal sealed class JintAssignmentExpression : JintExpression
                 return false;
             }
 
-            if (!cache.TryResolve(engine, executionContext.LexicalEnvironment, left.Identifier, out var environment, out var slotIndex))
+            if (!cache.TryResolve(engine, executionContext.LexicalEnvironment, left, out var environment, out var slotIndex))
             {
                 return false;
             }
@@ -1349,7 +1349,7 @@ internal sealed class JintAssignmentExpression : JintExpression
                 return false;
             }
 
-            if (!cache.TryResolve(engine, executionContext.LexicalEnvironment, left.Identifier, out var environment, out var slotIndex))
+            if (!cache.TryResolve(engine, executionContext.LexicalEnvironment, left, out var environment, out var slotIndex))
             {
                 return false;
             }
@@ -1399,7 +1399,7 @@ internal sealed class JintAssignmentExpression : JintExpression
 
             // The left side is overwritten, but SetNumberSlot requires a mutable, initialized number
             // slot; TryGetNumberSlot confirms exactly that (and that it is slot-stored at all).
-            if (!_lhsSlotCache.TryResolve(engine, engine.ExecutionContext.LexicalEnvironment, _leftIdentifier!.Identifier, out var lhsEnv, out var lhsSlot)
+            if (!_lhsSlotCache.TryResolve(engine, engine.ExecutionContext.LexicalEnvironment, _leftIdentifier!, out var lhsEnv, out var lhsSlot)
                 || !lhsEnv.TryGetNumberSlot(lhsSlot, out _))
             {
                 return false;

@@ -654,10 +654,21 @@ myarr[0](0);
     // A for-of on the recursion path puts a JintForInForOfStatement frame on the stack once per
     // JavaScript frame, and that frame kept the catch { bookkeep; throw; } the statement lists shed —
     // so this shape went on dying at a fraction of the depth it can reach forward, long after the rest
-    // of the unwind was fixed. Measured on the 1 MB stack these run on: the loop reaches 219 frames
-    // forward, and the constraint's unwind used to survive only 78 of them. Every limit below sits
-    // between the two, so a regression is a dead test host rather than a smaller number.
+    // of the unwind was fixed. Measured on the 1 MB stack these run on in a Release build: the loop
+    // reaches about 220 frames forward, and the constraint's unwind used to survive only 78 of them.
+    // Every limit below sits between the two, so a regression is a dead test host rather than a
+    // smaller number.
     private const string ForOfRecursion = "var depth = 0; function f() { depth++; for (const x of [1]) { return f(); } }";
+
+    // A Debug build's frames for this shape are about 7 KB against Release's 4 KB, so on 1 MB its loop
+    // reaches only 130 frames forward and the stack guard ends the recursion before a limit of 130 can
+    // fire. Its stack is scaled to the same forward reach instead (about 240 frames on 1.75 MB), which
+    // scales the old unwind ceiling with it and keeps every limit between the two in both builds.
+#if DEBUG
+    private const int ForOfStack = 7 * SmallStack / 4;
+#else
+    private const int ForOfStack = SmallStack;
+#endif
 
     [Test]
     public void RecursionLimitFiringInsideAForOfBodyUnwindsToTheHost()
@@ -671,7 +682,7 @@ myarr[0](0);
                 Invoking(() => engine.Evaluate("f()")).Should().ThrowExactly<RecursionDepthOverflowException>();
                 engine.CallStack.Count.Should().Be(0);
             },
-            maxStackSize: SmallStack);
+            maxStackSize: ForOfStack);
     }
 
     [Test]
@@ -690,7 +701,7 @@ myarr[0](0);
                 JintException.TryGetJavaScriptCallStack(thrown, out var callStack).Should().BeTrue();
                 callStack.Should().Contain("at f");
             },
-            maxStackSize: SmallStack);
+            maxStackSize: ForOfStack);
     }
 
     [Test]
@@ -718,7 +729,7 @@ myarr[0](0);
 
                 depths.Should().AllBeEquivalentTo(depths[0], "an unwind that left anything behind would move the next round's number");
             },
-            maxStackSize: SmallStack);
+            maxStackSize: ForOfStack);
     }
 
     [Test]

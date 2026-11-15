@@ -86,23 +86,25 @@ internal sealed class JintCallExpression : JintExpression
     // four, so sharing the slots would route a four-argument call into CallFast(this, arg0, arg1)
     // and silently drop the tail.
     //
-    // _regCallee is non-null only when the probe *accepted* the callee, and every static half of the
-    // gate — this site's arity and spread shape, the callee's SupportsRegisterCall, the engine's
-    // readonly _isDebugMode — is folded into the arming. So the dispatch test below is a single
-    // reference compare, and a site that never sees an eligible callee (every built-in call)
-    // compares against a field that stays null and pays nothing else.
-    // _regProbedCallee is whatever callee this site last examined, accepted or not, so such a site
-    // remembers the rejection instead of re-probing on every dispatch. Only a site _regLaneEligible
-    // admits ever examines one: the rest cannot arm the lane whatever they are handed, so they are
-    // spared both the probe and the reference they would otherwise hold for the engine's lifetime.
+    // The lane is armed for a function definition, not for a function instance: everything the probe
+    // decides — the definition's SupportsRegisterCall, whether it is a class constructor, the engine's
+    // readonly _isDebugMode — is the same for every closure made from one definition. So a site calling
+    // the method each object gets of its own (`this.update = function () { … }`) stays armed across
+    // the objects, and the site holds no closure, whose environment, and all that one reaches, would
+    // otherwise live as long as the site. _regDefinition is non-null only when the probe *accepted*
+    // the definition, so a site that never sees an eligible callee (every built-in call) tests a field
+    // that stays null and pays nothing else; an armed one adds a type and a definition compare.
+    // _regProbedKey is what this site last examined, accepted or not — the definition of an
+    // interpreted callee, any other function itself — so such a site remembers the rejection instead
+    // of re-probing on every dispatch. Only a site _regLaneEligible admits ever examines one: the rest
+    // cannot arm the lane whatever they are handed, so they are spared both the probe and the
+    // reference.
     //
     // NOTE: these are engine-affine, like _fastCallee. Handler trees are engine-owned for exactly
     // this reason (Engine._functionDefinitions / _scriptStatementLists) and must never be stashed on
-    // the AST shared by a Prepared<Script> — see the INVARIANT in JintStatement.Build. Unlike a realm
-    // intrinsic, which is rooted anyway, a ScriptFunction drags its closure environment along — the
-    // same retention a warmed member-read site already has (see AGENTS.md).
-    private Function? _regProbedCallee;
-    private ScriptFunction? _regCallee;
+    // the AST shared by a Prepared<Script> — see the INVARIANT in JintStatement.Build.
+    private object? _regProbedKey;
+    private JintFunctionDefinition? _regDefinition;
     private JintFunctionDefinition.State? _regState;
 
     /// <summary>
@@ -401,9 +403,12 @@ internal sealed class JintCallExpression : JintExpression
         // still differ between two evaluations of the same node (argument evaluation there must go
         // through ExpressionCache's resume buffer rather than straight into locals), so they stay a
         // runtime test — second, because it can only exclude a site the compare already accepted.
-        if (ReferenceEquals(func, _regCallee) && suspendable is null)
+        if (_regDefinition is { } regDefinition
+            && func is ScriptFunction regCallee
+            && ReferenceEquals(regCallee._functionDefinition, regDefinition)
+            && suspendable is null)
         {
-            return RegisterLaneCall(context, engine, Unsafe.As<ScriptFunction>(func), thisObject, referenceRecord, tailCall);
+            return RegisterLaneCall(context, engine, regCallee, thisObject, referenceRecord, tailCall);
         }
 
         var arguments = this._arguments.ArgumentListEvaluation(context, this, out var rented);
@@ -442,7 +447,7 @@ internal sealed class JintCallExpression : JintExpression
             }
 
             var tailTarget = (ScriptFunction) func;
-            if (_regLaneEligible && !ReferenceEquals(tailTarget, _regProbedCallee))
+            if (_regLaneEligible && !ReferenceEquals(tailTarget._functionDefinition, _regProbedKey))
             {
                 ProbeRegisterCallee(engine, tailTarget);
             }
@@ -495,23 +500,25 @@ internal sealed class JintCallExpression : JintExpression
 
             // Populate the fast-call cache after a successful dispatch, so the *next* evaluation of
             // this site can take the lane above. Deliberately after the call: asking the callee for
-            // its shape is only worth it once we know this site actually reaches a Function.
-            if (_fastArgsEligible && !ReferenceEquals(functionInstance, _fastCallee))
+            // its shape is only worth it once we know this site actually reaches a Function. An
+            // interpreted function never has a shape, and it holds the environment it closed over,
+            // which the site would keep alive, so it is not recorded.
+            if (_fastArgsEligible
+                && functionInstance._functionDefinition is null
+                && !ReferenceEquals(functionInstance, _fastCallee))
             {
                 _fastCallee = functionInstance;
                 _fastShape = functionInstance.GetFastCallShape(_argCount);
             }
 
-            // Same deal for the register lane, in its own slots. Recorded against _regProbedCallee
-            // rather than _regCallee so a callee the probe rejects is remembered as rejected —
+            // Same deal for the register lane, in its own slots. Recorded against _regProbedKey
+            // rather than _regDefinition so a callee the probe rejects is remembered as rejected —
             // otherwise a site whose callee never qualifies would re-probe on every dispatch.
             //
             // The build-time half of the gate is tested first, so a site the lane could never arm
-            // neither probes nor remembers. Remembering is not free there: _regProbedCallee is a
-            // strong reference, and a ScriptFunction drags its closure environment along, so a site
-            // with five arguments or a spread would pin one such graph for the engine's lifetime in
-            // exchange for a lane it can never take.
-            if (_regLaneEligible && !ReferenceEquals(functionInstance, _regProbedCallee))
+            // neither probes nor remembers.
+            if (_regLaneEligible
+                && !ReferenceEquals((object?) functionInstance._functionDefinition ?? functionInstance, _regProbedKey))
             {
                 ProbeRegisterCallee(engine, functionInstance);
             }
@@ -755,8 +762,8 @@ internal sealed class JintCallExpression : JintExpression
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void ProbeRegisterCallee(Engine engine, Function functionInstance)
     {
-        _regProbedCallee = functionInstance;
-        _regCallee = null;
+        _regProbedKey = (object?) functionInstance._functionDefinition ?? functionInstance;
+        _regDefinition = null;
         _regState = null;
 
         if (engine._isDebugMode)
@@ -779,7 +786,7 @@ internal sealed class JintCallExpression : JintExpression
         }
 
         _regState = state;
-        _regCallee = scriptFunction;
+        _regDefinition = scriptFunction._functionDefinition;
     }
 
     /// <summary>

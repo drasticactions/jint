@@ -652,17 +652,18 @@ public class GarbageCollectionTests
     }
 
     /// <summary>
-    /// A warmed call site keeping its last callee is a documented, bounded cost of the two monomorphic
-    /// call caches — one live callee per site, and a <c>ScriptFunction</c> drags its closure environment
-    /// along. It has to stay bounded to the sites those caches can actually serve. Five arguments is more
-    /// than <c>CallFromRegisters</c> has registers for and more than the built-in lane's two, so neither
-    /// can ever arm here, and remembering the callee would buy a pooled engine nothing but one retained
-    /// closure graph per such site, for its whole life.
+    /// A warmed call site keeping its last callee is a documented, bounded cost of the built-in call cache —
+    /// one callee per site, which is a realm intrinsic or a host function far more often than not. It has to
+    /// stay bounded to the sites that cache can actually serve. Five arguments is more than
+    /// <c>CallFromRegisters</c> has registers for and more than the built-in lane's two, so neither lane can
+    /// ever arm here, and remembering the callee would buy a pooled engine nothing but one retained object
+    /// graph per such site, for its whole life. The callee is a bound function, which the built-in lane does
+    /// record at a site it serves (<see cref="ATwoArgumentCallSiteStillRetainsItsCallee"/>).
     /// </summary>
     [Test]
     public void AFiveArgumentCallSiteRetainsNoCallee()
     {
-        AssertCalleeRetention("f(1, 2, 3, 4, 5);", expectRetained: false);
+        AssertCalleeRetention("f(1, 2, 3, 4, 5);", BoundFactory, expectRetained: false);
     }
 
     /// <summary>
@@ -672,31 +673,44 @@ public class GarbageCollectionTests
     [Test]
     public void ASpreadCallSiteRetainsNoCallee()
     {
-        AssertCalleeRetention("f(...[1, 2]);", expectRetained: false);
+        AssertCalleeRetention("f(...[1, 2]);", BoundFactory, expectRetained: false);
     }
 
     /// <summary>
-    /// The control, and the reason the two above can be trusted: a site the lanes <em>do</em> serve still
-    /// retains its callee, which is the documented one-entry-per-site cost. Without it, a harness that
-    /// simply failed to warm anything would satisfy those assertions for the wrong reason — as one written
-    /// against <c>Execute(string)</c> does, since a re-parsed script gets a fresh handler tree every time
-    /// and so never reaches the caches at all.
+    /// An interpreted callee is not retained even by a site both lanes serve: the built-in lane never has a
+    /// shape for it, and the register lane is armed for its definition rather than for the closure, so the
+    /// site holds no closure and none of the environment a closure keeps alive.
+    /// </summary>
+    [Test]
+    public void ATwoArgumentCallSiteRetainsNoInterpretedCallee()
+    {
+        AssertCalleeRetention("f(1, 2);", ClosureFactory, expectRetained: false);
+    }
+
+    /// <summary>
+    /// The control, and the reason the three above can be trusted: a site the built-in lane <em>does</em>
+    /// serve still retains a callee it records, which is the documented one-entry-per-site cost. Without it,
+    /// a harness that simply failed to warm anything would satisfy those assertions for the wrong reason — as
+    /// one written against <c>Execute(string)</c> does, since a re-parsed script gets a fresh handler tree
+    /// every time and so never reaches the caches at all.
     /// </summary>
     [Test]
     public void ATwoArgumentCallSiteStillRetainsItsCallee()
     {
-        AssertCalleeRetention("f(1, 2);", expectRetained: true);
+        AssertCalleeRetention("f(1, 2);", BoundFactory, expectRetained: true);
     }
 
-    private static void AssertCalleeRetention(string callSite, bool expectRetained)
+    // A factory, so each call produces a distinct function rather than one hoisted declaration the global
+    // binding would keep alive on its own. The closure's body reads no identifier, because a warmed
+    // identifier site inside the callee caches the environment it resolved in — a separate retention, of
+    // the function's own call environment and so of the function, that would mask this one.
+    private const string ClosureFactory = "function make() { return function (a, b, c, d, e) { return 1; }; }";
+    private const string BoundFactory = "function make() { return Math.max.bind(null); }";
+
+    private static void AssertCalleeRetention(string callSite, string factory, bool expectRetained)
     {
         var engine = new Engine();
-
-        // A factory, so each call produces a distinct closure rather than one hoisted declaration the
-        // global binding would keep alive on its own. The body reads no identifier, because a warmed
-        // identifier site inside the callee caches the environment it resolved in — a separate retention,
-        // of the function's own call environment and so of the function, that would mask this one.
-        engine.Execute("function make() { return function (a, b, c, d, e) { return 1; }; }");
+        engine.Execute(factory);
 
         // Prepared once and run twice: the handler-tree caches are keyed on the AST node and engage only
         // on a second evaluation of the same program on the same engine.
@@ -709,8 +723,8 @@ public class GarbageCollectionTests
         GC.Collect(2, GCCollectionMode.Forced, blocking: true);
 
         reference.IsAlive.Should().Be(expectRetained, expectRetained
-            ? $"`{callSite}` arms a monomorphic call cache, whose one-entry-per-site retention is by design"
-            : $"`{callSite}` can arm neither call lane, so it must not remember the callee it dispatched");
+            ? $"`{callSite}` arms the built-in call cache, whose one-entry-per-site retention is by design"
+            : $"`{callSite}` must not remember the callee it dispatched");
 
         // The engine owns the handler tree under test and the prepared script owns the node it is keyed
         // on, so both have to outlive the collection.
@@ -732,6 +746,90 @@ public class GarbageCollectionTests
             // Now nothing script-visible holds the callee, so only an interpreter cache can.
             engine.Execute("f = undefined;");
             return reference;
+        }
+    }
+
+    /// <summary>
+    /// A constructor's methods read its bindings through closures, so each object's method runs under a chain
+    /// that is new for every object, and the identifier and operand caches in the method bodies move from one
+    /// object's environment to the next. What a cache memoized about an earlier chain went on pinning that chain
+    /// after the cache had moved: the hops-1-3 chain memos of an identifier read and of a numeric operand, which
+    /// the layout lane does not replace; the hop-0 environment of a read that the slot cache serves from the
+    /// third object on (the for-in's object); and the global read's chain memo, kept between republishes. Each
+    /// pinned an object of the second run or so for good, and through it everything that object reached — a
+    /// tween queue linked forwards from it, without limit. A last object, which the page keeps, runs every site
+    /// once more, so a cache may keep only that object's environment.
+    /// </summary>
+    [Test]
+    public void MethodSitesMovingToAnotherObjectsEnvironmentReleaseTheOldOne()
+    {
+        AssertDroppedEnvironmentsAreCollected(
+            """
+            var limit = 10;
+            function Tween(payload) {
+                var held = payload;
+                var start = 0;
+                for (var key in payload) { }
+                track(payload);
+                this.update = function (t) { return t > start && t < limit ? held : null; };
+            }
+            function drive(tween) { tween.update(1); return tween.update(2); }
+            function run(n) { for (var i = 0; i < n; i++) { drive(new Tween({ i: i })); } }
+            """,
+            "kept = new Tween({ i: -1 }); drive(kept);");
+    }
+
+    /// <summary>
+    /// A method whose environment nothing can capture parks that environment with the engine after its first
+    /// call, for the first call of the next object's method, and a site calling each object's own method
+    /// remembers what it called. Both kept the last method called, and so the environment it closed over,
+    /// for as long as no other object's method ran: the parked environment its function, the call site the
+    /// closure itself. Neither may outlive the objects the page let go of, so the last object here is made
+    /// and kept but its method is never called.
+    /// </summary>
+    [Test]
+    public void AParkedEnvironmentAndACallSiteKeepNoMethodOfAnObjectLetGo()
+    {
+        AssertDroppedEnvironmentsAreCollected(
+            """
+            function Tween(payload) {
+                var held = payload;
+                track(payload);
+                this.update = function () { return 1; };
+                this.get = function () { return held; };
+            }
+            function drive(tween) { return tween.update(); }
+            function run(n) { for (var i = 0; i < n; i++) { drive(new Tween({ i: i })); } }
+            """,
+            "kept = new Tween({ i: -1 });");
+    }
+
+    private static void AssertDroppedEnvironmentsAreCollected(string declarations, string keepOne)
+    {
+        var engine = new Engine();
+        var tracked = new List<WeakReference>();
+        engine.SetValue("track", new Action<JsValue>(value => tracked.Add(new WeakReference(value))));
+        engine.Execute("var kept = null;");
+
+        // Declared functions keep their body trees, so their sites stay warm from one evaluation to the next.
+        engine.Execute(declarations);
+        RunAndDrop(engine, keepOne);
+
+        Collect();
+
+        tracked.Should().HaveCount(101);
+        var alive = tracked.Take(100).Select((reference, i) => (reference, i)).Where(x => x.reference.IsAlive).Select(x => x.i).ToList();
+        alive.Should().BeEmpty("only `kept` is named, and an interpreter cache may hold no other object's environment");
+        tracked[100].IsAlive.Should().BeTrue("the control: `kept` still names the last object");
+
+        GC.KeepAlive(engine);
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static void RunAndDrop(Engine engine, string keepOne)
+        {
+            engine.Execute("run(50);");
+            engine.Execute("run(50);");
+            engine.Execute(keepOne);
         }
     }
 
