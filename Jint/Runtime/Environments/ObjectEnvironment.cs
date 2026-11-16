@@ -63,13 +63,17 @@ internal sealed class ObjectEnvironment : Environment
             return false;
         }
 
+        // GetBindingValue checks again: the @@unscopables lookup may have removed the property. A sloppy read of a
+        // binding gone this way is undefined, without a Get.
         if (!_bindingObject.HasProperty(name.Value))
         {
             if (strict)
             {
-                // data was deleted during reading of unscopable information, of course...
                 Throw.ReferenceNameError(_engine.Realm, name.Key);
             }
+
+            value = Undefined;
+            return true;
         }
 
         value = _bindingObject.Get(name.Value);
@@ -150,6 +154,8 @@ internal sealed class ObjectEnvironment : Environment
             {
                 Throw.ReferenceNameError(_engine.Realm, name.Name);
             }
+
+            return Undefined;
         }
 
         return _bindingObject.Get(name.Name);

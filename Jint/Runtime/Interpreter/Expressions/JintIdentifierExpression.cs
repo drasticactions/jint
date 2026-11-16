@@ -148,14 +148,22 @@ internal sealed class JintIdentifierExpression : JintExpression
         var env = executionContext.LexicalEnvironment;
         var strict = executionContext.Strict;
 
-        if (ReferenceEquals(env, _cachedEnvironment)
-            && _cachedStrict == strict
-            && env.HasBinding(_identifier))
+        var searchFrom = env;
+        if (ReferenceEquals(env, _cachedEnvironment) && _cachedStrict == strict)
         {
-            return engine._referencePool.Rent(env, _identifier.Value, strict, thisValue: null);
+            if (env.HasBinding(_identifier))
+            {
+                return engine._referencePool.Rent(env, _identifier.Value, strict, thisValue: null);
+            }
+
+            // The remembered environment no longer holds the name (a with object lost the property, or its
+            // @@unscopables now blocks it): resolution goes on outward from there, so the binding object's has
+            // trap runs once per resolution.
+            searchFrom = env._outerEnv;
         }
 
-        if (!JintEnvironment.TryGetIdentifierEnvironmentWithBinding(env, _identifier, out var identifierEnvironment))
+        if (searchFrom is null
+            || !JintEnvironment.TryGetIdentifierEnvironmentWithBinding(searchFrom, _identifier, out var identifierEnvironment))
         {
             // Binding not found - create unresolvable reference
             return engine._referencePool.Rent(Reference.Unresolvable, _identifier.Value, strict, thisValue: null);
@@ -315,17 +323,27 @@ internal sealed class JintIdentifierExpression : JintExpression
             }
         }
 
-        if (ReferenceEquals(env, _cachedEnvironment)
-            && _cachedStrict == strict
-            && env.TryGetBinding(identifier, strict, out value))
+        var searchFrom = env;
+        if (ReferenceEquals(env, _cachedEnvironment) && _cachedStrict == strict)
         {
-            if (value is null)
+            if (env.TryGetBinding(identifier, strict, out value))
             {
-                ThrowNotInitialized(engine);
+                if (value is null)
+                {
+                    ThrowNotInitialized(engine);
+                }
+
+                return HandOn(value);
             }
+
+            // See EvaluateInternal: the walk goes on outward from the remembered environment, which no longer holds
+            // the name, so a with object's has trap runs once per read.
+            searchFrom = env._outerEnv;
         }
-        else if (JintEnvironment.TryGetIdentifierEnvironmentWithBindingValue(
-                     env,
+
+        if (searchFrom is not null
+            && JintEnvironment.TryGetIdentifierEnvironmentWithBindingValue(
+                     searchFrom,
                      identifier,
                      strict,
                      out var identifierEnvironment,
