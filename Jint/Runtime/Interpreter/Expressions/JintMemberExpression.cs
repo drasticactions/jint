@@ -83,6 +83,11 @@ internal sealed class JintMemberExpression : JintExpression
     // still serves without touching this field beyond a single null test.
     private PrototypeChainLink[]? _cachedProtoChain;
 
+    // The prototype chain that a deferred function store (TryAssignDeferredFunction) last found free of this node's
+    // name, from the receiver's prototype to the end, each link with the _propertiesVersion it had. While every link
+    // is still in place with its version unmoved, the next receiver with the same prototype needs no walk.
+    private PrototypeChainLink[]? _deferredStoreChain;
+
     // String-receiver method cache for member calls (str.slice(...)): a primitive string receiver has no
     // own properties beyond `length` and index-coercible names, and those are excluded at build time
     // (_stringReceiverCallEligible), so resolution is prototype-only — the method descriptor is read
@@ -1599,14 +1604,76 @@ internal sealed class JintMemberExpression : JintExpression
         var baseValue = _objectExpression.GetValue(context);
         context.PrepareFor(_expression);
 
-        if (baseValue is JsObject target
-            && target.TryAddDeferredClosure(determinedProperty, function.Definition, engine.ExecutionContext.LexicalEnvironment, ref transition))
+        if (baseValue is JsObject target)
         {
-            return true;
+            var chainChecked = DeferredStoreChainHolds(target);
+            if (target.TryAddDeferredClosure(determinedProperty, function.Definition, engine.ExecutionContext.LexicalEnvironment, ref transition, chainChecked))
+            {
+                if (!chainChecked)
+                {
+                    RecordDeferredStoreChain(target, determinedProperty);
+                }
+
+                return true;
+            }
         }
 
         StoreOnBase(context, baseValue, function.GetValue(context));
         return true;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="target"/>'s prototype chain is still the one <see cref="RecordDeferredStoreChain"/>
+    /// recorded: the same links in the same order, ending there, each with its version unmoved, so none of them has
+    /// gained this node's name since it was found absent from all of them.
+    /// </summary>
+    private bool DeferredStoreChainHolds(JsObject target)
+    {
+        var chain = _deferredStoreChain;
+        if (chain is null)
+        {
+            return false;
+        }
+
+        var reached = target.GetPrototypeOf();
+        foreach (var recorded in chain)
+        {
+            if (!ReferenceEquals(reached, recorded.Link) || reached._propertiesVersion != recorded.Version)
+            {
+                return false;
+            }
+
+            reached = reached.GetPrototypeOf();
+        }
+
+        return reached is null;
+    }
+
+    /// <summary>
+    /// Records the prototype chain of <paramref name="target"/>, which a deferred function store has just walked and
+    /// found free of <paramref name="property"/> (every link ordinary, none owning the name), when every link's
+    /// version witnesses its own properties, so that <see cref="DeferredStoreChainHolds"/> can prove the same later.
+    /// </summary>
+    private void RecordDeferredStoreChain(JsObject target, JsString property)
+    {
+        var count = 0;
+        for (var link = target.GetPrototypeOf(); link is not null; link = link.GetPrototypeOf())
+        {
+            if (++count > MaxCachedPrototypeChainLinks || !ObjectInstance.VersionWitnessesOwnProperty(link, property))
+            {
+                _deferredStoreChain = null;
+                return;
+            }
+        }
+
+        var chain = _deferredStoreChain is { } previous && previous.Length == count ? previous : new PrototypeChainLink[count];
+        var i = 0;
+        for (var link = target.GetPrototypeOf(); link is not null; link = link.GetPrototypeOf())
+        {
+            chain[i++] = new PrototypeChainLink(link, link._propertiesVersion);
+        }
+
+        _deferredStoreChain = chain;
     }
 
     /// <summary>

@@ -28,7 +28,8 @@ public sealed partial class JsObject
     /// is the creation of a plain data property on a constructor's <c>this</c>: this object is extensible,
     /// in shape mode and still being built, has no such own property, and no link of its prototype chain owns
     /// the name (so no setter runs and no read-only property refuses the store). Returns false, having changed
-    /// nothing, otherwise; the caller then creates the function and stores it the ordinary way.
+    /// nothing, otherwise; the caller then creates the function and stores it the ordinary way. A caller that has
+    /// proved the prototype chain part itself (<paramref name="prototypeChainChecked"/>) skips that walk.
     /// <para>
     /// Creating a function expression has no side effects, and the closure captures the environment itself rather
     /// than its contents, so creating it at the first read gives the same function the statement would have. The
@@ -40,7 +41,8 @@ public sealed partial class JsObject
         JsString property,
         JintFunctionDefinition definition,
         Environment environment,
-        ref DeferredClosureTransition? transition)
+        ref DeferredClosureTransition? transition,
+        bool prototypeChainChecked = false)
     {
         const InternalTypes Mask = InternalTypes.PlainObject | InternalTypes.BuiltinShapeMode | InternalTypes.ShapeMode | InternalTypes.ShapeBuilding;
         if ((_type & Mask) != (InternalTypes.PlainObject | InternalTypes.ShapeMode | InternalTypes.ShapeBuilding)
@@ -59,7 +61,7 @@ public sealed partial class JsObject
 
         // The walk [[Set]] makes before it creates the property (ObjectInstance.SetOnPrototypeChain), declining
         // every link whose [[GetOwnProperty]] or [[Set]] is not the ordinary one.
-        for (var link = GetPrototypeOf(); link is not null; link = link.GetPrototypeOf())
+        for (var link = prototypeChainChecked ? null : GetPrototypeOf(); link is not null; link = link.GetPrototypeOf())
         {
             if ((link._type & InternalTypes.PlainObject) == InternalTypes.Empty
                 && !Jint.Native.Function.Function.IsConstructorPrototype(link))

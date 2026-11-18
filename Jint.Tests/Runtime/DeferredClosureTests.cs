@@ -148,6 +148,45 @@ public class DeferredClosureTests
     }
 
     [Test]
+    public void APrototypeThatGainsTheNameAfterEarlierStoresGetsTheStore()
+    {
+        // A store site remembers the prototype chain it found free of its name; a chain that gains the name later, on
+        // any link, or is re-pointed, sends the next store through the prototype again.
+        var engine = new Engine();
+        engine.Evaluate("""
+            var calls = 0;
+            function P() { this.m = function () { return 1; }; }
+            for (var w = 0; w < 20; w++) new P();
+            Object.defineProperty(P.prototype, 'm', { set: function (f) { calls++; }, configurable: true });
+            var p = new P();
+            [calls, p.hasOwnProperty('m')].join(' ')
+            """).AsString().Should().Be("1 false");
+        engine.Evaluate("""
+            function Q() { this.q = function () { return 1; }; }
+            for (var w = 0; w < 20; w++) new Q();
+            Object.defineProperty(Object.prototype, 'q', { value: 'ro', writable: false, configurable: true });
+            var q = new Q();
+            var result = [q.q, q.hasOwnProperty('q')].join(' ');
+            delete Object.prototype.q;
+            result
+            """).AsString().Should().Be("ro false");
+        engine.Evaluate("""
+            var seen = [];
+            function R() { this.r = function () { return 1; }; }
+            for (var w = 0; w < 20; w++) new R();
+            Object.setPrototypeOf(R.prototype, { set r(f) { seen.push('r'); } });
+            var r = new R();
+            [seen.join(), r.hasOwnProperty('r')].join(' ')
+            """).AsString().Should().Be("r false");
+        engine.Evaluate("""
+            function S() { this.s = function () { return 's'; }; }
+            for (var w = 0; w < 20; w++) new S();
+            var s = new S();
+            [s.s(), s.hasOwnProperty('s')].join(' ')
+            """).AsString().Should().Be("s true");
+    }
+
+    [Test]
     public void TheFunctionClosesOverTheLiveEnvironment()
     {
         var engine = new Engine();
