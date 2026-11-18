@@ -1057,6 +1057,10 @@ namespace Jint.Native
         protected override sealed Jint.Native.JsValue Call(Jint.Native.JsValue thisObject, Jint.Native.JsValue[] arguments) { }
         protected abstract Jint.Native.JsValue Invoke(Jint.Native.JsValue thisObject, Jint.Native.JsValue[] arguments);
     }
+    public interface ICallable
+    {
+        Jint.Native.JsValue Call(Jint.Native.JsValue thisObject, params Jint.Native.JsValue[] arguments);
+    }
     public interface IJsPrimitive
     {
         Jint.Native.JsValue PrimitiveValue { get; }
@@ -1442,7 +1446,7 @@ namespace Jint.Native.Function
     {
         protected override Jint.Native.JsValue Call(Jint.Native.JsValue thisObject, Jint.Native.JsValue[] arguments) { }
     }
-    public abstract class Function : Jint.Native.Object.ObjectInstance
+    public abstract class Function : Jint.Native.Object.ObjectInstance, Jint.Native.ICallable
     {
         public Acornima.Ast.IFunction? FunctionDeclaration { get; }
         public Acornima.Ast.Program? Program { get; }
@@ -1667,6 +1671,8 @@ namespace Jint.Native.Object
         public Jint.Native.JsValue this[Jint.Native.JsValue property] { get; set; }
         public Jint.Native.Object.ObjectInstance? Prototype { get; set; }
         public bool CreateDataProperty(Jint.Native.JsValue p, Jint.Native.JsValue v) { }
+        protected void DeclareCallable() { }
+        protected void DeclareIsHtmlDda() { }
         public void DefineOwnDataPropertyUnchecked(string name, Jint.Native.JsValue value) { }
         public virtual bool DefineOwnProperty(Jint.Native.JsValue property, Jint.Runtime.Descriptors.PropertyDescriptor desc) { }
         public void DefineOwnPropertyUnchecked(Jint.Native.JsValue property, Jint.Runtime.Descriptors.PropertyDescriptor value) { }
@@ -2532,7 +2538,7 @@ namespace Jint.Runtime.Interop
         public void AddMethod(string name, int length, System.Func<Jint.Engine, object, Jint.Native.JsValue[], Jint.Native.JsValue> invoke) { }
     }
     [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Dynamic loading")]
-    public class NamespaceReference : Jint.Native.Object.ObjectInstance
+    public class NamespaceReference : Jint.Native.Object.ObjectInstance, Jint.Native.ICallable
     {
         public NamespaceReference(Jint.Engine engine, string? path) { }
         public override bool DefineOwnProperty(Jint.Native.JsValue property, Jint.Runtime.Descriptors.PropertyDescriptor desc) { }
