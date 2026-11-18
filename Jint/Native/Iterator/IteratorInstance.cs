@@ -880,6 +880,17 @@ internal abstract partial class IteratorInstance : ObjectInstance
                     }
                 }
 
+                // A level of an ordinary object is done. When nothing on the rest of its prototype chain has an
+                // enumerable string key, the walk would only probe keys that never yield (Object.prototype's
+                // dozen methods, for a plain object), so the enumeration ends here. Walking a prototype runs
+                // no script, and only ordinary objects pass the check, so ending early is not observable.
+                if (current is JsObject or JsArray
+                    && PrototypeChainHasNoEnumerableStringKeys(current))
+                {
+                    _current = null;
+                    break;
+                }
+
                 var proto = current.GetPrototypeOf();
                 if (proto is null)
                 {

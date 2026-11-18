@@ -679,4 +679,62 @@ public class ForInEnumerationTests
 
         result.Should().Be("0,2,4");
     }
+
+    /// <summary>
+    /// A plain object's enumeration ends after its own keys when nothing deeper on the chain is enumerable. The
+    /// chain is checked when the own keys run out, not at head evaluation, so an enumerable key that the loop
+    /// body puts on <c>Object.prototype</c> is still reached, as the level-by-level walk reaches it.
+    /// </summary>
+    [Test]
+    public void InheritedEnumerableKeyAddedDuringTheLoopIsReached()
+    {
+        var engine = new Engine();
+        var result = engine.Evaluate("""
+            var o = { a: 1, b: 2 };
+            var keys = [];
+            for (var key in o) {
+                keys.push(key);
+                if (key === 'a') { Object.prototype.late = 3; }
+            }
+            delete Object.prototype.late;
+            keys.join(',');
+            """).AsString();
+
+        result.Should().Be("a,b,late");
+    }
+
+    [Test]
+    public void EnumerableKeyOnAConstructorPrototypeIsReached()
+    {
+        var engine = new Engine();
+        var result = engine.Evaluate("""
+            function C() { this.own = 1; }
+            C.prototype.shared = 2;
+            var keys = [];
+            for (var key in new C()) { keys.push(key); }
+            keys.join(',');
+            """).AsString();
+
+        result.Should().Be("own,shared");
+    }
+
+    [Test]
+    public void ProxyOnThePrototypeChainIsStillAskedForItsKeys()
+    {
+        var engine = new Engine();
+        var result = engine.Evaluate("""
+            var calls = [];
+            var proxy = new Proxy({}, {
+                ownKeys: function (t) { calls.push('ownKeys'); return Reflect.ownKeys(t); },
+                getPrototypeOf: function (t) { calls.push('getPrototypeOf'); return Reflect.getPrototypeOf(t); }
+            });
+            var o = Object.create(proxy);
+            o.a = 1;
+            var keys = [];
+            for (var key in o) { keys.push(key); }
+            keys.join(',') + '|' + calls.join(',');
+            """).AsString();
+
+        result.Should().Be("a|ownKeys,getPrototypeOf");
+    }
 }
