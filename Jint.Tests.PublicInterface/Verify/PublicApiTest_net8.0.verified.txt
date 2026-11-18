@@ -10,6 +10,7 @@ namespace Jint
     {
         protected Constraint() { }
         public virtual bool IsAmortizable { get; }
+        public virtual int StatementsBeforeNextCheck { get; }
         public abstract void Check();
         public abstract void Reset();
     }
@@ -844,6 +845,7 @@ namespace Jint.Constraints
         public override bool IsAmortizable { get; }
         public bool IsOperationActive { get; }
         public long MemoryLimit { get; }
+        public override int StatementsBeforeNextCheck { get; }
         public static Jint.Constraints.MemoryLimitAccuracy Accuracy { get; }
         public void Begin() { }
         public override void Check() { }

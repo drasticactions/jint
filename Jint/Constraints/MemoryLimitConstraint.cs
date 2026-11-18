@@ -74,14 +74,14 @@ public sealed class MemoryLimitConstraint : Constraint
     private long _passLimit = long.MaxValue;
 
     /// <summary>
-    /// How many more <see cref="CheckBeforeStatement"/> calls pass without reading the allocation counter. Set only
-    /// after a read that left at least <see cref="UncheckedHeadroom"/> bytes below <see cref="_passLimit"/>, and
-    /// cleared whenever the pass limit changes.
+    /// What <see cref="StatementsBeforeNextCheck"/> answers: <see cref="MaxUncheckedStatements"/> after a read that
+    /// left at least <see cref="UncheckedHeadroom"/> bytes below <see cref="_passLimit"/>, 0 otherwise and whenever
+    /// the pass limit changes.
     /// </summary>
     private int _uncheckedStatements;
 
     /// <summary>
-    /// The most statements in a row that <see cref="CheckBeforeStatement"/> lets pass on one read of the counter.
+    /// The most statements in a row that pass on one read of the counter.
     /// Reading the counter is most of what the check of a statement costs.
     /// </summary>
     internal const int MaxUncheckedStatements = 15;
@@ -256,20 +256,20 @@ public sealed class MemoryLimitConstraint : Constraint
     }
 
     /// <summary>
-    /// <see cref="CheckOnEngineThread"/> before a statement: a read of the counter that finds the operation at least
-    /// <see cref="UncheckedHeadroom"/> bytes below the pass limit lets the next <see cref="MaxUncheckedStatements"/>
-    /// statements pass without one. The limit then still stops a runaway allocation, at most that many statements
-    /// later; a change of the pass limit (a charge, a segment starting or ending) makes the next statement read.
+    /// Statements that may run unchecked after a check that passed: <see cref="MaxUncheckedStatements"/> while the
+    /// last read of the counter found the operation at least <see cref="UncheckedHeadroom"/> bytes below the pass
+    /// limit, 0 closer to it. The limit then still stops a runaway allocation, at most that many statements later.
+    /// </summary>
+    public override int StatementsBeforeNextCheck => _uncheckedStatements;
+
+    /// <summary>
+    /// <see cref="CheckOnEngineThread"/> before a statement, which also decides what
+    /// <see cref="StatementsBeforeNextCheck"/> answers.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void CheckBeforeStatement()
     {
-        if (_uncheckedStatements > 0)
-        {
-            _uncheckedStatements--;
-            return;
-        }
-
+        _uncheckedStatements = 0;
         if (!GCPolyfills.AllocatedBytesForCurrentThreadIsSupported)
         {
             Check();
@@ -296,7 +296,13 @@ public sealed class MemoryLimitConstraint : Constraint
     /// </summary>
     private void RefreshPassLimit()
     {
+        // A changed pass limit makes the next statement check again, whatever the last check allowed.
         _uncheckedStatements = 0;
+        if (_engine is { } engine)
+        {
+            engine._statementsBeforeExactChecks = 0;
+        }
+
         var state = _activeState;
         if (state is null)
         {

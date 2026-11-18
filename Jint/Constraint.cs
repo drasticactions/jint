@@ -42,4 +42,18 @@ public abstract class Constraint
     /// </para>
     /// </remarks>
     public virtual bool IsAmortizable => false;
+
+    /// <summary>
+    /// After a <see cref="Check"/> that passed, how many of the statements that follow may run without this
+    /// constraint being checked again. Defaults to 0: checked before every statement. The engine checks its exact
+    /// constraints together and, after a round in which all passed, skips the smallest of their answers in
+    /// statements, so a constraint that answers more than 0 is checked less often only when every other exact
+    /// constraint allows it too. Every <see cref="Reset"/> ends a skip.
+    /// </summary>
+    /// <remarks>
+    /// For a budget whose <see cref="Check"/> costs a read of some counter, with the room left large enough that a
+    /// few statements cannot use it up in the ordinary case: answering a small number while the room is large, and 0
+    /// close to the limit, keeps where a runaway loop stops while sparing most of the reads.
+    /// </remarks>
+    public virtual int StatementsBeforeNextCheck => 0;
 }

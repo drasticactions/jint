@@ -1649,6 +1649,13 @@ public sealed partial class Engine : IDisposable
     internal readonly MaxStatementsConstraint? _inlineStatementCounter;
 
     /// <summary>
+    /// Statements that may still run before <see cref="RunPerStatementChecks"/> checks the exact constraints again:
+    /// the smallest <see cref="Constraint.StatementsBeforeNextCheck"/> of the last round, in which all passed. Cleared
+    /// by <see cref="ResetConstraints"/> and by a constraint whose state changed between checks.
+    /// </summary>
+    internal int _statementsBeforeExactChecks;
+
+    /// <summary>
     /// Statements remaining before the next amortized constraint check. Driven by
     /// <see cref="EvaluationContext.RunAmortizedConstraintChecks"/>.
     /// <para>
@@ -2827,6 +2834,7 @@ public sealed partial class Engine : IDisposable
 
     internal void ResetConstraints()
     {
+        _statementsBeforeExactChecks = 0;
         foreach (var constraint in _constraints)
         {
             if (!ReferenceEquals(constraint, _memoryLimitConstraint))
@@ -3903,29 +3911,14 @@ public sealed partial class Engine : IDisposable
     /// </summary>
     internal void RunPerStatementChecks(StatementOrExpression? statement)
     {
-        // Avoid allocating the enumerator because we run this loop very often. The try costs nothing until
-        // something throws; see the handler.
-        try
+        if (_statementsBeforeExactChecks > 0)
         {
-            foreach (var constraint in _exactConstraints)
-            {
-                // The memory limit is checked on the engine's thread here, where its common case is one read of
-                // the allocation counter, made for one statement in several while the operation is far from it.
-                if (constraint is MemoryLimitConstraint memoryLimit)
-                {
-                    memoryLimit.CheckBeforeStatement();
-                }
-                else
-                {
-                    constraint.Check();
-                }
-            }
+            // Every exact constraint allowed this statement to pass unchecked (Constraint.StatementsBeforeNextCheck).
+            _statementsBeforeExactChecks--;
         }
-        catch (Exception exception) when (_implicitMemoryContextDepth != 0 && exception is not JavaScriptException)
+        else
         {
-            // See RunBeforeExecuteStatementChecks.
-            AbandonImplicitMemoryOperation();
-            throw;
+            RunExactConstraintChecks();
         }
 
         // After the constraints on purpose: a statement a constraint refused is a statement that never ran.
@@ -3938,6 +3931,48 @@ public sealed partial class Engine : IDisposable
         {
             Debugger.OnStep(statement);
         }
+    }
+
+    /// <summary>
+    /// Checks every exact constraint and, when all pass, lets the next statements skip the round for as many statements
+    /// as the constraint allowing the fewest says (<see cref="Constraint.StatementsBeforeNextCheck"/>).
+    /// </summary>
+    private void RunExactConstraintChecks()
+    {
+        var skip = int.MaxValue;
+
+        // Avoid allocating the enumerator because we run this loop very often. The try costs nothing until
+        // something throws; see the handler.
+        try
+        {
+            foreach (var constraint in _exactConstraints)
+            {
+                // The memory limit is checked on the engine's thread here, where its common case is one read of
+                // the allocation counter.
+                if (constraint is MemoryLimitConstraint memoryLimit)
+                {
+                    memoryLimit.CheckBeforeStatement();
+                }
+                else
+                {
+                    constraint.Check();
+                }
+
+                var allowed = constraint.StatementsBeforeNextCheck;
+                if (allowed < skip)
+                {
+                    skip = allowed;
+                }
+            }
+        }
+        catch (Exception exception) when (_implicitMemoryContextDepth != 0 && exception is not JavaScriptException)
+        {
+            // See RunBeforeExecuteStatementChecks.
+            AbandonImplicitMemoryOperation();
+            throw;
+        }
+
+        _statementsBeforeExactChecks = skip == int.MaxValue ? 0 : skip;
     }
 
     /// <summary>

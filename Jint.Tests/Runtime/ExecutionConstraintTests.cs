@@ -215,6 +215,48 @@ public class ExecutionConstraintTests
         Invoking(() => engine.Evaluate("function f() { var x = 0; for (var i = 0; i < 1; i += 0) { x += 1; } return x; } f();")).Should().ThrowExactly<TimeoutException>();
     }
 
+    private sealed class SkippingConstraint(int allowed) : Constraint
+    {
+        public int Checks;
+        public int Resets;
+
+        public override void Check() => Checks++;
+
+        public override void Reset() => Resets++;
+
+        public override int StatementsBeforeNextCheck => allowed;
+    }
+
+    [Test]
+    public void ExactConstraintsSkipTheFewestStatementsAnyOfThemAllows()
+    {
+        // Each round checks every exact constraint; the next round comes after the smallest number of statements any of
+        // them allowed, so a constraint that allows none is still checked before every statement.
+        const string loop = "for (var i = 0; i < 1000; i++) { i = i; }";
+
+        var sparse = new SkippingConstraint(9);
+        new Engine(cfg => cfg.AddConstraint(sparse)).Execute(loop);
+        var sparseChecks = sparse.Checks;
+
+        var everyStatement = new SkippingConstraint(0);
+        var alongside = new SkippingConstraint(9);
+        new Engine(cfg => cfg.AddConstraint(everyStatement).AddConstraint(alongside)).Execute(loop);
+
+        everyStatement.Checks.Should().BeGreaterThan(1000);
+        alongside.Checks.Should().Be(everyStatement.Checks);
+        sparseChecks.Should().BeInRange(everyStatement.Checks / 10, everyStatement.Checks / 10 + 1);
+    }
+
+    [Test]
+    public void AResetEndsTheSkipOfTheLastRound()
+    {
+        var constraint = new SkippingConstraint(1_000_000);
+        var engine = new Engine(cfg => cfg.AddConstraint(constraint));
+        engine.Execute("var a = 1;");
+        engine.Execute("var b = 2;");
+        constraint.Checks.Should().Be(2);
+    }
+
     [Test]
     public void AnAllocatingLoopStopsCloseToTheMemoryLimit()
     {
