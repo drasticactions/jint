@@ -837,14 +837,15 @@ public partial class ObjectInstance : JsValue, IEquatable<ObjectInstance>
     /// it rather than reproducing Annex B.
     /// </para>
     /// <para>
-    /// It is <see langword="internal"/> because the specification permits the slot only on an
-    /// implementation-defined object emulating <c>document.all</c>: the two bearers are Jint's own
-    /// <c>IsHTMLDDA</c> (test262's <c>$262.IsHTMLDDA</c>) and <c>Jint.Browser</c>'s <c>HTMLAllCollection</c>.
+    /// It is not public because the specification permits the slot only on an implementation-defined object
+    /// emulating <c>document.all</c>: Jint's own <c>IsHTMLDDA</c> (test262's <c>$262.IsHTMLDDA</c>),
+    /// <c>Jint.Browser</c>'s <c>HTMLAllCollection</c>, and the <c>document.all</c> of a host whose wrappers derive
+    /// from <see cref="ObjectInstance"/>, which is why it is protected.
     /// Call it from the constructor, before the object can be reached from script — the flag is read from
     /// <c>_type</c> on fused comparison paths that do not re-check it.
     /// </para>
     /// </remarks>
-    internal void DeclareIsHtmlDda() => _type |= InternalTypes.IsHTMLDDA;
+    protected internal void DeclareIsHtmlDda() => _type |= InternalTypes.IsHTMLDDA;
 
     /// <summary>
     /// Declares that this object implements <c>ICallable</c>, so it has a <c>[[Call]]</c> internal method
@@ -857,7 +858,7 @@ public partial class ObjectInstance : JsValue, IEquatable<ObjectInstance>
     /// still a <c>TypeError</c>, and <c>typeof</c> answers <c>"function"</c> unless the object also declares
     /// <see cref="DeclareIsHtmlDda"/>. Call it from the constructor.
     /// </remarks>
-    internal void DeclareCallable()
+    protected internal void DeclareCallable()
     {
         Debug.Assert(this is ICallable, $"{GetType()} declared [[Call]] without implementing ICallable");
         _type |= InternalTypes.Callable;
