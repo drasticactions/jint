@@ -3910,10 +3910,10 @@ public sealed partial class Engine : IDisposable
             foreach (var constraint in _exactConstraints)
             {
                 // The memory limit is checked on the engine's thread here, where its common case is one read of
-                // the allocation counter.
+                // the allocation counter, made for one statement in several while the operation is far from it.
                 if (constraint is MemoryLimitConstraint memoryLimit)
                 {
-                    memoryLimit.CheckOnEngineThread();
+                    memoryLimit.CheckBeforeStatement();
                 }
                 else
                 {

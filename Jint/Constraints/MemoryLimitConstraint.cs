@@ -73,6 +73,27 @@ public sealed class MemoryLimitConstraint : Constraint
     /// </summary>
     private long _passLimit = long.MaxValue;
 
+    /// <summary>
+    /// How many more <see cref="CheckBeforeStatement"/> calls pass without reading the allocation counter. Set only
+    /// after a read that left at least <see cref="UncheckedHeadroom"/> bytes below <see cref="_passLimit"/>, and
+    /// cleared whenever the pass limit changes.
+    /// </summary>
+    private int _uncheckedStatements;
+
+    /// <summary>
+    /// The most statements in a row that <see cref="CheckBeforeStatement"/> lets pass on one read of the counter.
+    /// Reading the counter is most of what the check of a statement costs.
+    /// </summary>
+    internal const int MaxUncheckedStatements = 15;
+
+    /// <summary>
+    /// The room below the pass limit that a read must find before the next statements skip theirs. Closer to the
+    /// limit, every statement reads the counter, so a loop that allocates its way to the limit stops at the same
+    /// statement as when every statement read it, unless fewer than <see cref="MaxUncheckedStatements"/> statements
+    /// allocate this much.
+    /// </summary>
+    internal const long UncheckedHeadroom = 256 * 1024;
+
     public MemoryLimitConstraint(long memoryLimit)
     {
         if (memoryLimit <= 0 || memoryLimit == long.MaxValue)
@@ -235,12 +256,47 @@ public sealed class MemoryLimitConstraint : Constraint
     }
 
     /// <summary>
+    /// <see cref="CheckOnEngineThread"/> before a statement: a read of the counter that finds the operation at least
+    /// <see cref="UncheckedHeadroom"/> bytes below the pass limit lets the next <see cref="MaxUncheckedStatements"/>
+    /// statements pass without one. The limit then still stops a runaway allocation, at most that many statements
+    /// later; a change of the pass limit (a charge, a segment starting or ending) makes the next statement read.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal void CheckBeforeStatement()
+    {
+        if (_uncheckedStatements > 0)
+        {
+            _uncheckedStatements--;
+            return;
+        }
+
+        if (!GCPolyfills.AllocatedBytesForCurrentThreadIsSupported)
+        {
+            Check();
+            return;
+        }
+
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        if (allocated > _passLimit)
+        {
+            Check();
+            return;
+        }
+
+        if (_passLimit - allocated >= UncheckedHeadroom)
+        {
+            _uncheckedStatements = MaxUncheckedStatements;
+        }
+    }
+
+    /// <summary>
     /// Recomputes <see cref="_passLimit"/> from the running operation: what it has been charged and, while its
     /// segment runs, the counter value the segment started at. It mirrors <see cref="GetUsage"/> and the test in
     /// <see cref="Check"/>, which fails when the usage exceeds the limit or the operation already has.
     /// </summary>
     private void RefreshPassLimit()
     {
+        _uncheckedStatements = 0;
         var state = _activeState;
         if (state is null)
         {

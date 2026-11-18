@@ -216,6 +216,29 @@ public class ExecutionConstraintTests
     }
 
     [Test]
+    public void AnAllocatingLoopStopsCloseToTheMemoryLimit()
+    {
+        // Far from the limit a statement may pass on an earlier statement's read of the allocation counter, but
+        // close to it every statement reads it: a loop that allocates a little per statement still stops within
+        // one statement's allocation of the limit.
+        const long limit = 4_000_000;
+        var engine = new Engine(cfg => cfg.LimitMemory(limit));
+        Invoking(() => engine.Evaluate("var a = []; while (true) { a.push({ x: 1, y: 2 }); }")).Should().ThrowExactly<MemoryLimitExceededException>();
+        engine.Constraints.Find<MemoryLimitConstraint>()!.AllocatedBytes.Should().BeLessThan(limit + 64 * 1024);
+    }
+
+    [Test]
+    public void LargeAllocationsBetweenCounterReadsStillStopTheLoop()
+    {
+        // Statements that each allocate more than the room a skipped read needs still stop: at most a bounded run
+        // of statements passes on one read of the counter.
+        const long limit = 4_000_000;
+        var engine = new Engine(cfg => cfg.LimitMemory(limit));
+        Invoking(() => engine.Evaluate("var a = []; while (true) { a.push(new Array(20000).fill(0)); }")).Should().ThrowExactly<MemoryLimitExceededException>();
+        engine.Constraints.Find<MemoryLimitConstraint>()!.AllocatedBytes.Should().BeLessThan(limit * 2);
+    }
+
+    [Test]
     public void ShouldThrowMemoryLimitExceededInsideFunctionLocalTightLoop()
     {
         // Memory accounting is exact and must interrupt an allocating function-local loop.
