@@ -809,7 +809,15 @@ public static class TypeConverter
 
         if (value is JsString jsString)
         {
-            if (string.Equals(jsString.ToString(), "-0", StringComparison.Ordinal))
+            // Number::toString starts with a digit, a minus sign, "Infinity" or "NaN": any other string (a property name
+            // such as "length") is not canonical, which the round trip below would find only after parsing it.
+            var text = jsString.ToString();
+            if (text.Length == 0 || text[0] is not ((>= '0' and <= '9') or '-' or 'I' or 'N'))
+            {
+                return null;
+            }
+
+            if (string.Equals(text, "-0", StringComparison.Ordinal))
             {
                 return JsNumber.NegativeZero._value;
             }

@@ -314,6 +314,20 @@ public sealed class JsTypedArray : ObjectInstance
         return base.Delete(property);
     }
 
+    /// <summary>
+    /// [[Get]] of a Number key: a Number's string form is always a canonical numeric string, so the read is
+    /// TypedArrayGetElement of the number (-0's string form is "0"), and never reaches the prototype chain.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal JsValue GetElementOfNumberKey(double key) => IntegerIndexedElementGet(key == 0 ? 0 : key);
+
+    /// <summary>
+    /// [[Set]] of a Number key with this array as the receiver: TypedArraySetElement of the number, which converts the
+    /// value first and then stores it if the index is valid; it always succeeds.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal void SetElementOfNumberKey(double key, JsValue value) => IntegerIndexedElementSet(key == 0 ? 0 : key, value);
+
     // helper to prevent floating points
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private JsValue IntegerIndexedElementGet(int index)

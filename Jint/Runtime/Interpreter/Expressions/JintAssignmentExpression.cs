@@ -1556,6 +1556,18 @@ internal sealed class JintAssignmentExpression : JintExpression
                 return rval;
             }
 
+            // A typed array element write with a Number key and the array as the receiver: [[Set]] is TypedArraySetElement,
+            // which never fails, so neither strictness nor the key's string form matters.
+            if (lref.Base is JsTypedArray typedArray
+                && lref.ReferencedName is JsNumber typedArrayKey
+                && !lref.IsSuperReference)
+            {
+                context.PrepareFor(_left._expression);
+                typedArray.SetElementOfNumberKey(typedArrayKey._value, rval);
+                engine._referencePool.Return(lref);
+                return rval;
+            }
+
             // Record the target as the last syntax element for the error location if PutValue throws
             context.PrepareFor(_left._expression);
             engine.PutValue(lref, rval);

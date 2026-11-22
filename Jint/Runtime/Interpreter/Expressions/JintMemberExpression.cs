@@ -672,6 +672,13 @@ internal sealed class JintMemberExpression : JintExpression
                 return fastValue;
             }
 
+            // A typed array with a Number key: its [[Get]] reads the element (undefined out of range) and never the
+            // prototype chain, so no Reference and no string form of the key.
+            if (baseValue is JsTypedArray fastTypedArray && property is JsNumber typedArrayKey)
+            {
+                return fastTypedArray.GetElementOfNumberKey(typedArrayKey._value);
+            }
+
             // Same lane for a host array-like: one virtual TryGetIndex, no Reference and no key object. Sits
             // after the JsArray hit so array traffic is untouched. A false is an authoritative own miss and
             // falls through to the Reference path below, which keeps prototype-resolved indices and
