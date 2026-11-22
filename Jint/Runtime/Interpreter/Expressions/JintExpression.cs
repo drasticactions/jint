@@ -382,7 +382,7 @@ internal abstract class JintExpression
     /// ECMAScript algorithm for all special cases.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    protected static double RemainderUnboxed(double left, double right)
+    internal static double RemainderUnboxed(double left, double right)
     {
         // int32-representable check: NaN/±Infinity/fractional values fail the round-trip
         // equality and defer to fmod, as does a zero divisor (fmod gives the spec NaN);
@@ -505,6 +505,12 @@ internal abstract class JintExpression
         }
 
     }
+
+    /// <summary>
+    /// <see cref="Compare"/> for a caller outside the handlers: IsLessThan of two evaluated operands
+    /// (https://tc39.es/ecma262/#sec-islessthan), true, false or undefined.
+    /// </summary>
+    internal static JsValue CompareValues(JsValue x, JsValue y, bool leftFirst) => Compare(x, y, leftFirst);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     protected static JsValue Compare(JsValue x, JsValue y, bool leftFirst = true) =>

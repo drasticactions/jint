@@ -744,22 +744,29 @@ internal sealed class JintStatementList
     };
 
     internal static Completion HandleException(EvaluationContext context, Exception exception, JintStatement? s)
+        => HandleStatementException(context, exception, s!._statement);
+
+    /// <summary>
+    /// <see cref="HandleException(EvaluationContext, Exception, JintStatement?)"/> for the statement node itself, for a
+    /// caller that runs the statement without its handler.
+    /// </summary>
+    internal static Completion HandleStatementException(EvaluationContext context, Exception exception, Statement statement)
     {
         // A return() resumption that a yield inside this statement received: the statement ends with that return
         // completion, exactly as it would had the yield been the whole statement (the ReturnRequested test in
         // Execute). It is not an exception as far as the script or the debugger is concerned.
         if (exception is GeneratorReturnException generatorReturn)
         {
-            return new Completion(CompletionType.Return, generatorReturn.Value, s!._statement);
+            return new Completion(CompletionType.Return, generatorReturn.Value, statement);
         }
 
         var completion = exception switch
         {
-            JavaScriptException javaScriptException => CreateThrowCompletion(s, javaScriptException),
-            TypeErrorException typeErrorException => CreateThrowCompletion(context.Engine.Realm.Intrinsics.TypeError, typeErrorException, typeErrorException.Node ?? s!._statement),
-            RangeErrorException rangeErrorException => CreateThrowCompletion(context.Engine.Realm.Intrinsics.RangeError, rangeErrorException, s!._statement),
-            SyntaxErrorException syntaxErrorException => CreateThrowCompletion(context.Engine.Realm.Intrinsics.SyntaxError, syntaxErrorException, s!._statement),
-            ScriptPreparationException tooDeep when SyntaxNesting.IsTooDeep(tooDeep) => new Completion(CompletionType.Throw, SyntaxNesting.CreateRangeError(context.Engine.Realm), s!._statement),
+            JavaScriptException javaScriptException => CreateThrowCompletion(statement, javaScriptException),
+            TypeErrorException typeErrorException => CreateThrowCompletion(context.Engine.Realm.Intrinsics.TypeError, typeErrorException, typeErrorException.Node ?? statement),
+            RangeErrorException rangeErrorException => CreateThrowCompletion(context.Engine.Realm.Intrinsics.RangeError, rangeErrorException, statement),
+            SyntaxErrorException syntaxErrorException => CreateThrowCompletion(context.Engine.Realm.Intrinsics.SyntaxError, syntaxErrorException, statement),
+            ScriptPreparationException tooDeep when SyntaxNesting.IsTooDeep(tooDeep) => new Completion(CompletionType.Throw, SyntaxNesting.CreateRangeError(context.Engine.Realm), statement),
             // Unreachable through the callers, whose filters decline anything this switch cannot map;
             // kept so the switch stays total and so a future caller without a filter still behaves.
             _ => throw exception
@@ -809,9 +816,9 @@ internal sealed class JintStatementList
         return new Completion(CompletionType.Throw, error, s);
     }
 
-    private static Completion CreateThrowCompletion(JintStatement? s, JavaScriptException v)
+    private static Completion CreateThrowCompletion(Statement statement, JavaScriptException v)
     {
-        Node source = s!._statement;
+        Node source = statement;
         if (v.Location != default)
         {
             // A thrown primitive has nowhere else to keep its call stack, so the completion carries it to the

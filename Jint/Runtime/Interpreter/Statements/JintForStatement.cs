@@ -3,6 +3,7 @@ using Jint.Native;
 using Jint.Native.Disposable;
 using Jint.Runtime.Environments;
 using Jint.Runtime.Interpreter.Expressions;
+using Jint.Runtime.Interpreter.Kernels;
 using Environment = Jint.Runtime.Environments.Environment;
 
 namespace Jint.Runtime.Interpreter.Statements;
@@ -62,6 +63,10 @@ internal sealed class JintForStatement : JintIterationStatement<ForStatement>
     private readonly Key[]? _loopSlotNames;
     private readonly Binding[]? _loopSlotTemplates;
     private DeclarativeEnvironment? _cachedLoopEnv;
+
+    // The loop's kernel (see LoopKernel), built on the first run that may use one; a loop with a lexical header has none.
+    private LoopKernel? _kernel;
+    private bool _noKernel;
 
     public JintForStatement(ForStatement statement) : base(statement)
     {
@@ -256,6 +261,15 @@ internal sealed class JintForStatement : JintIterationStatement<ForStatement>
 
     protected override Completion ExecuteInternal(EvaluationContext context)
     {
+        if (!_noKernel && _boundNames is null && LoopKernel.CanRun(context))
+        {
+            var kernel = _kernel ?? CreateKernel(context.Engine);
+            if (kernel is not null)
+            {
+                return kernel.Run(context);
+            }
+        }
+
         if (_disposesHeader)
         {
             return ExecuteDisposingHeader(context);
@@ -464,6 +478,17 @@ internal sealed class JintForStatement : JintIterationStatement<ForStatement>
             }
         }
     }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private LoopKernel? CreateKernel(Engine engine)
+    {
+        _kernel = engine._loopKernelsDisabled ? null : LoopKernel.TryCreate(this, _statement);
+        _noKernel = _kernel is null;
+        return _kernel;
+    }
+
+    /// <summary>Whether a <c>continue</c> naming <paramref name="target"/> continues this loop.</summary>
+    internal bool ContinuesWith(string target) => LabelSetContains(target);
 
     /// <summary>
     /// https://tc39.es/ecma262/#sec-runtime-semantics-forloopevaluation for a <c>using</c> or <c>await using</c> header.

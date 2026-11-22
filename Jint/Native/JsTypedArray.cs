@@ -328,6 +328,96 @@ public sealed class JsTypedArray : ObjectInstance
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void SetElementOfNumberKey(double key, JsValue value) => IntegerIndexedElementSet(key == 0 ? 0 : key, value);
 
+    /// <summary>
+    /// [[Get]] of a Number key (<see cref="GetElementOfNumberKey"/>) without boxing a Number element: null with the
+    /// element in <paramref name="value"/>, or the value [[Get]] answers otherwise (undefined for a key that is not a
+    /// valid integer index, a BigInt for a BigInt array). A fixed-length view of a fixed-length buffer is in bounds for
+    /// as long as the buffer is attached, so its length is the one it was created with.
+    /// </summary>
+    internal JsValue? ReadNumberKey(double key, out double value)
+    {
+        var buffer = _viewedArrayBuffer;
+        if (buffer._arrayBufferData is { } data
+            && _contentType == TypedArrayContentType.Number
+            && _arrayLength != LengthAuto
+            && buffer.IsFixedLengthArrayBuffer)
+        {
+            // -0 is the key "0"
+            if (key >= 0 && key < _arrayLength)
+            {
+                var index = (int) key;
+                if (index == key)
+                {
+                    value = _arrayElementType is TypedArrayElementType.Uint8 or TypedArrayElementType.Uint8C
+                        ? data[_byteOffset + index]
+                        : buffer.RawBytesToNumeric(_arrayElementType, index * _arrayElementType.GetElementSize() + _byteOffset, BitConverter.IsLittleEndian).DoubleValue;
+                    return null;
+                }
+            }
+
+            value = 0;
+            return Undefined;
+        }
+
+        value = 0;
+        var element = GetElementOfNumberKey(key);
+        if (element is JsNumber number)
+        {
+            value = number._value;
+            return null;
+        }
+
+        return element;
+    }
+
+    /// <summary>
+    /// [[Set]] of a Number key with a Number value and this array as the receiver (<see cref="SetElementOfNumberKey"/>):
+    /// false, having done nothing, for an array of BigInts or of an immutable buffer, which take the full path.
+    /// </summary>
+    internal bool TryWriteNumberKey(double key, double value)
+    {
+        if (_contentType != TypedArrayContentType.Number || _viewedArrayBuffer.IsImmutableBuffer)
+        {
+            return false;
+        }
+
+        // TypedArraySetElement: the value is a Number already; the index decides whether it is stored.
+        var buffer = _viewedArrayBuffer;
+        if (buffer._arrayBufferData is not null && _arrayLength != LengthAuto && buffer.IsFixedLengthArrayBuffer)
+        {
+            // As ReadNumberKey: the view is in bounds while the buffer is attached; -0 is the key "0".
+            if (key >= 0 && key < _arrayLength)
+            {
+                var index = (int) key;
+                if (index == key)
+                {
+                    buffer.SetValueInBuffer(index * _arrayElementType.GetElementSize() + _byteOffset, _arrayElementType, value, true, ArrayBufferOrder.Unordered);
+                }
+            }
+
+            return true;
+        }
+
+        if (IsValidIntegerIndex(key == 0 ? 0 : key))
+        {
+            DoIntegerIndexedElementSet((int) key, value);
+        }
+
+        return true;
+    }
+
+    /// <summary>What get %TypedArray%.prototype.length answers, as a Number.</summary>
+    internal double LengthNumber()
+    {
+        var buffer = _viewedArrayBuffer;
+        if (buffer._arrayBufferData is not null && _arrayLength != LengthAuto && buffer.IsFixedLengthArrayBuffer)
+        {
+            return _arrayLength;
+        }
+
+        return ((JsNumber) IntrinsicTypedArrayPrototype.LengthOf(this))._value;
+    }
+
     // helper to prevent floating points
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private JsValue IntegerIndexedElementGet(int index)

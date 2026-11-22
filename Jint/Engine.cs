@@ -2254,6 +2254,12 @@ public sealed partial class Engine : IDisposable
     // never bump: a fresh environment cannot appear in a previously pinned chain.
     internal int _envBindingInjectionEpoch;
 
+    // Runs every loop on the interpreter's handlers: for tests comparing a loop kernel with the handlers it stands in for.
+    internal bool _loopKernelsDisabled;
+
+    // How many loops ran on kernels; read by tests.
+    internal int _loopKernelRuns;
+
     // Call environments of functions whose environment nothing can capture
     // (JintFunctionDefinition.State.ReusesEnvironmentAcrossInstances), parked after a call by an instance that does not
     // keep its own, for the next call of any instance of the same definition: the methods a constructor makes for each

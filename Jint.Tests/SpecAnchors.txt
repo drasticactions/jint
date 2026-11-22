@@ -14,8 +14,8 @@
 # The 'verified' date is the only thing bounding anchor rot: a clause renamed upstream keeps
 # resolving here until somebody re-runs that.
 #
-verified: 2026-11-15
-anchors: 1350
+verified: 2026-11-22
+anchors: 1356
 absent: 2
 !proposal-decorators sec-autoaccessordefinitionevaluation  # tc39.es still renders the 2018 descriptor design, which has no such clause
 !proposal-decorators sec-createdecoratorcontextobject  # tc39.es still renders the 2018 descriptor design, which has no such clause
@@ -186,6 +186,7 @@ ecma262 sec-bigint.asintn
 ecma262 sec-bigint.asuintn
 ecma262 sec-bigint.prototype.tostring
 ecma262 sec-bigint.prototype.valueof
+ecma262 sec-binary-logical-operators
 ecma262 sec-block-runtime-semantics-evaluation
 ecma262 sec-blockdeclarationinstantiation
 ecma262 sec-boolean-constructor-boolean-value
@@ -282,6 +283,7 @@ ecma262 sec-encodeuri-uri
 ecma262 sec-encodeuricomponent-uricomponent
 ecma262 sec-enumerate-object-properties
 ecma262 sec-environment-records
+ecma262 sec-equality-operators
 ecma262 sec-error-handling-and-language-extensions
 ecma262 sec-error.iserror
 ecma262 sec-error.prototype.tostring
@@ -356,6 +358,7 @@ ecma262 sec-getactivescriptormodule
 ecma262 sec-getarraybuffermaxbytelengthoption
 ecma262 sec-getexportednames
 ecma262 sec-getfunctionrealm
+ecma262 sec-getidentifierreference
 ecma262 sec-getiterator
 ecma262 sec-getiteratordirect
 ecma262 sec-getiteratorflattenable
@@ -414,6 +417,7 @@ ecma262 sec-isconcatspreadable
 ecma262 sec-isconstructor
 ecma262 sec-isintailposition
 ecma262 sec-isintegralnumber
+ecma262 sec-islessthan
 ecma262 sec-islooselyequal
 ecma262 sec-ispropertyreference
 ecma262 sec-isregexp
@@ -672,6 +676,7 @@ ecma262 sec-regexpbuiltinexec
 ecma262 sec-regexpcreate
 ecma262 sec-regexpexec
 ecma262 sec-rejectpromise
+ecma262 sec-relational-operators
 ecma262 sec-requireobjectcoercible
 ecma262 sec-resolve-private-identifier
 ecma262 sec-resolvebinding
@@ -843,6 +848,7 @@ ecma262 sec-typedarray-defineownproperty
 ecma262 sec-typedarray-get
 ecma262 sec-typedarraybytelength
 ecma262 sec-typedarraylength
+ecma262 sec-typedarraysetelement
 ecma262 sec-updateempty
 ecma262 sec-validateandapplypropertydescriptor
 ecma262 sec-validateatomicaccess
