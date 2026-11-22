@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using Jint.Native;
 using Jint.Native.Array;
 using Jint.Native.Object;
+using Jint.Native.TypedArray;
 using Jint.Runtime.Descriptors;
 using Jint.Runtime.Environments;
 using Jint.Runtime.Interop;
@@ -98,6 +99,18 @@ internal sealed class JintMemberExpression : JintExpression
     private uint _cachedStringProtoHolderVersion;
     private PropertyDescriptor? _cachedStringProtoDescriptor;
     private readonly bool _stringReceiverCallEligible;
+
+    // Typed array `length` cache: `ta.length` is the built-in get %TypedArray%.prototype.length as long as the
+    // receiver has no own `length`, its prototype (%Uint8Array.prototype% and the like) has none either and still
+    // links to the holder, and the holder still has the built-in getter. The entry records the prototype and the
+    // holder with the _propertiesVersion each had; any own-property change of either moves its version (a
+    // redefined accessor is a new descriptor, a removed one a removal), and a re-pointed chain fails the identity
+    // tests. The receiver's own miss is proved on every read. Like the prototype-member cache it names no receiver,
+    // so one entry serves every array of a kind that passes through the site.
+    private ObjectInstance? _typedArrayLengthLink;
+    private uint _typedArrayLengthLinkVersion;
+    private IntrinsicTypedArrayPrototype? _typedArrayLengthHolder;
+    private uint _typedArrayLengthHolderVersion;
 
     // Whether this node reads the literal name `length`, decided once at build time so that the host
     // array-like lane below costs every other member node a single field test rather than a type check.
@@ -1078,6 +1091,14 @@ internal sealed class JintMemberExpression : JintExpression
             return arrayLength;
         }
 
+        // A typed array's `length`, while the read is the one the built-in getter answers (see the cache's fields).
+        if (_readsLengthName
+            && baseObject is JsTypedArray typedArray
+            && TryReadTypedArrayLength(typedArray, property, out var typedArrayLength))
+        {
+            return typedArrayLength;
+        }
+
         // A host collection's `length`, answered from its own O(1) count with no descriptor and no accessor
         // invocation - but only while ArrayLikeObject's guard proves that read is the one [[Get]] would make.
         // The build-time name test is what keeps this off every other member node.
@@ -1218,6 +1239,58 @@ internal sealed class JintMemberExpression : JintExpression
         {
             HostContractVerification.Fail($"{baseObject.GetType()} declared PropertyAccessSemantics.Ordinary but its Get('{property}') disagrees with UnwrapJsValue(GetOwnProperty('{property}')). Declare PropertyAccessSemantics.Exotic instead, or make Get ordinary.");
         }
+    }
+
+    /// <summary>
+    /// Reads <c>length</c> of a typed array through the typed array length cache, recording an entry when the
+    /// receiver's chain is the built-in one. False hands the read to the full [[Get]]: the receiver or a link
+    /// owns a <c>length</c>, the chain is not the two ordinary links that end at a <c>%TypedArray%.prototype</c>
+    /// (a Proxy, an exotic or host link, a prototype set to something else), or the getter is not the built-in.
+    /// </summary>
+    private bool TryReadTypedArrayLength(JsTypedArray typedArray, JsString property, out JsValue length)
+    {
+        // A typed array is never in a shape mode: its string-keyed own properties are its dictionary, and a symbol
+        // or an integer index is no `length`.
+        if (typedArray._properties is { } own && own.ContainsKey(property.ToString()))
+        {
+            length = JsValue.Undefined;
+            return false;
+        }
+
+        var link = typedArray.GetPrototypeOf();
+        var holder = _typedArrayLengthHolder;
+        if (holder is not null
+            && ReferenceEquals(link, _typedArrayLengthLink)
+            && link!._propertiesVersion == _typedArrayLengthLinkVersion
+            && ReferenceEquals(link.GetPrototypeOf(), holder)
+            && holder._propertiesVersion == _typedArrayLengthHolderVersion)
+        {
+            length = IntrinsicTypedArrayPrototype.LengthOf(typedArray);
+            return true;
+        }
+
+        _typedArrayLengthLink = null;
+        _typedArrayLengthHolder = null;
+        if (link is null
+            || (link._type & (InternalTypes.ExoticGet | InternalTypes.OwnValueHook)) != InternalTypes.Empty
+            || !ObjectInstance.VersionWitnessesOwnProperty(link, property)
+            || !ReferenceEquals(link.GetOwnProperty(property), PropertyDescriptor.Undefined)
+            || link.GetPrototypeOf() is not IntrinsicTypedArrayPrototype intrinsic
+            || !ObjectInstance.VersionWitnessesOwnProperty(intrinsic, property)
+            || intrinsic.GetOwnProperty(property) is not { } descriptor
+            || !descriptor.IsAccessorDescriptor()
+            || !intrinsic.IsBuiltinLengthGetter(descriptor.Get))
+        {
+            length = JsValue.Undefined;
+            return false;
+        }
+
+        _typedArrayLengthLink = link;
+        _typedArrayLengthLinkVersion = link._propertiesVersion;
+        _typedArrayLengthHolder = intrinsic;
+        _typedArrayLengthHolderVersion = intrinsic._propertiesVersion;
+        length = IntrinsicTypedArrayPrototype.LengthOf(typedArray);
+        return true;
     }
 
     /// <summary>

@@ -52,7 +52,17 @@ internal sealed partial class IntrinsicTypedArrayPrototype : Prototype
         // function object as %Array.prototype.toString%. Fill the reserved [JsInstanceSlot] with the lazy
         // descriptor (resolved on first read, so touching %TypedArray%.prototype doesn't force Array init).
         SetBuiltinSlotByName("toString", new LazyPropertyDescriptor<IntrinsicTypedArrayPrototype>(this, static prototype => prototype._realm.Intrinsics.Array.PrototypeObject.Get("toString"), PropertyFlags));
+
+        // Taken before any script can reach the prototype, so that a member read can tell the built-in getter from one a
+        // script defined in its place (JintMemberExpression's typed array length lane).
+        _lengthGetter = GetOwnProperty(CommonProperties.Length).Get;
     }
+
+    /// <summary>The function that get %TypedArray%.prototype.length was when the prototype was created.</summary>
+    private JsValue? _lengthGetter;
+
+    /// <summary>Whether <paramref name="getter"/> is this prototype's built-in <c>length</c> getter.</summary>
+    internal bool IsBuiltinLengthGetter(JsValue? getter) => getter is not null && ReferenceEquals(getter, _lengthGetter);
 
     /// <summary>
     /// https://tc39.es/ecma262/#sec-get-%typedarray%.prototype.buffer
@@ -118,6 +128,12 @@ internal sealed partial class IntrinsicTypedArrayPrototype : Prototype
             Throw.TypeError(_realm, "Method get TypedArray.prototype.length called on incompatible receiver");
         }
 
+        return LengthOf(o);
+    }
+
+    /// <summary>What get %TypedArray%.prototype.length answers for a typed array: its length, or 0 when it is out of bounds.</summary>
+    internal static JsValue LengthOf(JsTypedArray o)
+    {
         var taRecord = MakeTypedArrayWithBufferWitnessRecord(o, ArrayBufferOrder.SeqCst);
         if (taRecord.IsTypedArrayOutOfBounds)
         {
