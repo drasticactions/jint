@@ -146,7 +146,7 @@ internal sealed class KernelName : KernelExpression
     {
         ref var slot = ref frame.Slots[_binding];
         var environment = slot.Environment;
-        if (environment is not null && frame.Engine._envBindingInjectionEpoch == frame.Epoch)
+        if (environment is not null && slot.Epoch == frame.Engine._envBindingInjectionEpoch)
         {
             var slots = environment._slots;
             if (slots is not null && (uint) slot.Index < (uint) slots.Length)
@@ -165,8 +165,27 @@ internal sealed class KernelName : KernelExpression
             }
         }
 
+        return ReadUnresolved(frame, out number);
+    }
+
+    /// <summary>
+    /// A name not read through a slot: resolved first when this run has not resolved it, or did before a binding was
+    /// injected somewhere; then a slot, a global or Bail.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private JsValue? ReadUnresolved(KernelFrame frame, out double number)
+    {
         number = 0;
-        return slot.Index == KernelFrame.GlobalBinding ? ReadGlobal(frame) : Bail;
+        if (frame.NeedsResolving(_binding))
+        {
+            frame.Resolve(_binding);
+            if (frame.Slots[_binding].Environment is not null)
+            {
+                return Evaluate(frame, out number);
+            }
+        }
+
+        return frame.Slots[_binding].Index == KernelFrame.GlobalBinding ? ReadGlobal(frame) : Bail;
     }
 
     /// <summary>The Number a slot holds, unboxed or boxed; false for anything else, which <see cref="Evaluate"/> answers.</summary>
@@ -175,7 +194,7 @@ internal sealed class KernelName : KernelExpression
     {
         ref var slot = ref frame.Slots[_binding];
         var environment = slot.Environment;
-        if (environment is not null && frame.Engine._envBindingInjectionEpoch == frame.Epoch)
+        if (environment is not null && slot.Epoch == frame.Engine._envBindingInjectionEpoch)
         {
             var slots = environment._slots;
             if (slots is not null && (uint) slot.Index < (uint) slots.Length)
@@ -201,11 +220,8 @@ internal sealed class KernelName : KernelExpression
 
     private JsValue ReadGlobal(KernelFrame frame)
     {
+        // The name resolved to the global environment at the current epoch (see ReadUnresolved).
         var globalEnv = frame.Global!;
-        if (frame.Engine._envBindingInjectionEpoch != frame.Epoch)
-        {
-            return Bail;
-        }
 
         var descriptor = _cachedGlobalDescriptor;
         if (!ReferenceEquals(globalEnv, _cachedGlobalEnv)
@@ -270,6 +286,15 @@ internal sealed class KernelRoot : KernelExpression
     private readonly KernelExpression _pure;
     private JintExpression? _handler;
 
+    // An expression that hands most of its evaluations back (a read of a host object's property, say) stops trying:
+    // each hand-back costs the evaluation the interpreter repeats. A hand-back lowers the score by more than an
+    // evaluation that completes raises it.
+    private int _score;
+    private bool _interpretOnly;
+    private const int ScoreCeiling = 1024;
+    private const int BailCost = 16;
+    private const int ScoreFloor = -64;
+
     public KernelRoot(KernelExpression pure) : base(pure._expression)
     {
         _pure = pure;
@@ -277,24 +302,55 @@ internal sealed class KernelRoot : KernelExpression
 
     internal override JsValue? Evaluate(KernelFrame frame, out double number)
     {
-        var value = _pure.Evaluate(frame, out number);
-        if (!ReferenceEquals(value, Bail))
+        if (!_interpretOnly)
         {
-            return value;
+            var value = _pure.Evaluate(frame, out number);
+            if (!ReferenceEquals(value, Bail))
+            {
+                Completed();
+                return value;
+            }
+
+            HandedBack();
         }
 
+        number = 0;
         return Interpret(frame);
     }
 
     internal override int Test(KernelFrame frame)
     {
-        var result = _pure.Test(frame);
-        if (result >= 0)
+        if (!_interpretOnly)
         {
-            return result;
+            var result = _pure.Test(frame);
+            if (result >= 0)
+            {
+                Completed();
+                return result;
+            }
+
+            HandedBack();
         }
 
         return (_handler ??= JintExpression.Build(_expression)).GetBooleanValue(frame.Context) ? 1 : 0;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void Completed()
+    {
+        if (_score < ScoreCeiling)
+        {
+            _score++;
+        }
+    }
+
+    private void HandedBack()
+    {
+        _score -= BailCost;
+        if (_score < ScoreFloor)
+        {
+            _interpretOnly = true;
+        }
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

@@ -16,7 +16,7 @@ internal static class KernelSlots
     {
         ref var slot = ref frame.Slots[binding];
         environment = slot.Environment;
-        if (environment is not null && frame.Engine._envBindingInjectionEpoch == frame.Epoch)
+        if (environment is not null && slot.Epoch == frame.Engine._envBindingInjectionEpoch)
         {
             var slots = environment._slots;
             if (slots is not null && (uint) slot.Index < (uint) slots.Length)
@@ -25,6 +25,25 @@ internal static class KernelSlots
             }
         }
 
+        return ref FindResolving(frame, binding, out environment);
+    }
+
+    /// <summary>A name not resolved in this run yet, or resolved before a binding was injected somewhere: resolved now.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static ref Binding FindResolving(KernelFrame frame, int binding, out DeclarativeEnvironment? environment)
+    {
+        if (frame.NeedsResolving(binding))
+        {
+            frame.Resolve(binding);
+            ref var slot = ref frame.Slots[binding];
+            environment = slot.Environment;
+            if (environment?._slots is { } slots && (uint) slot.Index < (uint) slots.Length)
+            {
+                return ref slots[slot.Index];
+            }
+        }
+
+        environment = null;
         return ref Unsafe.NullRef<Binding>();
     }
 }

@@ -53,6 +53,18 @@ internal sealed class KernelCompiler
         return new KernelForStatement(statement, initStatement, initExpression, test, update, body, owner);
     }
 
+    /// <summary>A statement of a statement list, where a <c>return</c> of a literal is resolved without running it.</summary>
+    private KernelStatement CompileListStatement(Statement statement, bool blockLevel)
+    {
+        if (JintStatement.FastResolve(statement) is { } value)
+        {
+            _compiled++;
+            return new KernelLiteralReturnStatement(statement, value);
+        }
+
+        return CompileStatement(statement, blockLevel);
+    }
+
     private KernelStatement CompileStatement(Statement statement, bool blockLevel)
     {
         var compiled = TryCompileStatement(statement);
@@ -126,7 +138,10 @@ internal sealed class KernelCompiler
                     var statements = new KernelStatement[block.Body.Count];
                     for (var i = 0; i < statements.Length; i++)
                     {
-                        statements[i] = CompileStatement(block.Body[i], blockLevel: true);
+                        // One statement runs alone, the statements of any other block as a statement list.
+                        statements[i] = statements.Length == 1
+                            ? CompileStatement(block.Body[i], blockLevel: true)
+                            : CompileListStatement(block.Body[i], blockLevel: true);
                     }
 
                     return new KernelBlockStatement(statement, statements);
@@ -143,6 +158,16 @@ internal sealed class KernelCompiler
 
             case ForStatement forStatement:
                 return CompileLoop(forStatement, owner: null);
+
+            case ReturnStatement returnStatement:
+                // An async generator's own return awaits; a call in tail position is made as a tail call.
+                if (JintAsyncGeneratorReturnStatement.IsMarked(returnStatement)
+                    || returnStatement.Argument is { } argument && HasTailCall(argument))
+                {
+                    return null;
+                }
+
+                return new KernelReturnStatement(statement, returnStatement.Argument is null ? null : CompileValue(returnStatement.Argument));
 
             default:
                 return null;
@@ -232,6 +257,19 @@ internal sealed class KernelCompiler
                     return new KernelComparison(binary, binary.Operator, left ?? CompileValue(binary.Left), right ?? CompileValue(binary.Right));
                 }
 
+            case LogicalExpression { Operator: Operator.LogicalAnd or Operator.LogicalOr } logical when TryCompilePure(logical) is null:
+                {
+                    // An operand that is not pure, a call above all: each operand at most once, in order.
+                    var left = TryCompileEffect(logical.Left);
+                    var right = TryCompileEffect(logical.Right);
+                    if (left is null && right is null)
+                    {
+                        return null;
+                    }
+
+                    return new KernelLogicalEffect(logical, logical.Operator == Operator.LogicalAnd, left ?? CompileValue(logical.Left), right ?? CompileValue(logical.Right));
+                }
+
             case NonUpdateUnaryExpression { Operator: Operator.LogicalNot } not when TryCompilePure(not) is null:
                 {
                     var argument = TryCompileEffect(not.Argument);
@@ -257,9 +295,19 @@ internal sealed class KernelCompiler
         return new KernelAssignSlot(node, Name(target), CompileValue(value), isDeclarator);
     }
 
+    /// <summary>Whether the static analysis marked a call in the expression as one in tail position.</summary>
+    private static bool HasTailCall(Expression expression) => expression switch
+    {
+        CallExpression or TaggedTemplateExpression => true,
+        ConditionalExpression conditional => HasTailCall(conditional.Consequent) || HasTailCall(conditional.Alternate),
+        LogicalExpression logical => HasTailCall(logical.Right),
+        SequenceExpression sequence => HasTailCall(sequence.Expressions[sequence.Expressions.Count - 1]),
+        _ => false,
+    };
+
     private KernelExpression? TryCompileCall(CallExpression call)
     {
-        if (call.Optional)
+        if (call.Optional || ReferenceEquals(call.UserData, TailCallMarker.Instance))
         {
             return null;
         }

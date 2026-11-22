@@ -256,6 +256,37 @@ internal sealed class KernelUnary : KernelExpression
     }
 }
 
+/// <summary>
+/// <c>&amp;&amp;</c> and <c>||</c> with an operand that is not pure, a call above all: each operand is evaluated at
+/// most once, in order, and never answers Bail.
+/// </summary>
+internal sealed class KernelLogicalEffect : KernelExpression
+{
+    private readonly bool _and;
+    private readonly KernelExpression _left;
+    private readonly KernelExpression _right;
+
+    public KernelLogicalEffect(Expression expression, bool and, KernelExpression left, KernelExpression right) : base(expression)
+    {
+        _and = and;
+        _left = left;
+        _right = right;
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        var left = _left.Evaluate(frame, out number);
+        var truthy = left is null ? number != 0 && !double.IsNaN(number) : TypeConverter.ToBoolean(left);
+        return truthy != _and ? left : _right.Evaluate(frame, out number);
+    }
+
+    internal override int Test(KernelFrame frame)
+    {
+        var left = _left.Test(frame);
+        return (left == 1) != _and ? left : _right.Test(frame);
+    }
+}
+
 /// <summary><c>!argument</c> for an argument with effects, which evaluates it once and never answers Bail.</summary>
 internal sealed class KernelNotEffect : KernelExpression
 {

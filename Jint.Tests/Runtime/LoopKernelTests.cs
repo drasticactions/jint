@@ -197,6 +197,23 @@ public class LoopKernelTests
           return out.join(",");
         }
         """,
+        // a sloppy eval elsewhere moves the injection epoch; one in the loop's own function shadows a closure's binding
+        """
+        function noisy(s) { return eval(s); }
+        function outer() {
+          var x = 1, out = [];
+          function inner() {
+            for (var i = 0; i < 6; i++) { out.push(x + noisy("1 + 1")); if (i == 2) eval("var x = 5"); out.push(x); }
+          }
+          inner();
+          return out.join(",") + "|" + x;
+        }
+        function test() {
+          var t = 0, out = [];
+          for (var i = 0; i < 8; i++) { t += noisy("i => i"); out.push(typeof t, noisy("2") * i); }
+          return out.join(",") + "|" + outer();
+        }
+        """,
         // with
         """
         function test() {
@@ -270,6 +287,25 @@ public class LoopKernelTests
         function deep(n) { for (var i = 0; i < 1; i++) { return n <= 0 ? 0 : 1 + deep(n - 1); } }
         function test() { try { return deep(300); } catch (e) { return e.constructor.name + ":" + e.message; } }
         """,
+        // function bodies: returns of literals, values and nothing, a return out of a loop, a tail call, a constructor
+        """
+        "use strict";
+        function lit(x) { if (x) { return 1; } return 2; }
+        function val(x) { var y = x * 2; return y + 1; }
+        function none(x) { x + 1; }
+        function early(n) { for (var i = 0; i < n; i++) { if (i == 3) return i; } return -1; }
+        function tail(n, acc) { if (n == 0) return acc; return tail(n - 1, acc + n); }
+        function Ctor(v) { this.v = v; if (v > 5) return { other: v }; }
+        function thrower(x) { if (x == 4) throw new TypeError("bad " + x); return x; }
+        function test() {
+          var out = [];
+          for (var i = 0; i < 10; i++) {
+            out.push(lit(i), val(i), none(i), early(i), tail(i * 100, 0), new Ctor(i).v, new Ctor(i).other);
+            try { out.push(thrower(i)); } catch (e) { out.push(e.message, e.stack.split("\n")[1]); }
+          }
+          return out.join(",");
+        }
+        """,
         // the kernels' own hot shapes, as the WebGL conformance pages write them
         """
         function test() {
@@ -310,7 +346,10 @@ public class LoopKernelTests
     public void KernelMatchesTheInterpreter(int index)
     {
         var script = Scripts[index];
-        var call = script.Contains("function run()", StringComparison.Ordinal) ? "run()" : "test()";
+        // Called often enough for the functions' bodies to run on kernels too.
+        var call = "var results = []; for (var round = 0; round < 12; round++) results.push("
+                   + (script.Contains("function run()", StringComparison.Ordinal) ? "run()" : "test()")
+                   + "); results.join('|')";
 
         var withKernels = Run(script, call, kernels: true, out var kernelChecks, out var kernelRuns);
         var withoutKernels = Run(script, call, kernels: false, out var interpreterChecks, out _);

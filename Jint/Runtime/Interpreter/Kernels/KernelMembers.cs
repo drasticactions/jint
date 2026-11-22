@@ -255,6 +255,11 @@ internal sealed class KernelCall : KernelExpression
     private Function? _fastCallee;
     private FastCallShape _fastShape;
 
+    // JintCallExpression's register lane for an interpreted callee of at most four arguments: the definition last
+    // probed, and its state when the lane serves it.
+    private JintFunctionDefinition? _registerDefinition;
+    private JintFunctionDefinition.State? _registerState;
+
     public KernelCall(CallExpression expression, KernelProperty? member, KernelExpression? callee, KernelExpression[] arguments) : base(expression)
     {
         _member = member;
@@ -329,6 +334,24 @@ internal sealed class KernelCall : KernelExpression
     {
         var engine = frame.Engine;
         var arguments = _arguments;
+        if (arguments.Length <= 4 && !function._isClassConstructor)
+        {
+            var definition = function._functionDefinition;
+            if (!ReferenceEquals(definition, _registerDefinition))
+            {
+                // What JintCallExpression.ProbeRegisterCallee records.
+                _registerDefinition = definition;
+                _registerState = function.TryInitializeDefinition() is { SupportsRegisterCall: true } probed ? probed : null;
+            }
+
+            // Before any argument runs: an argument can call back into this kernel and probe another callee here.
+            if (_registerState is { } state)
+            {
+                return CallRegisters(frame, function, thisValue, state);
+            }
+        }
+
+
         var values = arguments.Length == 0 ? [] : engine._jsValueArrayPool.RentArray(arguments.Length);
         for (var i = 0; i < arguments.Length; i++)
         {
@@ -359,6 +382,42 @@ internal sealed class KernelCall : KernelExpression
         if (values.Length > 0)
         {
             engine._jsValueArrayPool.ReturnArray(values);
+        }
+
+        engine.RestoreLastSyntaxElement(in oldSyntaxElement);
+        return result;
+    }
+
+    /// <summary>JintCallExpression.RegisterLaneCall: the arguments in locals, the callee's own register entry.</summary>
+    private JsValue CallRegisters(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state)
+    {
+        var arguments = _arguments;
+        var count = arguments.Length;
+        var arg0 = count >= 1 ? Box(arguments[0].Evaluate(frame, out var n0), n0) : JsValue.Undefined;
+        var arg1 = count >= 2 ? Box(arguments[1].Evaluate(frame, out var n1), n1) : JsValue.Undefined;
+        var arg2 = count >= 3 ? Box(arguments[2].Evaluate(frame, out var n2), n2) : JsValue.Undefined;
+        var arg3 = count >= 4 ? Box(arguments[3].Evaluate(frame, out var n3), n3) : JsValue.Undefined;
+
+        var engine = frame.Engine;
+        var oldSyntaxElement = engine.MarkLastSyntaxElement();
+        frame.Context.PrepareFor(_expression);
+
+        var callStack = engine.CallStack;
+        var recursionDepth = callStack.Push(function, CalleeHandler, engine.ExecutionContext);
+        if (recursionDepth > engine._maxRecursionDepth)
+        {
+            engine.AbandonImplicitMemoryOperation();
+            Throw.RecursionDepthOverflowException(callStack);
+        }
+
+        JsValue result;
+        try
+        {
+            result = function.CallFromRegisters(thisValue, arg0, arg1, arg2, arg3, count, state, ownsFrame: true);
+        }
+        finally
+        {
+            callStack.TryPopAndDiscard();
         }
 
         engine.RestoreLastSyntaxElement(in oldSyntaxElement);

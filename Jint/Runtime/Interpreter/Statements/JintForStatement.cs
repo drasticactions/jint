@@ -261,7 +261,7 @@ internal sealed class JintForStatement : JintIterationStatement<ForStatement>
 
     protected override Completion ExecuteInternal(EvaluationContext context)
     {
-        if (!_noKernel && _boundNames is null && LoopKernel.CanRun(context))
+        if (!_noKernel && _boundNames is null && LoopKernel.CanRunLoop(context))
         {
             var kernel = _kernel ?? CreateKernel(context.Engine);
             if (kernel is not null)

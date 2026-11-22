@@ -104,6 +104,47 @@ internal sealed class KernelVarStatement : KernelStatement
     }
 }
 
+/// <summary><c>return value;</c>, whose value is not a call the interpreter would make as a tail call.</summary>
+internal sealed class KernelReturnStatement : KernelStatement
+{
+    private readonly KernelExpression? _argument;
+
+    public KernelReturnStatement(Statement statement, KernelExpression? argument) : base(statement)
+    {
+        _argument = argument;
+    }
+
+    internal override int Execute(KernelFrame frame)
+    {
+        RunChecks(frame);
+        var value = _argument is null ? JsValue.Undefined : Box(_argument.Evaluate(frame, out var number), number);
+        frame.Abrupt = new Completion(CompletionType.Return, value, _statement);
+        return Abrupt;
+    }
+
+    private static JsValue Box(JsValue? value, double number) => KernelExpression.Box(value, number);
+}
+
+/// <summary>
+/// <c>return literal;</c> directly in a statement list, which JintStatementList completes with the literal's value
+/// without running the statement or its checks.
+/// </summary>
+internal sealed class KernelLiteralReturnStatement : KernelStatement
+{
+    private readonly JsValue _value;
+
+    public KernelLiteralReturnStatement(Statement statement, JsValue value) : base(statement)
+    {
+        _value = value;
+    }
+
+    internal override int Execute(KernelFrame frame)
+    {
+        frame.Abrupt = new Completion(CompletionType.Return, _value, _statement);
+        return Abrupt;
+    }
+}
+
 internal sealed class KernelEmptyStatement : KernelStatement
 {
     public KernelEmptyStatement(Statement statement) : base(statement)
@@ -167,16 +208,18 @@ internal sealed class KernelIfStatement : KernelStatement
 internal sealed class KernelBlockStatement : KernelStatement
 {
     private readonly KernelStatement[] _statements;
+    private readonly bool _checked;
 
     public KernelBlockStatement(Statement statement, KernelStatement[] statements) : base(statement)
     {
         _statements = statements;
+        _checked = statements.Length != 1;
     }
 
     internal override int Execute(KernelFrame frame)
     {
         var statements = _statements;
-        if (statements.Length != 1)
+        if (_checked)
         {
             RunChecks(frame);
         }
