@@ -53,6 +53,12 @@ internal sealed class DictionaryBindingLayout
             return null;
         }
 
+        // An import's own entry is a placeholder: its value is the exporting module's binding.
+        if (target is ModuleEnvironment module && module.HasImportBinding(key))
+        {
+            return null;
+        }
+
         var entryIndex = dictionary.FindEntryIndex(key, out var entryName);
         if (entryIndex < 0)
         {

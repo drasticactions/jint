@@ -37,6 +37,12 @@ internal sealed class ModuleEnvironment : DeclarativeEnvironment
     /// <summary>
     /// https://tc39.es/ecma262/#sec-module-environment-records-getbindingvalue-n-s
     /// </summary>
+    /// <summary>
+    /// Whether <paramref name="name"/> is an import: its entry among the module's own bindings only reserves the name, and
+    /// the value is the exporting module's binding.
+    /// </summary>
+    internal bool HasImportBinding(Key name) => _importBindings.ContainsKey(name);
+
     internal override JsValue GetBindingValue(Key name, bool strict)
     {
         if (_importBindings.TryGetValue(name, out var indirectBinding))

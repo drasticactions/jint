@@ -124,4 +124,40 @@ public class DictionaryBindingLayoutTests
 
         result.Should().Be("ReferenceError;ReferenceError;ReferenceError;set");
     }
+
+    [Test]
+    public void AnImportReadThroughTheCacheIsTheExportedValue()
+    {
+        // A bundler's chunk: a module scope that keeps its bindings by name (imports and declarations past the list
+        // dictionary's size), an imported function passed as an argument from a closure called repeatedly, and an
+        // inner function shadowing the import's name. The import's own entry only reserves the name, so a read cached
+        // from it read undefined from the second call on.
+        var engine = new Engine();
+        engine.Modules.Add("lib", """
+            export var log = [];
+            export function each(node, flags, collection, key, render) {
+                log.push(typeof key);
+                var items = collection();
+                for (var y = 0; y < items.length; y++) { render({}, () => items[y]); }
+            }
+            export function index(item, i) { return i; }
+            export function get(f) { return f(); }
+            export function r(x) { return x; }
+            export function b(x) { return x; }
+            """);
+        engine.Modules.Add("main", """
+            import { each, index as i, get, r, b, log } from 'lib';
+            function sidebar(t, n) {
+                each(0, 21, () => n.contents, i, (t, n) => {
+                    each(0, 21, () => get(n).children, i, (e, t) => { let i = () => 1; });
+                });
+            }
+            var section = { children: [1, 2] };
+            for (var k = 0; k < 2; k++) { sidebar({}, { contents: [section, section, section] }); }
+            export const result = log.join();
+            """);
+
+        var ns = engine.Modules.Import("main");
+        ns.Get("result").AsString().Should().Be(string.Join(",", Enumerable.Repeat("function", 8)));
+    }
 }
