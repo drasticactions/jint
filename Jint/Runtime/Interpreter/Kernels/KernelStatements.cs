@@ -114,16 +114,51 @@ internal sealed class KernelExpressionStatement : KernelStatement
 {
     internal readonly KernelExpression _expression;
 
+    // The effects statements are most, called directly.
+    private readonly int _kind;
+    private const int Other = 0;
+    private const int Assign = 1;
+    private const int Update = 2;
+    private const int Store = 3;
+    private const int Compound = 4;
+
     public KernelExpressionStatement(Statement statement, KernelExpression expression) : base(statement)
     {
         _expression = expression;
+        _kind = expression switch
+        {
+            KernelAssignSlot => Assign,
+            KernelUpdateSlot => Update,
+            KernelStoreElement => Store,
+            KernelCompoundSlot => Compound,
+            _ => Other,
+        };
     }
 
     internal override int Execute(KernelFrame frame)
     {
         _runs++;
         RunChecks(frame);
-        _expression.EvaluateDiscarded(frame);
+        var expression = _expression;
+        switch (_kind)
+        {
+            case Assign:
+                Unsafe.As<KernelAssignSlot>(expression).EvaluateDiscarded(frame);
+                break;
+            case Update:
+                Unsafe.As<KernelUpdateSlot>(expression).EvaluateDiscarded(frame);
+                break;
+            case Store:
+                Unsafe.As<KernelStoreElement>(expression).EvaluateDiscarded(frame);
+                break;
+            case Compound:
+                Unsafe.As<KernelCompoundSlot>(expression).EvaluateDiscarded(frame);
+                break;
+            default:
+                expression.EvaluateDiscarded(frame);
+                break;
+        }
+
         return Normal;
     }
 }
@@ -232,23 +267,50 @@ internal sealed class KernelIfStatement : KernelStatement
     internal readonly KernelStatement _consequent;
     internal readonly KernelStatement? _alternate;
 
+    // A test comparing two operands KernelOperand reads, taken without its nodes while its root takes it purely.
+    private readonly KernelRoot? _compareRoot;
+    private readonly KernelBinary? _compare;
+
     public KernelIfStatement(Statement statement, KernelExpression test, KernelStatement consequent, KernelStatement? alternate) : base(statement)
     {
         _test = test;
         _consequent = consequent;
         _alternate = alternate;
+        if (test is KernelRoot { _pure: KernelBinary { _isComparison: true } compare } root
+            && (compare._leftKind != KernelOperand.Other || compare._rightKind != KernelOperand.Other))
+        {
+            _compareRoot = root;
+            _compare = compare;
+        }
     }
 
     internal override int Execute(KernelFrame frame)
     {
         _runs++;
         RunChecks(frame);
-        if (_test.Test(frame) == 1)
+        if (TestCondition(frame) == 1)
         {
             return _consequent.Execute(frame);
         }
 
         return _alternate?.Execute(frame) ?? Normal;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private int TestCondition(KernelFrame frame)
+    {
+        var compare = _compare;
+        if (compare is not null
+            && !_compareRoot!._interpretOnly
+            && KernelOperand.TryNumber(compare._left, compare._leftKind, frame, out var left)
+            && KernelOperand.TryNumber(compare._right, compare._rightKind, frame, out var right))
+        {
+            _compareRoot.Completed();
+            return KernelBinary.Compare(compare._operator, left, right) ? 1 : 0;
+        }
+
+        // Two operands that are not Numbers: the root tests again, which repeats nothing observable.
+        return _test.Test(frame);
     }
 }
 
@@ -271,11 +333,13 @@ internal sealed class KernelBlockStatement : KernelStatement
     internal override int Execute(KernelFrame frame)
     {
         _runs++;
-        var statements = _statements;
-        if (_checked)
+        if (!_checked)
         {
-            RunChecks(frame);
+            return ExecuteSingle(frame);
         }
+
+        var statements = _statements;
+        RunChecks(frame);
 
         var i = 0;
         try
@@ -291,21 +355,53 @@ internal sealed class KernelBlockStatement : KernelStatement
         }
         catch (Exception ex) when (!frame.Escaping && JintStatementList.ShouldCatch(ex))
         {
-            var statement = statements[i]._statement;
-            var context = frame.Context;
-            if (ex is JintException)
+            if (Handle(frame, ex, statements[i]._statement))
             {
-                frame.Abrupt = JintStatementList.HandleStatementException(context, ex, statement);
                 return Abrupt;
             }
 
-            var engine = context.Engine;
-            var location = engine.HasLastSyntaxElement ? engine.LastSyntaxLocation : statement.Location;
-            ExceptionDataHelper.TryAttachJavaScriptLocation(ex, engine, location);
             throw;
         }
 
         return Normal;
+    }
+
+    /// <summary>A block of one statement, which runs alone and unchecked; its handler is the same.</summary>
+    private int ExecuteSingle(KernelFrame frame)
+    {
+        var statement = _statements[0];
+        try
+        {
+            return statement.Execute(frame);
+        }
+        catch (Exception ex) when (!frame.Escaping && JintStatementList.ShouldCatch(ex))
+        {
+            if (Handle(frame, ex, statement._statement))
+            {
+                return Abrupt;
+            }
+
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// An exception out of <paramref name="statement"/>: true once it is the block's throw completion; false, with the
+    /// location attached, for the handler to rethrow it.
+    /// </summary>
+    private static bool Handle(KernelFrame frame, Exception ex, Statement statement)
+    {
+        var context = frame.Context;
+        if (ex is JintException)
+        {
+            frame.Abrupt = JintStatementList.HandleStatementException(context, ex, statement);
+            return true;
+        }
+
+        var engine = context.Engine;
+        var location = engine.HasLastSyntaxElement ? engine.LastSyntaxLocation : statement.Location;
+        ExceptionDataHelper.TryAttachJavaScriptLocation(ex, engine, location);
+        return false;
     }
 }
 

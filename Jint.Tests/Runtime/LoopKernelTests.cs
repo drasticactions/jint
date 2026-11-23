@@ -532,6 +532,28 @@ public class LoopKernelTests
           return out.join(",") + log.join("") + calls;
         }
         """,
+        // operands read in the node that uses them: names, literals, arithmetic and elements of typed arrays (at an
+        // offset, out of range, at -0 and fractional keys) and of arrays (holes, objects, strings) in comparisons,
+        // element keys, stores, assignments and arguments, with values that are not Numbers and a valueOf observed
+        """
+        function f(a, b) { return a - b * 2; }
+        function test() {
+          var out = [], log = [], o = { valueOf: function () { log.push("v"); return 2; } };
+          var buf = new ArrayBuffer(12), t = new Uint8Array(buf, 2, 6), arr = [1, , "3", o, 5.5, null, -0];
+          for (var i = 0; i < 9; i++) {
+            t[i + 0.5] = 9; t[i - 1] = i * 40; t[i] = arr[i % 7];
+            var a = t[i - 1], b = arr[i], c = t[i + 1] + arr[i - 2], d = f(t[i], arr[i]), e = arr[i * 1] < t[i - 0];
+            if (t[i] < arr[i]) out.push("lt"); else if (arr[i] == t[i - 2]) out.push("eq");
+            if (i - 1 < o) out.push("o");
+            if (arr[i] > -1) out.push("gt");
+            out.push(a, b, c, d, e, t[-0], t[i / 2]);
+          }
+          var u = new Uint16Array(4), g = [], h = 0;
+          for (var j = 0; j < 4; j++) { u[j] = j * 70000; g[j] = u[j] / 3; h += u[j + 1] - u[j]; out.push(g[j], h, u[j] > 1000); }
+          out.push(new Uint8Array(buf).join(":"));
+          return out.join(",") + log.join("");
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()

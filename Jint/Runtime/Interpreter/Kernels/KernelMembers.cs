@@ -26,7 +26,11 @@ internal sealed class KernelElement : KernelExpression
         _key = key;
         _objectName = obj as KernelName;
         _keyName = key as KernelName;
+        _keyKind = KernelOperand.KeyKindOf(key);
     }
+
+    // How KernelOperand reads the key.
+    internal readonly byte _keyKind;
 
     internal override JsValue? Evaluate(KernelFrame frame, out double number)
     {
@@ -37,7 +41,16 @@ internal sealed class KernelElement : KernelExpression
             return Bail;
         }
 
-        if (_keyName is null || !_keyName.TryReadNumber(frame, out var key))
+        double key;
+        if (_keyKind != KernelOperand.Other)
+        {
+            // A key that is not a Number makes the element Bail, as its nodes would.
+            if (!KernelOperand.TryKey(_key, _keyKind, frame, out key))
+            {
+                return Bail;
+            }
+        }
+        else
         {
             key = 0;
             var keyValue = _key.Evaluate(frame, out key);
@@ -306,7 +319,15 @@ internal sealed class KernelCall : KernelExpression
         _base = member?.Object;
         _callee = callee;
         _arguments = arguments;
+        _argumentKinds = new byte[arguments.Length];
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            _argumentKinds[i] = arguments[i] is KernelRoot { _pureKind: KernelOperand.Element or KernelOperand.Arithmetic } ? KernelOperand.Root : KernelOperand.Other;
+        }
     }
+
+    // How KernelOperand reads arguments that are pure, for a body computed in place.
+    private readonly byte[] _argumentKinds;
 
     internal override JsValue? Evaluate(KernelFrame frame, out double number)
     {
@@ -667,10 +688,10 @@ internal sealed class KernelCall : KernelExpression
         var arguments = _arguments;
         var count = arguments.Length;
         double n0 = 0, n1 = 0, n2 = 0, n3 = 0;
-        var v0 = count >= 1 ? arguments[0].Evaluate(frame, out n0) : null;
-        var v1 = count >= 2 ? arguments[1].Evaluate(frame, out n1) : null;
-        var v2 = count >= 3 ? arguments[2].Evaluate(frame, out n2) : null;
-        var v3 = count >= 4 ? arguments[3].Evaluate(frame, out n3) : null;
+        var v0 = count >= 1 ? Argument(frame, 0, out n0) : null;
+        var v1 = count >= 2 ? Argument(frame, 1, out n1) : null;
+        var v2 = count >= 3 ? Argument(frame, 2, out n2) : null;
+        var v3 = count >= 4 ? Argument(frame, 3, out n3) : null;
         if (IsNumber(v0, ref n0) && IsNumber(v1, ref n1) && IsNumber(v2, ref n2) && IsNumber(v3, ref n3) && TryTakeInlineChecks(frame))
         {
             var result = body.Compute(n0, n1, n2, n3);
@@ -695,6 +716,19 @@ internal sealed class KernelCall : KernelExpression
             count >= 3 ? Box(v2, n2) : JsValue.Undefined,
             count >= 4 ? Box(v3, n3) : JsValue.Undefined,
             count);
+    }
+
+    /// <summary>An argument's value; a pure one that is a Number read without its nodes, any other evaluated by them.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private JsValue? Argument(KernelFrame frame, int index, out double number)
+    {
+        var argument = _arguments[index];
+        if (_argumentKinds[index] != KernelOperand.Other && KernelOperand.TryNumber(argument, KernelOperand.Root, frame, out number))
+        {
+            return null;
+        }
+
+        return argument.Evaluate(frame, out number);
     }
 
     /// <summary>JintCallExpression.RegisterLaneCall: the arguments in locals, the callee's own register entry.</summary>
@@ -788,7 +822,11 @@ internal sealed class KernelComparison : KernelExpression
         _operator = op;
         _left = left;
         _right = right;
+        _rightKind = right is KernelRoot ? KernelOperand.KindOf(right) : KernelOperand.Other;
     }
+
+    // How KernelOperand reads a right operand that is pure.
+    private readonly byte _rightKind;
 
     internal static bool IsSupported(Operator op) => op
         is Operator.LessThan or Operator.LessThanOrEqual or Operator.GreaterThan or Operator.GreaterThanOrEqual
@@ -805,7 +843,12 @@ internal sealed class KernelComparison : KernelExpression
         var left = 0.0;
         var right = 0.0;
         var leftValue = _left.Evaluate(frame, out left);
-        var rightValue = _right.Evaluate(frame, out right);
+        JsValue? rightValue = null;
+        if (_rightKind == KernelOperand.Other || !KernelOperand.TryNumber(_right, _rightKind, frame, out right))
+        {
+            rightValue = _right.Evaluate(frame, out right);
+        }
+
         if (IsNumber(leftValue, ref left) && IsNumber(rightValue, ref right))
         {
             return _operator switch

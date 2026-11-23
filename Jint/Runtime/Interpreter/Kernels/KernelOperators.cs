@@ -34,7 +34,13 @@ internal sealed class KernelBinary : KernelExpression
         _rightName = right as KernelName;
         _leftNumber = left as KernelNumber;
         _rightNumber = right as KernelNumber;
+        _leftKind = KernelOperand.KindOf(left);
+        _rightKind = KernelOperand.KindOf(right);
     }
+
+    // How KernelOperand reads the operands.
+    internal readonly byte _leftKind;
+    internal readonly byte _rightKind;
 
     internal static bool IsSupported(Operator op) => op switch
     {
@@ -85,33 +91,15 @@ internal sealed class KernelBinary : KernelExpression
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool TryOperands(KernelFrame frame, out double left, out double right)
     {
-        if (_leftNumber is not null)
+        // An operand that is not a Number makes the whole operation Bail, so a pure operand read without its nodes
+        // answers as its nodes would.
+        if (!KernelOperand.TryNumber(_left, _leftKind, frame, out left))
         {
-            left = _leftNumber._value;
-        }
-        else if (_leftName is null || !_leftName.TryReadNumber(frame, out left))
-        {
-            var leftValue = _left.Evaluate(frame, out left);
-            if (!IsNumber(leftValue, ref left))
-            {
-                right = 0;
-                return false;
-            }
+            right = 0;
+            return false;
         }
 
-        if (_rightNumber is not null)
-        {
-            right = _rightNumber._value;
-            return true;
-        }
-
-        if (_rightName is not null && _rightName.TryReadNumber(frame, out right))
-        {
-            return true;
-        }
-
-        var rightValue = _right.Evaluate(frame, out right);
-        return IsNumber(rightValue, ref right);
+        return KernelOperand.TryNumber(_right, _rightKind, frame, out right);
     }
 
     private bool Compare(double left, double right) => Compare(_operator, left, right);
@@ -128,6 +116,7 @@ internal sealed class KernelBinary : KernelExpression
         _ => left != right,
     };
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static double Apply(Operator op, double left, double right)
     {
         switch (op)

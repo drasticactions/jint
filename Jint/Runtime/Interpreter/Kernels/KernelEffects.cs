@@ -103,7 +103,12 @@ internal sealed class KernelAssignSlot : KernelEffect
         _value = value;
         _valueExpression = value._expression;
         _isDeclarator = isDeclarator;
+        _valueKind = value is KernelRoot root && root._pureKind is KernelOperand.Element ? KernelOperand.Root : KernelOperand.Other;
     }
+
+    // How KernelOperand reads a value that is an element read purely, until it has read too many that are not Numbers.
+    private byte _valueKind;
+    private int _valueMisses;
 
     internal override JsValue? Evaluate(KernelFrame frame, out double number)
     {
@@ -139,7 +144,12 @@ internal sealed class KernelAssignSlot : KernelEffect
 
     private JsValue? Store(KernelFrame frame, ref Binding binding, DeclarativeEnvironment environment, out double number)
     {
-        var value = _value.Evaluate(frame, out number);
+        JsValue? value = null;
+        if (_valueKind == KernelOperand.Other || !TryNumberValue(frame, out number))
+        {
+            value = _value.Evaluate(frame, out number);
+        }
+
         if (binding.IsAssignable)
         {
             if (value is null)
@@ -158,6 +168,23 @@ internal sealed class KernelAssignSlot : KernelEffect
         }
 
         return value;
+    }
+
+    /// <summary>A value read without its nodes; one that is not a Number is read again by them, which repeats nothing observable.</summary>
+    private bool TryNumberValue(KernelFrame frame, out double number)
+    {
+        if (KernelOperand.TryNumber(_value, _valueKind, frame, out number))
+        {
+            _valueMisses = 0;
+            return true;
+        }
+
+        if (++_valueMisses >= 16)
+        {
+            _valueKind = KernelOperand.Other;
+        }
+
+        return false;
     }
 
     /// <summary>What JintVariableDeclaration does for a declarator whose initializer needs no name.</summary>
@@ -297,10 +324,8 @@ internal sealed class KernelStoreElement : KernelEffect
     internal readonly KernelExpression _key;
     internal readonly KernelExpression _value;
 
-    // The operands a loop stores with most, names and a literal, read without a call.
+    // The object a loop stores into most, a name, read without a call.
     internal readonly KernelName? _objectName;
-    internal readonly KernelName? _keyName;
-    internal readonly KernelNumber? _valueNumber;
 
     public KernelStoreElement(Expression expression, KernelExpression obj, KernelExpression key, KernelExpression value) : base(expression)
     {
@@ -308,9 +333,13 @@ internal sealed class KernelStoreElement : KernelEffect
         _key = key;
         _value = value;
         _objectName = obj as KernelName;
-        _keyName = key as KernelName;
-        _valueNumber = value as KernelNumber;
+        _keyKind = KernelOperand.KindOf(key);
+        _valueKind = KernelOperand.KindOf(value);
     }
+
+    // How KernelOperand reads the key and the value.
+    internal readonly byte _keyKind;
+    internal readonly byte _valueKind;
 
     internal override JsValue? Evaluate(KernelFrame frame, out double number) => TryRun(frame, out number) ? null : Interpret(frame);
 
@@ -327,32 +356,10 @@ internal sealed class KernelStoreElement : KernelEffect
         var target = _objectName is not null ? _objectName.Evaluate(frame, out _) : _object.Evaluate(frame, out _);
         if (target is JsTypedArray typedArray)
         {
-            if (_keyName is null || !_keyName.TryReadNumber(frame, out var key))
-            {
-                key = 0;
-                var keyValue = _key.Evaluate(frame, out key);
-                if (!IsNumber(keyValue, ref key))
-                {
-                    number = 0;
-                    return false;
-                }
-            }
-
-            if (_valueNumber is not null)
-            {
-                number = _valueNumber._value;
-            }
-            else
-            {
-                var value = _value.Evaluate(frame, out number);
-                if (!IsNumber(value, ref number))
-                {
-                    number = 0;
-                    return false;
-                }
-            }
-
-            if (KernelCodeRuntime.StoreTypedElement(typedArray, key, number))
+            // Operands that are not Numbers leave the store to the interpreter.
+            if (KernelOperand.TryNumber(_key, _keyKind, frame, out var key)
+                && KernelOperand.TryNumber(_value, _valueKind, frame, out number)
+                && KernelCodeRuntime.StoreTypedElement(typedArray, key, number))
             {
                 return true;
             }

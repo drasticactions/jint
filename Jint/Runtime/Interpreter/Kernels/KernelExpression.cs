@@ -295,15 +295,27 @@ internal sealed class KernelRoot : KernelExpression
     private const int BailCost = 16;
     private const int ScoreFloor = -64;
 
+    // How KernelOperand reads the pure expression where a Number is wanted.
+    internal readonly byte _pureKind;
+
     public KernelRoot(KernelExpression pure) : base(pure._expression)
     {
         _pure = pure;
+        _pureKind = KernelOperand.KindOf(pure);
     }
 
     internal override JsValue? Evaluate(KernelFrame frame, out double number)
     {
         if (!_interpretOnly)
         {
+            // Arithmetic of a name and a literal or two names: anything but two Numbers makes it Bail, which its nodes
+            // then answer again.
+            if (_pureKind == KernelOperand.Arithmetic && KernelOperand.TryNumber(_pure, KernelOperand.Arithmetic, frame, out number))
+            {
+                Completed();
+                return null;
+            }
+
             var value = _pure.Evaluate(frame, out number);
             if (!ReferenceEquals(value, Bail))
             {
