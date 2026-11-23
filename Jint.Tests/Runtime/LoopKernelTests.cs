@@ -23,12 +23,16 @@ public class LoopKernelTests
         // Compiled once the tree has checked two statements, entered at the head of the loop it is running then.
         CodeMidLoop,
 
+        // Compiled once the tree has checked a hundred statements: after the calls the tree made, through the lanes
+        // the tree took; a script whose loops do less stays on the tree.
+        CodeWarm,
+
         // Compiled once the tree has checked a thousand statements, enough for the statements it hardly ran to stay on
         // the tree; a script whose loops do less stays on the tree.
         CodeLate,
     }
 
-    private static readonly Mode[] KernelModes = [Mode.Tree, Mode.Code, Mode.CodeMidLoop, Mode.CodeLate];
+    private static readonly Mode[] KernelModes = [Mode.Tree, Mode.Code, Mode.CodeMidLoop, Mode.CodeWarm, Mode.CodeLate];
 
     private static readonly string[] Scripts =
     [
@@ -100,6 +104,25 @@ public class LoopKernelTests
           Object.defineProperty(Object.getPrototypeOf(Uint8Array.prototype), "length", { get: function () { return 3; }, configurable: true });
           for (var m = 0; m < 5 && m < d.length; m++) { out.push(d[m], d.length); }
           return out.join(",");
+        }
+        """,
+        // Math functions computed in place for Numbers, and called for anything else (with valueOf observed), the
+        // function replaced or the name Math shadowed while the loop runs
+        """
+        function test() {
+          var out = [], log = [], o = { valueOf: function () { log.push("v"); return -2.5; } };
+          var args = [-3.5, -0, 0, NaN, Infinity, -Infinity, 2.25, "-7.5", o, null, undefined, "x", true];
+          for (var i = 0; i < args.length; i++) {
+            var a = args[i];
+            var b = 1 / Math.abs(a), c = Math.floor(a), d = 1 / Math.ceil(a), e = Math.sqrt(a), f = Math.abs(-i);
+            out.push(b, c, d, e, f);
+          }
+          var saved = Math.abs;
+          for (var j = 0; j < 4; j++) { if (j == 2) Math.abs = function (x) { return "own" + x; }; var g = Math.abs(-j); out.push(g); }
+          Math.abs = saved;
+          var m = Math;
+          for (var k = 0; k < 4; k++) { if (k == 2) m = { abs: function (x) { return x * 10; } }; var h = m.abs(-k); out.push(h); }
+          return out.join(",") + log.join("");
         }
         """,
         // a detached buffer and a resizable one, changed while the loop runs
@@ -452,7 +475,7 @@ public class LoopKernelTests
         {
             codeRuns.Should().Be(0, "the tree mode compiles nothing");
         }
-        else if (mode != Mode.CodeLate)
+        else if (mode is Mode.Code or Mode.CodeMidLoop)
         {
             codeRuns.Should().BeGreaterThan(0, "the script's loops should have run as compiled code");
         }
@@ -547,12 +570,13 @@ public class LoopKernelTests
         engine._loopKernelCodeThreshold = mode switch
         {
             Mode.Code => 0,
-            Mode.CodeMidLoop or Mode.CodeLate => KernelCode.DefaultThreshold,
+            Mode.CodeMidLoop or Mode.CodeWarm or Mode.CodeLate => KernelCode.DefaultThreshold,
             _ => -1,
         };
         engine._loopKernelCodeWork = mode switch
         {
             Mode.CodeMidLoop => 2,
+            Mode.CodeWarm => 100,
             Mode.CodeLate => 1000,
             _ => -1,
         };

@@ -94,6 +94,48 @@ internal sealed class KernelCode
 }
 
 /// <summary>
+/// The Math functions compiled code computes itself for a Number argument, each exactly as its built-in does: no
+/// script runs, nothing throws, and the result is the same double.
+/// </summary>
+internal static class KernelIntrinsics
+{
+    internal const int None = 0;
+    internal const int Abs = 1;
+    internal const int Floor = 2;
+    internal const int Ceil = 3;
+    internal const int Sqrt = 4;
+
+    private static readonly string[] Names = ["", "abs", "floor", "ceil", "sqrt"];
+
+    /// <summary>Which of the functions <paramref name="function"/> is in its realm, or <see cref="None"/>.</summary>
+    internal static int Identify(Native.Function.Function function)
+    {
+        var math = function._realm.Intrinsics.Math;
+        for (var kind = Abs; kind < Names.Length; kind++)
+        {
+            // Materializing a lazy built-in member runs no script.
+            if (ReferenceEquals(math.GetOwnProperty(Names[kind])._value, function))
+            {
+                return kind;
+            }
+        }
+
+        return None;
+    }
+
+#if NET
+    /// <summary>The .NET method that computes function <paramref name="kind"/> of a double.</summary>
+    internal static System.Reflection.MethodInfo Method(int kind) => typeof(System.Math).GetMethod(kind switch
+    {
+        Abs => nameof(System.Math.Abs),
+        Floor => nameof(System.Math.Floor),
+        Ceil => nameof(System.Math.Ceiling),
+        _ => nameof(System.Math.Sqrt),
+    }, [typeof(double)])!;
+#endif
+}
+
+/// <summary>
 /// What a kernel expression answers, as compiled code holds it: a null <see cref="Value"/> with the
 /// <see cref="Number"/>, or the value, or Bail. Returned in two registers, and kept in two once inlined, where an out
 /// parameter would keep the Number in memory.

@@ -61,6 +61,9 @@ internal sealed class KernelEmitter
     private readonly List<Loop> _loops = [];
     private readonly List<(KernelBlockStatement Block, int Index, int Parent)> _sites = [];
 
+    // The bases of the callee reads held at call sites, dropped with the names' locals.
+    private readonly List<LocalBuilder> _siteCaches = [];
+
     // Statements the tree ran fewer times than this stay on the tree (a node of the tree in the code): code for a case
     // that hardly ever runs costs the JIT as much as code for one that runs on every iteration. No limit until the
     // kernel has run enough iterations to tell.
@@ -705,6 +708,12 @@ internal sealed class KernelEmitter
             EmitDrop(name);
         }
 
+        foreach (var site in _siteCaches)
+        {
+            il.Emit(OpCodes.Ldnull);
+            il.Emit(OpCodes.Stloc, site);
+        }
+
         if (_dropReturns.Count == 0)
         {
             il.Emit(OpCodes.Br, _syncLabel);
@@ -1043,6 +1052,99 @@ internal sealed class KernelEmitter
     /// the lane chosen as the node chooses it, then the arguments evaluated in order and the call made through the lane.
     /// </summary>
     private void EmitCall(KernelCall call, LocalBuilder value, LocalBuilder number)
+    {
+        if (call._member is not null
+            && call._base is KernelName
+            && call._arguments.Length == 1
+            && call._fastCallee is { } seen
+            && KernelIntrinsics.Identify(seen) is var kind and not KernelIntrinsics.None)
+        {
+            EmitIntrinsicCall(call, seen, kind, value, number);
+            return;
+        }
+
+        EmitCallThroughLanes(call, value, number);
+    }
+
+    /// <summary>
+    /// A call of a Math function the code computes itself (see <see cref="KernelIntrinsics"/>): while the callee read
+    /// is that function, which runs no script and cannot throw for a Number, a Number argument gives the result
+    /// in place; another argument calls the function through its lane. A callee read that is anything else makes the
+    /// call as <see cref="EmitCallThroughLanes"/> makes it, reading the callee again (a read that runs nothing).
+    /// The callee read is held with the base it was read from until anything else runs.
+    /// </summary>
+    private void EmitIntrinsicCall(KernelCall call, Native.Function.Function intrinsic, int kind, LocalBuilder value, LocalBuilder number)
+    {
+        var il = _il;
+        var generic = il.DefineLabel();
+        var cached = il.DefineLabel();
+        var done = il.DefineLabel();
+        var thisValue = Rent(typeof(JsValue));
+        var thisNumber = Rent(typeof(double));
+        var callee = Rent(typeof(JsValue));
+        var siteBase = il.DeclareLocal(typeof(JsValue));
+        var siteCallee = il.DeclareLocal(typeof(JsValue));
+        _siteCaches.Add(siteBase);
+
+        EmitUnion(call._base!, generic, thisValue, thisNumber);
+        il.Emit(OpCodes.Ldloc, thisValue);
+        il.Emit(OpCodes.Brfalse, generic);
+        il.Emit(OpCodes.Ldloc, thisValue);
+        il.Emit(OpCodes.Ldloc, siteBase);
+        il.Emit(OpCodes.Beq, cached);
+        EmitHot(call._member!, typeof(KernelProperty));
+        il.Emit(OpCodes.Ldloc, thisValue);
+        il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.ReadProperty)));
+        EmitResult(callee, thisNumber, generic);
+        il.Emit(OpCodes.Ldloc, callee);
+        il.Emit(OpCodes.Stloc, siteCallee);
+        il.Emit(OpCodes.Ldloc, thisValue);
+        il.Emit(OpCodes.Stloc, siteBase);
+        il.MarkLabel(cached);
+        il.Emit(OpCodes.Ldloc, siteCallee);
+        EmitHot(intrinsic, typeof(JsValue));
+        il.Emit(OpCodes.Bne_Un, generic);
+
+        var argument = Rent(typeof(JsValue));
+        var argumentNumber = Rent(typeof(double));
+        var boxed = il.DefineLabel();
+        EmitUnion(call._arguments[0], null, argument, argumentNumber);
+        il.Emit(OpCodes.Ldloc, argument);
+        il.Emit(OpCodes.Ldloc, argumentNumber);
+        il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.ToNumber)));
+        EmitNumberResult(boxed);
+        il.Emit(OpCodes.Call, KernelIntrinsics.Method(kind));
+        il.Emit(OpCodes.Stloc, number);
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Stloc, value);
+        il.Emit(OpCodes.Br, done);
+
+        il.MarkLabel(boxed);
+        EmitBeforeForeign();
+        EmitConstant(call);
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Ldloc, siteCallee);
+        il.Emit(OpCodes.Castclass, typeof(Native.Function.Function));
+        il.Emit(OpCodes.Ldloc, thisValue);
+        il.Emit(OpCodes.Ldloc, argument);
+        il.Emit(OpCodes.Ldloc, argumentNumber);
+        il.Emit(OpCodes.Call, BoxMethod);
+        il.Emit(OpCodes.Call, Method(typeof(KernelCall), nameof(KernelCall.CallIntrinsic)));
+        il.Emit(OpCodes.Stloc, value);
+        EmitAfterForeign();
+        il.Emit(OpCodes.Br, done);
+
+        il.MarkLabel(generic);
+        EmitCallThroughLanes(call, value, number);
+        il.MarkLabel(done);
+        Return(argumentNumber);
+        Return(argument);
+        Return(callee);
+        Return(thisNumber);
+        Return(thisValue);
+    }
+
+    private void EmitCallThroughLanes(KernelCall call, LocalBuilder value, LocalBuilder number)
     {
         var il = _il;
         var interpret = il.DefineLabel();

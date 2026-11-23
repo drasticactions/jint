@@ -418,6 +418,10 @@ internal sealed class KernelCall : KernelExpression
         return CallWithFrame(frame, function, thisValue, arg0, arg1);
     }
 
+    /// <summary>The call of a built-in of one argument through its fast lane, the argument evaluated.</summary>
+    internal JsValue CallIntrinsic(KernelFrame frame, Function function, JsValue thisValue, JsValue arg0)
+        => CallBuiltin(frame, function, thisValue, function.GetFastCallShape(_arguments.Length), arg0, JsValue.Undefined);
+
     /// <summary>The call of an interpreted function through the register lane, the arguments evaluated.</summary>
     internal JsValue CallRegisterLane(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, JsValue arg0, JsValue arg1, JsValue arg2, JsValue arg3)
         => CallFromRegisters(frame, function, thisValue, state, arg0, arg1, arg2, arg3, _arguments.Length);
