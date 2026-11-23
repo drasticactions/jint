@@ -277,6 +277,12 @@ internal sealed class KernelCall : KernelExpression
     internal JintFunctionDefinition? _registerDefinition;
     internal JintFunctionDefinition.State? _registerState;
 
+    // What a call made on the tree counts for in statements towards compiling the kernel (LoopKernel.WorthCompiling):
+    // measured on the WebGL conformance loops, a call of a small script function takes the tree about as long as 20
+    // to 30 statements of its own, a built-in's about 3.
+    internal const int ScriptCallWork = 16;
+    internal const int BuiltinCallWork = 2;
+
     public KernelCall(CallExpression expression, KernelProperty? member, KernelExpression? callee, KernelExpression[] arguments) : base(expression)
     {
         _member = member;
@@ -314,9 +320,11 @@ internal sealed class KernelCall : KernelExpression
 
         if (function is ScriptFunction script)
         {
+            frame.Work += ScriptCallWork;
             return CallScript(frame, script, thisValue);
         }
 
+        frame.Work += BuiltinCallWork;
         if (!ReferenceEquals(function, _fastCallee))
         {
             if (function._functionDefinition is not null || _arguments.Length > 2)
@@ -421,6 +429,27 @@ internal sealed class KernelCall : KernelExpression
     /// <summary>The call of a built-in of one argument through its fast lane, the argument evaluated.</summary>
     internal JsValue CallIntrinsic(KernelFrame frame, Function function, JsValue thisValue, JsValue arg0)
         => CallBuiltin(frame, function, thisValue, function.GetFastCallShape(_arguments.Length), arg0, JsValue.Undefined);
+
+    /// <summary>
+    /// The call of an interpreted function whose body compiled code would have computed in place, the arguments
+    /// evaluated: through the register lane, which the function's definition supports.
+    /// </summary>
+    internal JsValue CallInlined(KernelFrame frame, ScriptFunction function, JsValue arg0, JsValue arg1, JsValue arg2, JsValue arg3)
+    {
+        if (function.TryInitializeDefinition() is { SupportsRegisterCall: true } state)
+        {
+            return CallFromRegisters(frame, function, JsValue.Undefined, state, arg0, arg1, arg2, arg3, _arguments.Length);
+        }
+
+        var values = RentArguments(frame);
+        JsValue[] all = [arg0, arg1, arg2, arg3];
+        for (var i = 0; i < values.Length; i++)
+        {
+            values[i] = all[i];
+        }
+
+        return CallWithArguments(frame, function, JsValue.Undefined, values);
+    }
 
     /// <summary>The call of an interpreted function through the register lane, the arguments evaluated.</summary>
     internal JsValue CallRegisterLane(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, JsValue arg0, JsValue arg1, JsValue arg2, JsValue arg3)

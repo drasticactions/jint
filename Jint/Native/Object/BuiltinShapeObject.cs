@@ -59,5 +59,15 @@ internal abstract class BuiltinShapeObject : ObjectInstance, IBuiltinShaped
         set => _builtinDescriptors = value;
     }
 
-    Jint.Native.Function.Function IBuiltinShaped.MakeBuiltinFunction(ushort slot) => MakeBuiltinFunction(slot);
+    Jint.Native.Function.Function IBuiltinShaped.MakeBuiltinFunction(ushort slot)
+    {
+        var function = MakeBuiltinFunction(slot);
+        OnBuiltinFunctionMade(slot, function);
+        return function;
+    }
+
+    /// <summary>Called with each dispatcher function made for a function slot, for a built-in that tells its own functions apart.</summary>
+    private protected virtual void OnBuiltinFunctionMade(ushort slot, Jint.Native.Function.Function function)
+    {
+    }
 }

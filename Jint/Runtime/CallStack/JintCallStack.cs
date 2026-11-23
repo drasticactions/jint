@@ -323,6 +323,9 @@ internal sealed class JintCallStack
         return _stack.TryPeek(out item);
     }
 
+    /// <summary>Whether a push counts nothing but the frame: no recursion statistics, no profiler.</summary>
+    internal bool CountsNoCalls => _statistics is null && _profiler is null;
+
     public int Count => _stack._size;
 
     public void Clear()

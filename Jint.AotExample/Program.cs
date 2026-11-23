@@ -93,6 +93,21 @@ Probe("member, field, indexer and method access", static () =>
 // this registration free of the four IL3050 an embedder used to pay here: annotating an ARRAY type
 // preserves all public methods of System.Array, Array.CreateInstance among them, which is
 // [RequiresDynamicCode] and has nothing to do with reading an element.
+// Loops long enough to be compiled to .NET code under a JIT run on their kernels' trees where there is no
+// dynamic code, with the same results.
+Probe("loop kernels without compiled code", static () =>
+{
+    var engine = new Engine();
+    Expect(403000, engine.Evaluate("""
+        function near(a, b) { return Math.abs(a - b) < 0.5; }
+        var a = new Uint8Array(1000), t = 0;
+        for (var r = 0; r < 200; r++) {
+            for (var i = 0; i < a.length; i++) { a[i] = i % 251; if (near(a[i], 7)) t += 3; else t += Math.floor(a[i] / 50); }
+        }
+        t;
+        """));
+});
+
 Probe("int[] crossing", static () =>
 {
     var engine = new Engine(static cfg => cfg.AllowClr());

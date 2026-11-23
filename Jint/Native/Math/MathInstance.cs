@@ -29,11 +29,32 @@ internal sealed partial class MathInstance : BuiltinShapeObject
         _prototype = objectPrototype;
     }
 
+    // The functions compiled loop kernels compute in place for a Number (Runtime.Interpreter.Kernels.KernelIntrinsics),
+    // by kind, as this object made them: whatever script later stores under their names is not one of them.
+    internal Function.Function?[]? _kernelFunctions;
+
     protected override void Initialize()
     {
         // CreateProperties_Generated installs the built-in shape (this derives from BuiltinShapeObject).
         CreateProperties_Generated();
         CreateSymbols_Generated();
+    }
+
+    private protected override void OnBuiltinFunctionMade(ushort slot, Function.Function function)
+    {
+        var kind = (__MathInstanceFunction.Slot) slot switch
+        {
+            __MathInstanceFunction.Slot.Abs => Runtime.Interpreter.Kernels.KernelIntrinsics.Abs,
+            __MathInstanceFunction.Slot.Floor => Runtime.Interpreter.Kernels.KernelIntrinsics.Floor,
+            __MathInstanceFunction.Slot.Ceil => Runtime.Interpreter.Kernels.KernelIntrinsics.Ceil,
+            __MathInstanceFunction.Slot.Sqrt => Runtime.Interpreter.Kernels.KernelIntrinsics.Sqrt,
+            _ => Runtime.Interpreter.Kernels.KernelIntrinsics.None,
+        };
+
+        if (kind != Runtime.Interpreter.Kernels.KernelIntrinsics.None)
+        {
+            (_kernelFunctions ??= new Function.Function?[Runtime.Interpreter.Kernels.KernelIntrinsics.Count])[kind] = function;
+        }
     }
 
     [JsFunction(FastCall = true, Leaf = true)]

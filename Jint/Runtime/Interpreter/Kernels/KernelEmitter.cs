@@ -1,5 +1,6 @@
 #if NET
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
@@ -46,6 +47,7 @@ namespace Jint.Runtime.Interpreter.Kernels;
 /// (or as the one value on the stack, where noted), so that every jump to a hand-back is made with an empty stack.
 /// </para>
 /// </summary>
+[RequiresDynamicCode("Compiles a kernel to a dynamic method; KernelCode.TryCompile calls it only where dynamic code is supported.")]
 internal sealed class KernelEmitter
 {
     private static readonly Type[] Parameters = [typeof(object[]), typeof(KernelFrame), typeof(int)];
@@ -1053,6 +1055,16 @@ internal sealed class KernelEmitter
     /// </summary>
     private void EmitCall(KernelCall call, LocalBuilder value, LocalBuilder number)
     {
+        if (call._member is null
+            && call._callee is not null
+            && call._registerState is not null
+            && call._registerDefinition is { } definition
+            && InlineBody.TryCreate(definition, call._arguments.Length) is { } body)
+        {
+            EmitInlineCall(call, body, value, number);
+            return;
+        }
+
         if (call._member is not null
             && call._base is KernelName
             && call._arguments.Length == 1
@@ -1142,6 +1154,354 @@ internal sealed class KernelEmitter
         Return(callee);
         Return(thisNumber);
         Return(thisValue);
+    }
+
+    /// <summary>
+    /// The body of a function a call site computes in place (see <see cref="KernelInlineSite"/>): <c>return</c> of
+    /// Number arithmetic and comparisons over its simple parameters, Number literals and the Math functions of
+    /// <see cref="KernelIntrinsics"/>, so that for Number arguments it runs no script, throws nothing and allocates
+    /// nothing.
+    /// </summary>
+    private sealed class InlineBody
+    {
+        internal readonly Expression Result;
+        internal readonly string[] Parameters;
+        internal readonly List<int> MathKinds = [];
+        internal bool IsBoolean;
+
+        private InlineBody(Expression result, string[] parameters)
+        {
+            Result = result;
+            Parameters = parameters;
+        }
+
+        internal static InlineBody? TryCreate(JintFunctionDefinition definition, int argumentCount)
+        {
+            var function = definition.Function;
+            if (function.Generator || function.Async || function.Params.Count != argumentCount || argumentCount > 4)
+            {
+                return null;
+            }
+
+            var parameters = new string[argumentCount];
+            for (var i = 0; i < parameters.Length; i++)
+            {
+                if (function.Params[i] is not Identifier { Name: var name }
+                    || name is "arguments" or "eval" or "Math"
+                    || Array.IndexOf(parameters, name, 0, i) >= 0)
+                {
+                    return null;
+                }
+
+                parameters[i] = name;
+            }
+
+            if (function.Body is not FunctionBody { Body: { Count: 1 } statements } || statements[0] is not ReturnStatement { Argument: { } result })
+            {
+                return null;
+            }
+
+            var body = new InlineBody(result, parameters);
+            var kind = body.Classify(result);
+            if (kind == Invalid)
+            {
+                return null;
+            }
+
+            body.IsBoolean = kind == Boolean;
+            return body;
+        }
+
+        internal const int Invalid = 0;
+        internal const int Number = 1;
+        internal const int Boolean = 2;
+
+        /// <summary>What <paramref name="expression"/> answers for Number parameters: a Number, a boolean, or something not computed in place.</summary>
+        private int Classify(Expression expression)
+        {
+            switch (expression)
+            {
+                case Literal literal:
+                    return JintLiteralExpression.ConvertToJsValue(literal) is JsNumber ? Number : Invalid;
+
+                case Identifier identifier:
+                    return Array.IndexOf(Parameters, identifier.Name) >= 0 ? Number : Invalid;
+
+                case NonUpdateUnaryExpression { Operator: Operator.UnaryNegation or Operator.UnaryPlus } unary:
+                    return Classify(unary.Argument) == Number ? Number : Invalid;
+
+                case NonLogicalBinaryExpression binary when KernelBinary.IsSupported(binary.Operator):
+                    if (Classify(binary.Left) != Number || Classify(binary.Right) != Number)
+                    {
+                        return Invalid;
+                    }
+
+                    return IsComparison(binary.Operator) ? Boolean : Number;
+
+                case CallExpression
+                {
+                    Optional: false,
+                    Callee: MemberExpression { Computed: false, Optional: false, Object: Identifier { Name: "Math" }, Property: Identifier { Name: var name } },
+                    Arguments: { Count: 1 } arguments,
+                } when arguments[0] is Expression argument && Array.IndexOf(KernelIntrinsicNames, name) is var kind and > 0:
+                    if (Classify(argument) != Number)
+                    {
+                        return Invalid;
+                    }
+
+                    if (!MathKinds.Contains(kind))
+                    {
+                        MathKinds.Add(kind);
+                    }
+
+                    return Number;
+
+                default:
+                    return Invalid;
+            }
+        }
+    }
+
+    private static readonly string[] KernelIntrinsicNames = ["", "abs", "floor", "ceil", "sqrt"];
+
+    private static bool IsComparison(Operator op) => op
+        is Operator.LessThan or Operator.LessThanOrEqual or Operator.GreaterThan or Operator.GreaterThanOrEqual
+        or Operator.Equality or Operator.Inequality or Operator.StrictEquality or Operator.StrictInequality;
+
+    /// <summary>
+    /// A call of a function whose body the code computes in place (<see cref="InlineBody"/>): the callee read, which
+    /// must be one <see cref="KernelInlineSite.Accepts"/> (held until anything else runs), the arguments evaluated in
+    /// order, then the body computed when every argument is a Number and the body's two statement checks (the body
+    /// and its <c>return</c>) would pass without running anything; otherwise the call made through the register lane
+    /// with the arguments evaluated. A callee read that is anything else makes the call as
+    /// <see cref="EmitCallThroughLanes"/> makes it, reading the callee again (a read that runs nothing).
+    /// </summary>
+    private void EmitInlineCall(KernelCall call, InlineBody body, LocalBuilder value, LocalBuilder number)
+    {
+        var il = _il;
+        var site = new KernelInlineSite(call._registerDefinition!, body.MathKinds.ToArray());
+        var generic = il.DefineLabel();
+        var accepted = il.DefineLabel();
+        var interpret = il.DefineLabel();
+        var done = il.DefineLabel();
+        var callee = Rent(typeof(JsValue));
+        var calleeNumber = Rent(typeof(double));
+        var siteCallee = il.DeclareLocal(typeof(JsValue));
+        _siteCaches.Add(siteCallee);
+
+        EmitUnion(call._callee!, generic, callee, calleeNumber);
+        il.Emit(OpCodes.Ldloc, callee);
+        il.Emit(OpCodes.Brfalse, generic);
+        il.Emit(OpCodes.Ldloc, callee);
+        il.Emit(OpCodes.Ldloc, siteCallee);
+        il.Emit(OpCodes.Beq, accepted);
+        EmitConstant(site);
+        il.Emit(OpCodes.Ldloc, callee);
+        il.Emit(OpCodes.Ldloc, _engine);
+        il.Emit(OpCodes.Call, Method(typeof(KernelInlineSite), nameof(KernelInlineSite.Accepts)));
+        il.Emit(OpCodes.Brfalse, generic);
+        il.Emit(OpCodes.Ldloc, callee);
+        il.Emit(OpCodes.Stloc, siteCallee);
+        il.MarkLabel(accepted);
+
+        var arguments = call._arguments;
+        var values = new LocalBuilder[arguments.Length];
+        var numbers = new LocalBuilder[arguments.Length];
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            values[i] = Rent(typeof(JsValue));
+            numbers[i] = Rent(typeof(double));
+            EmitUnion(arguments[i], null, values[i], numbers[i]);
+        }
+
+        var parameters = new LocalBuilder[arguments.Length];
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            parameters[i] = Rent(typeof(double));
+            il.Emit(OpCodes.Ldloc, values[i]);
+            il.Emit(OpCodes.Ldloc, numbers[i]);
+            il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.ToNumber)));
+            EmitNumberResult(interpret);
+            il.Emit(OpCodes.Stloc, parameters[i]);
+        }
+
+        EmitInlineChecks(interpret);
+        if (body.IsBoolean)
+        {
+            var isTrue = il.DefineLabel();
+            EmitInlineBranch(body, (NonLogicalBinaryExpression) body.Result, parameters, isTrue);
+            il.Emit(OpCodes.Ldsfld, Field(typeof(JsBoolean), nameof(JsBoolean.False)));
+            il.Emit(OpCodes.Stloc, value);
+            il.Emit(OpCodes.Br, done);
+            il.MarkLabel(isTrue);
+            il.Emit(OpCodes.Ldsfld, Field(typeof(JsBoolean), nameof(JsBoolean.True)));
+            il.Emit(OpCodes.Stloc, value);
+        }
+        else
+        {
+            EmitInlineNumber(body, body.Result, parameters);
+            il.Emit(OpCodes.Stloc, number);
+            il.Emit(OpCodes.Ldnull);
+            il.Emit(OpCodes.Stloc, value);
+        }
+
+        il.Emit(OpCodes.Br, done);
+
+        // The call itself, with the arguments evaluated.
+        il.MarkLabel(interpret);
+        EmitBeforeForeign();
+        EmitConstant(call);
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Ldloc, callee);
+        il.Emit(OpCodes.Castclass, typeof(Native.Function.ScriptFunction));
+        for (var i = 0; i < 4; i++)
+        {
+            if (i < arguments.Length)
+            {
+                il.Emit(OpCodes.Ldloc, values[i]);
+                il.Emit(OpCodes.Ldloc, numbers[i]);
+                il.Emit(OpCodes.Call, BoxMethod);
+            }
+            else
+            {
+                il.Emit(OpCodes.Ldsfld, Field(typeof(JsValue), nameof(JsValue.Undefined)));
+            }
+        }
+
+        il.Emit(OpCodes.Call, Method(typeof(KernelCall), nameof(KernelCall.CallInlined)));
+        il.Emit(OpCodes.Stloc, value);
+        EmitAfterForeign();
+        il.Emit(OpCodes.Br, done);
+
+        il.MarkLabel(generic);
+        EmitCallThroughLanes(call, value, number);
+        il.MarkLabel(done);
+        for (var i = arguments.Length - 1; i >= 0; i--)
+        {
+            Return(parameters[i]);
+            Return(numbers[i]);
+            Return(values[i]);
+        }
+
+        Return(calleeNumber);
+        Return(callee);
+    }
+
+    /// <summary>
+    /// The two statement checks a call of an inlined body runs (the body's and its <c>return</c>'s), taken as the
+    /// interpreter would when neither runs a constraint; anything else jumps to <paramref name="call"/>, which makes
+    /// the call.
+    /// </summary>
+    private void EmitInlineChecks(Label call)
+    {
+        var il = _il;
+        var notExact = il.DefineLabel();
+        var amortized = il.DefineLabel();
+        var commit = il.DefineLabel();
+        var done = il.DefineLabel();
+        var allowance = Field(typeof(Engine), nameof(Engine._statementsBeforeExactChecks));
+        var countdown = Field(typeof(Engine), nameof(Engine._amortizedConstraintCountdown));
+        il.Emit(OpCodes.Ldloc, _exact);
+        il.Emit(OpCodes.Brfalse, notExact);
+        il.Emit(OpCodes.Ldloc, _engine);
+        il.Emit(OpCodes.Ldfld, allowance);
+        il.Emit(OpCodes.Ldc_I4_2);
+        il.Emit(OpCodes.Blt, call);
+        il.Emit(OpCodes.Br, amortized);
+        il.MarkLabel(notExact);
+        il.Emit(OpCodes.Ldloc, _counter);
+        il.Emit(OpCodes.Brtrue, call);
+        il.MarkLabel(amortized);
+        il.Emit(OpCodes.Ldloc, _context);
+        il.Emit(OpCodes.Call, Getter(typeof(EvaluationContext), nameof(EvaluationContext.RunsAmortizedChecks)));
+        il.Emit(OpCodes.Brfalse, commit);
+        il.Emit(OpCodes.Ldloc, _engine);
+        il.Emit(OpCodes.Ldfld, countdown);
+        il.Emit(OpCodes.Ldc_I4_3);
+        il.Emit(OpCodes.Blt, call);
+        il.Emit(OpCodes.Ldloc, _engine);
+        il.Emit(OpCodes.Ldloc, _engine);
+        il.Emit(OpCodes.Ldfld, countdown);
+        il.Emit(OpCodes.Ldc_I4_2);
+        il.Emit(OpCodes.Sub);
+        il.Emit(OpCodes.Stfld, countdown);
+        il.MarkLabel(commit);
+        il.Emit(OpCodes.Ldloc, _exact);
+        il.Emit(OpCodes.Brfalse, done);
+        il.Emit(OpCodes.Ldloc, _engine);
+        il.Emit(OpCodes.Ldloc, _engine);
+        il.Emit(OpCodes.Ldfld, allowance);
+        il.Emit(OpCodes.Ldc_I4_2);
+        il.Emit(OpCodes.Sub);
+        il.Emit(OpCodes.Stfld, allowance);
+        il.MarkLabel(done);
+    }
+
+    /// <summary>A Number expression of an inlined body, its parameters' Numbers in locals, left on the stack.</summary>
+    private void EmitInlineNumber(InlineBody body, Expression expression, LocalBuilder[] parameters)
+    {
+        var il = _il;
+        switch (expression)
+        {
+            case Literal literal:
+                il.Emit(OpCodes.Ldc_R8, ((JsNumber) JintLiteralExpression.ConvertToJsValue(literal)!)._value);
+                return;
+
+            case Identifier identifier:
+                il.Emit(OpCodes.Ldloc, parameters[Array.IndexOf(body.Parameters, identifier.Name)]);
+                return;
+
+            case NonUpdateUnaryExpression unary:
+                EmitInlineNumber(body, unary.Argument, parameters);
+                if (unary.Operator == Operator.UnaryNegation)
+                {
+                    il.Emit(OpCodes.Neg);
+                }
+
+                return;
+
+            case NonLogicalBinaryExpression binary:
+                {
+                    var left = Rent(typeof(double));
+                    var right = Rent(typeof(double));
+                    EmitInlineNumber(body, binary.Left, parameters);
+                    il.Emit(OpCodes.Stloc, left);
+                    EmitInlineNumber(body, binary.Right, parameters);
+                    il.Emit(OpCodes.Stloc, right);
+                    EmitArithmetic(binary.Operator, left, right);
+                    Return(right);
+                    Return(left);
+                    return;
+                }
+
+            case CallExpression call:
+                {
+                    var name = ((Identifier) ((MemberExpression) call.Callee).Property).Name;
+                    EmitInlineNumber(body, (Expression) call.Arguments[0], parameters);
+                    il.Emit(OpCodes.Call, KernelIntrinsics.Method(Array.IndexOf(KernelIntrinsicNames, name)));
+                    return;
+                }
+
+            default:
+                throw new NotSupportedException(expression.Type.ToString());
+        }
+    }
+
+    /// <summary>Jumps to <paramref name="target"/> when the comparison an inlined body returns is true.</summary>
+    private void EmitInlineBranch(InlineBody body, NonLogicalBinaryExpression comparison, LocalBuilder[] parameters, Label target)
+    {
+        var il = _il;
+        var left = Rent(typeof(double));
+        var right = Rent(typeof(double));
+        EmitInlineNumber(body, comparison.Left, parameters);
+        il.Emit(OpCodes.Stloc, left);
+        EmitInlineNumber(body, comparison.Right, parameters);
+        il.Emit(OpCodes.Stloc, right);
+        il.Emit(OpCodes.Ldloc, left);
+        il.Emit(OpCodes.Ldloc, right);
+        il.Emit(CompareBranch(comparison.Operator, when: true), target);
+        Return(right);
+        Return(left);
     }
 
     private void EmitCallThroughLanes(KernelCall call, LocalBuilder value, LocalBuilder number)
@@ -2381,24 +2741,18 @@ internal sealed class KernelEmitter
     private static readonly MethodInfo TruthyOfNumber = typeof(KernelCodeRuntime).GetMethod(nameof(KernelCodeRuntime.Truthy), AnyMember, [typeof(double)])!;
     private static readonly MethodInfo BoxMethod = Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.Box));
 
-    private static FieldInfo Field(Type type, string name)
+    // The members compiled code calls, of Jint's own types, each named with typeof and nameof. A member a trimmer
+    // removed nonetheless makes the lookup throw MissingMemberException, which KernelCode.TryCompile answers by
+    // leaving the kernel a tree.
+    private const System.Reflection.BindingFlags Inherited = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy;
+
+    private static FieldInfo Field([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.NonPublicFields)] Type type, string name)
         => type.GetField(name, AnyMember) ?? throw new MissingFieldException(type.Name, name);
 
-    private static MethodInfo Method(Type type, string name)
-    {
-        for (var t = type; t is not null; t = t.BaseType)
-        {
-            var method = t.GetMethod(name, AnyMember);
-            if (method is not null)
-            {
-                return method;
-            }
-        }
+    private static MethodInfo Method([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods)] Type type, string name)
+        => type.GetMethod(name, Inherited) ?? throw new MissingMethodException(type.Name, name);
 
-        throw new MissingMethodException(type.Name, name);
-    }
-
-    private static MethodInfo Getter(Type type, string name)
+    private static MethodInfo Getter([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.NonPublicProperties)] Type type, string name)
         => type.GetProperty(name, AnyMember)?.GetMethod ?? throw new MissingMethodException(type.Name, name);
 }
 #endif

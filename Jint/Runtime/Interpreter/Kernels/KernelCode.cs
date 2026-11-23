@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using Jint.Constraints;
 using Jint.Native;
+using Jint.Native.Object;
 using Jint.Native.TypedArray;
 using Jint.Runtime.Environments;
 
@@ -74,7 +75,8 @@ internal sealed class KernelCode
     internal static KernelCode? TryCompile(KernelForStatement loop)
     {
 #if NET
-        if (!Supported)
+        // The guard stated here, beside the call, so that the trimming and AOT analyses fold it.
+        if (!RuntimeFeature.IsDynamicCodeSupported || !RuntimeFeature.IsDynamicCodeCompiled)
         {
             return null;
         }
@@ -83,8 +85,9 @@ internal sealed class KernelCode
         {
             return KernelEmitter.Compile(loop);
         }
-        catch (Exception e) when (e is PlatformNotSupportedException or NotSupportedException)
+        catch (Exception e) when (e is PlatformNotSupportedException or NotSupportedException or MissingMemberException or TypeInitializationException)
         {
+            // No dynamic code after all, or a member compiled code calls was trimmed away: the kernel stays a tree.
             return null;
         }
 #else
@@ -104,19 +107,25 @@ internal static class KernelIntrinsics
     internal const int Floor = 2;
     internal const int Ceil = 3;
     internal const int Sqrt = 4;
+    internal const int Count = 5;
 
     private static readonly string[] Names = ["", "abs", "floor", "ceil", "sqrt"];
+
+    internal static string Name(int kind) => Names[kind];
 
     /// <summary>Which of the functions <paramref name="function"/> is in its realm, or <see cref="None"/>.</summary>
     internal static int Identify(Native.Function.Function function)
     {
-        var math = function._realm.Intrinsics.Math;
-        for (var kind = Abs; kind < Names.Length; kind++)
+        // The Math object made its functions itself, so this one is among them if it is one of them.
+        var functions = function._realm.Intrinsics.Math._kernelFunctions;
+        if (functions is not null)
         {
-            // Materializing a lazy built-in member runs no script.
-            if (ReferenceEquals(math.GetOwnProperty(Names[kind])._value, function))
+            for (var kind = Abs; kind < functions.Length; kind++)
             {
-                return kind;
+                if (ReferenceEquals(functions[kind], function))
+                {
+                    return kind;
+                }
             }
         }
 
@@ -133,6 +142,125 @@ internal static class KernelIntrinsics
         _ => nameof(System.Math.Sqrt),
     }, [typeof(double)])!;
 #endif
+}
+
+/// <summary>
+/// A call site where compiled code computes the body of the function it calls itself: a function whose body is
+/// <c>return</c> of Number arithmetic over its parameters, literals and the Math functions of
+/// <see cref="KernelIntrinsics"/> (see <c>KernelEmitter</c>). The code does so for a callee of that definition only
+/// while nothing a call does can be seen: no recursion limit or profiler counts the call, the statement checks of the
+/// body would pass without running anything, every argument is a Number, and a name <c>Math</c> in the body is the
+/// realm's Math object with its functions in place.
+/// </summary>
+internal sealed class KernelInlineSite
+{
+    internal readonly Interpreter.JintFunctionDefinition Definition;
+    private readonly int[] _mathKinds;
+
+    // What the last accepted callee's Math resolved to: the global environment, the global object's descriptor of
+    // Math and the Math object's descriptors of the functions, valid while neither object's own properties nor the
+    // global lexical declarations changed and the values are the same.
+    private GlobalEnvironment? _global;
+    private uint _globalVersion;
+    private int _lexicalVersion;
+    private Descriptors.PropertyDescriptor? _mathDescriptor;
+    private ObjectInstance? _math;
+    private uint _mathVersion;
+    private Descriptors.PropertyDescriptor?[]? _functionDescriptors;
+    private Native.Function.Function?[]? _functions;
+
+    internal KernelInlineSite(Interpreter.JintFunctionDefinition definition, int[] mathKinds)
+    {
+        Definition = definition;
+        _mathKinds = mathKinds;
+    }
+
+    /// <summary>Whether a call of <paramref name="callee"/> may be computed in place, when its arguments are Numbers.</summary>
+    internal bool Accepts(JsValue callee, Engine engine)
+    {
+        if (callee is not Native.Function.ScriptFunction function
+            || !ReferenceEquals(function._functionDefinition, Definition)
+            || function._isClassConstructor
+            || !engine.CallStack.CountsNoCalls)
+        {
+            return false;
+        }
+
+        return _mathKinds.Length == 0 || MathHolds(function);
+    }
+
+    private bool MathHolds(Native.Function.ScriptFunction function)
+    {
+        if (function._environment is not GlobalEnvironment global)
+        {
+            return false;
+        }
+
+        var math = function._realm.Intrinsics.Math;
+        if (ReferenceEquals(global, _global)
+            && global._globalObject is { } globalObject
+            && globalObject._propertiesVersion == _globalVersion
+            && global._lexicalMutations == _lexicalVersion
+            && ReferenceEquals(_mathDescriptor!._value, math)
+            && ReferenceEquals(math, _math)
+            && math._propertiesVersion == _mathVersion
+            && FunctionsHold())
+        {
+            return true;
+        }
+
+        _global = null;
+        if (global._globalObject is not { } owner || global._declarativeRecord.HasBinding("Math"))
+        {
+            return false;
+        }
+
+        var descriptor = owner.GetOwnProperty("Math");
+        if (!descriptor.IsDataDescriptor() || (descriptor._flags & Descriptors.PropertyFlag.CustomJsValue) != Descriptors.PropertyFlag.None || !ReferenceEquals(descriptor._value, math))
+        {
+            return false;
+        }
+
+        var descriptors = new Descriptors.PropertyDescriptor?[_mathKinds.Length];
+        var functions = new Native.Function.Function?[_mathKinds.Length];
+        for (var i = 0; i < _mathKinds.Length; i++)
+        {
+            var own = math.GetOwnProperty(KernelIntrinsics.Name(_mathKinds[i]));
+            if (!own.IsDataDescriptor()
+                || (own._flags & Descriptors.PropertyFlag.CustomJsValue) != Descriptors.PropertyFlag.None
+                || own._value is not Native.Function.Function intrinsic
+                || KernelIntrinsics.Identify(intrinsic) != _mathKinds[i])
+            {
+                return false;
+            }
+
+            descriptors[i] = own;
+            functions[i] = intrinsic;
+        }
+
+        _global = global;
+        _globalVersion = owner._propertiesVersion;
+        _lexicalVersion = global._lexicalMutations;
+        _mathDescriptor = descriptor;
+        _math = math;
+        _mathVersion = math._propertiesVersion;
+        _functionDescriptors = descriptors;
+        _functions = functions;
+        return true;
+    }
+
+    private bool FunctionsHold()
+    {
+        for (var i = 0; i < _functions!.Length; i++)
+        {
+            if (!ReferenceEquals(_functionDescriptors![i]!._value, _functions[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }
 
 /// <summary>

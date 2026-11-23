@@ -125,6 +125,34 @@ public class LoopKernelTests
           return out.join(",") + log.join("");
         }
         """,
+        // small functions computed in place for Numbers: a comparison and arithmetic over their parameters and Math,
+        // called with other values, replaced, with Math replaced, and called with too few arguments
+        """
+        var near = function (a, b) { return Math.abs(a - b) < 0.25; };
+        function sq(x) { return -x * x + Math.floor(x / 2) % 3; }
+        var realMath = Math, realNear = near;
+        function test() {
+          var out = [], log = [], o = { valueOf: function () { log.push("v"); return 1; } };
+          var args = [0, 0.1, 1, -0, NaN, Infinity, "1", o, null, 2.2];
+          for (var i = 0; i < args.length; i++) {
+            var a = near(args[i], 1), b = sq(args[i]), c = near(args[i]);
+            out.push(a, b, c);
+          }
+          var savedFloor = Math.floor;
+          Math.floor = Math.ceil;
+          for (var j = 0; j < 4; j++) { var d = sq(j + 0.5), e = Math.floor(j + 0.5); out.push(d, e); }
+          Math.floor = savedFloor;
+          for (var k = 0; k < 5; k++) {
+            if (k == 2) near = function (a, b) { return a + b; };
+            if (k == 3) { Math = { abs: function (x) { return "own"; } }; }
+            var f = near(k, 1), g = sq(k);
+            out.push(f, g);
+          }
+          Math = realMath;
+          near = realNear;
+          return out.join(",") + log.join("");
+        }
+        """,
         // a detached buffer and a resizable one, changed while the loop runs
         """
         function test() {
@@ -480,6 +508,11 @@ public class LoopKernelTests
             codeRuns.Should().BeGreaterThan(0, "the script's loops should have run as compiled code");
         }
 
+        // An exact constraint that lets statements pass between its checks, as a memory limit does.
+        Run(script, call, mode, out var skippingChecks, out _, out _, skip: 7).Should().Be(withoutKernels);
+        Run(script, call, Mode.Interpreter, out var skippingInterpreterChecks, out _, out _, skip: 7);
+        skippingChecks.Should().Be(skippingInterpreterChecks);
+
         // Without an exact constraint the interpreter runs its own tight loop lanes.
         Run(script, call, mode, exact: false).Should().Be(Run(script, call, Mode.Interpreter, exact: false));
     }
@@ -585,9 +618,9 @@ public class LoopKernelTests
     private static string Run(string script, string call, Mode mode, bool exact = true)
         => Run(script, call, mode, out _, out _, out _, exact);
 
-    private static string Run(string script, string call, Mode mode, out int checks, out int runs, out int codeRuns, bool exact = true)
+    private static string Run(string script, string call, Mode mode, out int checks, out int runs, out int codeRuns, bool exact = true, int skip = 0)
     {
-        var counter = new CountingConstraint();
+        var counter = new CountingConstraint(skip);
         var engine = new Engine(o =>
         {
             if (exact)
@@ -614,9 +647,11 @@ public class LoopKernelTests
         return result;
     }
 
-    private sealed class CountingConstraint : Constraint
+    private sealed class CountingConstraint(int skip) : Constraint
     {
         public int Checks { get; private set; }
+
+        public override int StatementsBeforeNextCheck => skip;
 
         public override void Check() => Checks++;
 
