@@ -970,8 +970,38 @@ public partial class ObjectInstance : JsValue, IEquatable<ObjectInstance>
         => _derivedAccessSemantics.GetOrAdd(type, static t =>
         {
             _accessSemanticsProbes.AddOrUpdate(t, 1, static (_, count) => count + 1);
-            return ProbeAccessSemantics(t);
+            return t.Assembly == typeof(ObjectInstance).Assembly ? OwnTypeAccessSemantics(t) : ProbeAccessSemantics(t);
         });
+
+    /// <summary>
+    /// What <see cref="ProbeAccessSemantics"/> derives for one of Jint's own types, known without reflection: the
+    /// types of this assembly that override <see cref="Get(JsValue, JsValue)"/> are the ones named here and the types
+    /// derived from them, and those that also override <see cref="TryGetOwnPropertyValue"/> are the first two. A test
+    /// checks the answer against the probe for every type of the assembly. Where the runtime keeps no metadata of
+    /// these members (a Native AOT publish) the probe cannot see them and would make every built-in exotic.
+    /// </summary>
+    internal static InternalTypes OwnTypeAccessSemantics(Type type)
+    {
+        if (typeof(ArrayLikeObject).IsAssignableFrom(type) || typeof(NamedPropertyObject).IsAssignableFrom(type))
+        {
+            return InternalTypes.ExoticGet | InternalTypes.OwnValueHook;
+        }
+
+        if (typeof(ArrayInstance).IsAssignableFrom(type)
+            || typeof(ObjectWrapper).IsAssignableFrom(type)
+            || typeof(NamespaceReference).IsAssignableFrom(type)
+            || type == typeof(Runtime.Modules.ModuleNamespace)
+            || type == typeof(JsArguments)
+            || type == typeof(JsError)
+            || type == typeof(JsProxy)
+            || type == typeof(JsTypedArray)
+            || type == typeof(Iterator.IteratorResult))
+        {
+            return InternalTypes.ExoticGet;
+        }
+
+        return InternalTypes.OrdinaryGet;
+    }
 
     /// <summary>
     /// Decides a subclass's read semantics from the one thing that can make them deviate: whether the type
@@ -1000,7 +1030,7 @@ public partial class ObjectInstance : JsValue, IEquatable<ObjectInstance>
     /// </remarks>
     [UnconditionalSuppressMessage("Trimming", "IL2070",
         Justification = "Reads two well-known virtual members of this very type's own hierarchy, which the trimmer keeps because the engine calls them virtually. If the metadata is unavailable the probe answers ExoticGet without OwnValueHook, which is the conservative outcome for both and preserves observable behaviour.")]
-    private static InternalTypes ProbeAccessSemantics(Type type)
+    internal static InternalTypes ProbeAccessSemantics(Type type)
     {
         var get = type.GetMethod(
             nameof(Get),

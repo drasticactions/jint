@@ -53,6 +53,38 @@ public class PropertyAccessSemanticsDerivationTests
     }
 
     [Test]
+    public void JintsOwnTypesGetWhatTheProbeDerivesWithoutReflection()
+    {
+        // Jint's own types are resolved from a list, so that a runtime without the members' metadata (Native AOT)
+        // resolves them as the probe does where it has it.
+        var mismatches = new List<string>();
+        foreach (var type in typeof(Engine).Assembly.GetTypes())
+        {
+            if (!typeof(ObjectInstance).IsAssignableFrom(type) || type == typeof(ObjectInstance))
+            {
+                continue;
+            }
+
+            var probed = ObjectInstance.ProbeAccessSemantics(type);
+            var listed = ObjectInstance.OwnTypeAccessSemantics(type);
+            if (probed != listed)
+            {
+                mismatches.Add($"{type.FullName}: probe {probed}, list {listed}");
+            }
+        }
+
+        mismatches.Should().BeEmpty();
+    }
+
+    [Test]
+    public void TheMathObjectReadsAsAnOrdinaryObject()
+    {
+        var engine = new Engine();
+        var math = (ObjectInstance) engine.Evaluate("Math");
+        (math._type & (InternalTypes.OrdinaryGet | InternalTypes.ExoticGet)).Should().Be(InternalTypes.OrdinaryGet);
+    }
+
+    [Test]
     public void OverridingGetIsWhatMakesAHostExotic()
     {
         // The behavioural half of the same rule: the exotic host's Get is consulted for a name that resolves on
