@@ -13,16 +13,16 @@ namespace Jint.Runtime.Interpreter.Kernels;
 /// </summary>
 internal sealed class KernelBinary : KernelExpression
 {
-    private readonly Operator _operator;
-    private readonly KernelExpression _left;
-    private readonly KernelExpression _right;
-    private readonly bool _isComparison;
+    internal readonly Operator _operator;
+    internal readonly KernelExpression _left;
+    internal readonly KernelExpression _right;
+    internal readonly bool _isComparison;
 
     // The operands a loop reads most, a slot and a literal, read without a call.
-    private readonly KernelName? _leftName;
-    private readonly KernelName? _rightName;
-    private readonly KernelNumber? _leftNumber;
-    private readonly KernelNumber? _rightNumber;
+    internal readonly KernelName? _leftName;
+    internal readonly KernelName? _rightName;
+    internal readonly KernelNumber? _leftNumber;
+    internal readonly KernelNumber? _rightNumber;
 
     public KernelBinary(Expression expression, Operator op, KernelExpression left, KernelExpression right) : base(expression)
     {
@@ -160,9 +160,9 @@ internal sealed class KernelBinary : KernelExpression
 /// </summary>
 internal sealed class KernelLogical : KernelExpression
 {
-    private readonly bool _and;
-    private readonly KernelExpression _left;
-    private readonly KernelExpression _right;
+    internal readonly bool _and;
+    internal readonly KernelExpression _left;
+    internal readonly KernelExpression _right;
 
     public KernelLogical(Expression expression, bool and, KernelExpression left, KernelExpression right) : base(expression)
     {
@@ -208,8 +208,8 @@ internal sealed class KernelLogical : KernelExpression
 /// <summary>Unary <c>!</c>, <c>-</c>, <c>+</c> and <c>~</c> over a pure operand; the last three on a Number only.</summary>
 internal sealed class KernelUnary : KernelExpression
 {
-    private readonly Operator _operator;
-    private readonly KernelExpression _argument;
+    internal readonly Operator _operator;
+    internal readonly KernelExpression _argument;
 
     public KernelUnary(Expression expression, Operator op, KernelExpression argument) : base(expression)
     {
@@ -262,9 +262,9 @@ internal sealed class KernelUnary : KernelExpression
 /// </summary>
 internal sealed class KernelLogicalEffect : KernelExpression
 {
-    private readonly bool _and;
-    private readonly KernelExpression _left;
-    private readonly KernelExpression _right;
+    internal readonly bool _and;
+    internal readonly KernelExpression _left;
+    internal readonly KernelExpression _right;
 
     public KernelLogicalEffect(Expression expression, bool and, KernelExpression left, KernelExpression right) : base(expression)
     {
@@ -290,7 +290,7 @@ internal sealed class KernelLogicalEffect : KernelExpression
 /// <summary><c>!argument</c> for an argument with effects, which evaluates it once and never answers Bail.</summary>
 internal sealed class KernelNotEffect : KernelExpression
 {
-    private readonly KernelExpression _argument;
+    internal readonly KernelExpression _argument;
 
     public KernelNotEffect(Expression expression, KernelExpression argument) : base(expression)
     {
@@ -309,9 +309,9 @@ internal sealed class KernelNotEffect : KernelExpression
 /// <summary><c>test ? consequent : alternate</c> over pure operands.</summary>
 internal sealed class KernelConditional : KernelExpression
 {
-    private readonly KernelExpression _test;
-    private readonly KernelExpression _consequent;
-    private readonly KernelExpression _alternate;
+    internal readonly KernelExpression _test;
+    internal readonly KernelExpression _consequent;
+    internal readonly KernelExpression _alternate;
 
     public KernelConditional(Expression expression, KernelExpression test, KernelExpression consequent, KernelExpression alternate) : base(expression)
     {

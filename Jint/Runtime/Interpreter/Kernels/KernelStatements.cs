@@ -17,7 +17,17 @@ internal abstract class KernelStatement
     internal const int Continue = 2;
     internal const int Abrupt = 3;
 
+    /// <summary>
+    /// The kernel's outermost loop has completed, run to its end by compiled code entered at the head of a loop inside
+    /// it, with the code in <see cref="KernelFrame.FinishedCode"/>: every statement of the tree around passes it on.
+    /// </summary>
+    internal const int Finished = 4;
+
     internal readonly Statement _statement;
+
+    // How many times the tree ran the statement: compiled code leaves one the tree hardly ran to the tree (see
+    // KernelEmitter).
+    internal int _runs;
 
     protected KernelStatement(Statement statement)
     {
@@ -30,6 +40,7 @@ internal abstract class KernelStatement
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     protected void RunChecks(KernelFrame frame)
     {
+        frame.Work++;
         var context = frame.Context;
         context.PrepareFor(_statement);
         context.RunBeforeExecuteStatementChecks(_statement);
@@ -39,7 +50,7 @@ internal abstract class KernelStatement
 /// <summary>A statement the kernel leaves to the interpreter's handler.</summary>
 internal sealed class KernelInterpretedStatement : KernelStatement
 {
-    private readonly JintStatement _handler;
+    internal readonly JintStatement _handler;
 
     public KernelInterpretedStatement(Statement statement, JintStatement handler) : base(statement)
     {
@@ -48,6 +59,7 @@ internal sealed class KernelInterpretedStatement : KernelStatement
 
     internal override int Execute(KernelFrame frame)
     {
+        _runs++;
         var completion = _handler.Execute(frame.Context);
         if (completion.Type == CompletionType.Normal)
         {
@@ -67,7 +79,7 @@ internal sealed class KernelInterpretedStatement : KernelStatement
 /// <summary>An expression statement, whose value nobody reads.</summary>
 internal sealed class KernelExpressionStatement : KernelStatement
 {
-    private readonly KernelExpression _expression;
+    internal readonly KernelExpression _expression;
 
     public KernelExpressionStatement(Statement statement, KernelExpression expression) : base(statement)
     {
@@ -76,6 +88,7 @@ internal sealed class KernelExpressionStatement : KernelStatement
 
     internal override int Execute(KernelFrame frame)
     {
+        _runs++;
         RunChecks(frame);
         _expression.EvaluateDiscarded(frame);
         return Normal;
@@ -85,7 +98,7 @@ internal sealed class KernelExpressionStatement : KernelStatement
 /// <summary><c>var a = x, b;</c>: each initializer stored as an assignment stores it; a declarator without one does nothing.</summary>
 internal sealed class KernelVarStatement : KernelStatement
 {
-    private readonly KernelExpression[] _initializers;
+    internal readonly KernelExpression[] _initializers;
 
     public KernelVarStatement(Statement statement, KernelExpression[] initializers) : base(statement)
     {
@@ -94,6 +107,7 @@ internal sealed class KernelVarStatement : KernelStatement
 
     internal override int Execute(KernelFrame frame)
     {
+        _runs++;
         RunChecks(frame);
         foreach (var initializer in _initializers)
         {
@@ -107,7 +121,7 @@ internal sealed class KernelVarStatement : KernelStatement
 /// <summary><c>return value;</c>, whose value is not a call the interpreter would make as a tail call.</summary>
 internal sealed class KernelReturnStatement : KernelStatement
 {
-    private readonly KernelExpression? _argument;
+    internal readonly KernelExpression? _argument;
 
     public KernelReturnStatement(Statement statement, KernelExpression? argument) : base(statement)
     {
@@ -116,6 +130,7 @@ internal sealed class KernelReturnStatement : KernelStatement
 
     internal override int Execute(KernelFrame frame)
     {
+        _runs++;
         RunChecks(frame);
         var value = _argument is null ? JsValue.Undefined : Box(_argument.Evaluate(frame, out var number), number);
         frame.Abrupt = new Completion(CompletionType.Return, value, _statement);
@@ -131,7 +146,7 @@ internal sealed class KernelReturnStatement : KernelStatement
 /// </summary>
 internal sealed class KernelLiteralReturnStatement : KernelStatement
 {
-    private readonly JsValue _value;
+    internal readonly JsValue _value;
 
     public KernelLiteralReturnStatement(Statement statement, JsValue value) : base(statement)
     {
@@ -140,6 +155,7 @@ internal sealed class KernelLiteralReturnStatement : KernelStatement
 
     internal override int Execute(KernelFrame frame)
     {
+        _runs++;
         frame.Abrupt = new Completion(CompletionType.Return, _value, _statement);
         return Abrupt;
     }
@@ -153,6 +169,7 @@ internal sealed class KernelEmptyStatement : KernelStatement
 
     internal override int Execute(KernelFrame frame)
     {
+        _runs++;
         RunChecks(frame);
         return Normal;
     }
@@ -161,7 +178,7 @@ internal sealed class KernelEmptyStatement : KernelStatement
 /// <summary>An unlabelled <c>break</c> or <c>continue</c>.</summary>
 internal sealed class KernelJumpStatement : KernelStatement
 {
-    private readonly int _code;
+    internal readonly int _code;
 
     public KernelJumpStatement(Statement statement, bool isBreak) : base(statement)
     {
@@ -170,6 +187,7 @@ internal sealed class KernelJumpStatement : KernelStatement
 
     internal override int Execute(KernelFrame frame)
     {
+        _runs++;
         RunChecks(frame);
         return _code;
     }
@@ -177,9 +195,9 @@ internal sealed class KernelJumpStatement : KernelStatement
 
 internal sealed class KernelIfStatement : KernelStatement
 {
-    private readonly KernelExpression _test;
-    private readonly KernelStatement _consequent;
-    private readonly KernelStatement? _alternate;
+    internal readonly KernelExpression _test;
+    internal readonly KernelStatement _consequent;
+    internal readonly KernelStatement? _alternate;
 
     public KernelIfStatement(Statement statement, KernelExpression test, KernelStatement consequent, KernelStatement? alternate) : base(statement)
     {
@@ -190,6 +208,7 @@ internal sealed class KernelIfStatement : KernelStatement
 
     internal override int Execute(KernelFrame frame)
     {
+        _runs++;
         RunChecks(frame);
         if (_test.Test(frame) == 1)
         {
@@ -207,8 +226,8 @@ internal sealed class KernelIfStatement : KernelStatement
 /// </summary>
 internal sealed class KernelBlockStatement : KernelStatement
 {
-    private readonly KernelStatement[] _statements;
-    private readonly bool _checked;
+    internal readonly KernelStatement[] _statements;
+    internal readonly bool _checked;
 
     public KernelBlockStatement(Statement statement, KernelStatement[] statements) : base(statement)
     {
@@ -218,6 +237,7 @@ internal sealed class KernelBlockStatement : KernelStatement
 
     internal override int Execute(KernelFrame frame)
     {
+        _runs++;
         var statements = _statements;
         if (_checked)
         {
@@ -236,7 +256,7 @@ internal sealed class KernelBlockStatement : KernelStatement
                 }
             }
         }
-        catch (Exception ex) when (JintStatementList.ShouldCatch(ex))
+        catch (Exception ex) when (!frame.Escaping && JintStatementList.ShouldCatch(ex))
         {
             var statement = statements[i]._statement;
             var context = frame.Context;
@@ -263,12 +283,12 @@ internal sealed class KernelBlockStatement : KernelStatement
 /// </summary>
 internal sealed class KernelForStatement : KernelStatement
 {
-    private readonly KernelStatement? _initStatement;
-    private readonly KernelExpression? _initExpression;
-    private readonly KernelExpression? _test;
-    private readonly KernelExpression? _update;
-    private readonly KernelStatement _body;
-    private readonly JintForStatement? _owner;
+    internal readonly KernelStatement? _initStatement;
+    internal readonly KernelExpression? _initExpression;
+    internal readonly KernelExpression? _test;
+    internal readonly KernelExpression? _update;
+    internal readonly KernelStatement _body;
+    internal readonly JintForStatement? _owner;
 
     public KernelForStatement(
         Statement statement,
@@ -287,8 +307,18 @@ internal sealed class KernelForStatement : KernelStatement
         _owner = owner;
     }
 
+    // The kernel this loop belongs to, and the entry of the kernel's code at this loop's head (see KernelCode).
+    internal LoopKernel _kernel = null!;
+    internal int _entry;
+
     internal override int Execute(KernelFrame frame)
     {
+        // The outermost loop runs as code once the kernel has code; a loop inside it is entered at its head.
+        if (_entry == 0 && _kernel._code is { } compiled && frame.CodeThreshold >= 0 && !frame.InCode)
+        {
+            return compiled.Run(frame, KernelCode.StartEntry);
+        }
+
         // The loop the kernel stands in for has been checked by its own Execute already.
         if (_owner is null)
         {
@@ -303,20 +333,33 @@ internal sealed class KernelForStatement : KernelStatement
         var body = _body;
         while (true)
         {
+            // An iteration about to begin can as well begin in the kernel's code: everything the tree has done is in
+            // the environments.
+            _kernel._iterations++;
+            if (frame.CodeThreshold >= 0 && _kernel.WorthCompiling(frame) && !frame.InCode && _kernel.Compile() is { } code)
+            {
+                return EnterCode(frame, code);
+            }
+
             if (test is not null && test.Test(frame) != 1)
             {
                 return Normal;
             }
 
-            var code = body.Execute(frame);
-            if (code != Normal)
+            var bodyCode = body.Execute(frame);
+            if (bodyCode != Normal)
             {
-                if (code == Break)
+                if (bodyCode == Finished)
+                {
+                    return Finished;
+                }
+
+                if (bodyCode == Break)
                 {
                     return Normal;
                 }
 
-                if (code == Abrupt && !Continues(frame))
+                if (bodyCode == Abrupt && !Continues(frame))
                 {
                     var completion = frame.Abrupt;
                     if (completion.Type == CompletionType.Break && string.Equals(completion.Target, _statement.LabelSet?.Name, StringComparison.Ordinal))
@@ -330,6 +373,52 @@ internal sealed class KernelForStatement : KernelStatement
 
             update?.EvaluateDiscarded(frame);
         }
+    }
+
+    /// <summary>
+    /// The rest of the kernel's outermost loop run as code from this loop's head. A loop inside it then finishes the
+    /// outermost loop for the tree around, which only passes <see cref="KernelStatement.Finished"/> on; an exception out of the code is
+    /// marked as escaping, so that no block of the tree around takes it for one of its own statements'.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private int EnterCode(KernelFrame frame, KernelCode code)
+    {
+        if (_entry == 0)
+        {
+            return code.Run(frame, 0);
+        }
+
+        try
+        {
+            frame.FinishedCode = code.Run(frame, _entry);
+            return Finished;
+        }
+        catch (Exception) when (Escape(frame))
+        {
+            throw;
+        }
+    }
+
+    private static bool Escape(KernelFrame frame)
+    {
+        frame.Escaping = true;
+        return false;
+    }
+
+    /// <summary>
+    /// What the loop does with the abrupt completion of its body in <see cref="KernelFrame.Abrupt"/>: 0 to go on with
+    /// the update (a labelled continue that names this loop), 1 to complete normally (a labelled break that names it),
+    /// 2 to complete with it.
+    /// </summary>
+    internal int AbruptOutcome(KernelFrame frame)
+    {
+        if (Continues(frame))
+        {
+            return 0;
+        }
+
+        var completion = frame.Abrupt;
+        return completion.Type == CompletionType.Break && string.Equals(completion.Target, _statement.LabelSet?.Name, StringComparison.Ordinal) ? 1 : 2;
     }
 
     /// <summary>A labelled continue that names this loop.</summary>

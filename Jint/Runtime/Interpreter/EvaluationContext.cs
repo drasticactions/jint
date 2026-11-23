@@ -90,6 +90,9 @@ internal sealed class EvaluationContext
     /// </summary>
     internal bool ShouldRunPerStatementChecks => _shouldRunPerStatementChecks;
 
+    /// <summary>The statement counter charged inline (see <see cref="ChargeStatement"/>), or null.</summary>
+    internal MaxStatementsConstraint? StatementCounter => _statementCounter;
+
     /// <summary>
     /// Whether a statement whose result the interpreter can produce without executing it must be executed
     /// anyway. Set for debug mode (the debugger has to step onto the statement) and for coverage collection

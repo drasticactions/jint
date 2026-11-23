@@ -104,7 +104,7 @@ internal sealed class KernelNumber : KernelExpression
 /// <summary>A literal other than a Number: a string, a boolean, null, or the undefined the name always reads.</summary>
 internal sealed class KernelConstant : KernelExpression
 {
-    private readonly JsValue _value;
+    internal readonly JsValue _value;
 
     public KernelConstant(Expression expression, JsValue value) : base(expression)
     {
@@ -131,10 +131,10 @@ internal sealed class KernelName : KernelExpression
 
     // The global binding last read: valid while neither the global object's own properties nor the global lexical
     // declarations changed, as JintIdentifierExpression's global cache. Value writes change the descriptor in place.
-    private GlobalEnvironment? _cachedGlobalEnv;
-    private Descriptors.PropertyDescriptor? _cachedGlobalDescriptor;
-    private uint _cachedGlobalShapeVersion;
-    private int _cachedGlobalLexicalVersion;
+    internal GlobalEnvironment? _cachedGlobalEnv;
+    internal Descriptors.PropertyDescriptor? _cachedGlobalDescriptor;
+    internal uint _cachedGlobalShapeVersion;
+    internal int _cachedGlobalLexicalVersion;
 
     public KernelName(Identifier expression, int binding, Environment.BindingName name) : base(expression)
     {
@@ -283,7 +283,7 @@ internal sealed class KernelName : KernelExpression
 /// </summary>
 internal sealed class KernelRoot : KernelExpression
 {
-    private readonly KernelExpression _pure;
+    internal readonly KernelExpression _pure;
     private JintExpression? _handler;
 
     // An expression that hands most of its evaluations back (a read of a host object's property, say) stops trying:
@@ -332,8 +332,12 @@ internal sealed class KernelRoot : KernelExpression
             HandedBack();
         }
 
-        return (_handler ??= JintExpression.Build(_expression)).GetBooleanValue(frame.Context) ? 1 : 0;
+        return InterpretTest(frame) ? 1 : 0;
     }
+
+    /// <summary>ToBoolean of the value, as the interpreter's handler evaluates it.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal bool InterpretTest(KernelFrame frame) => (_handler ??= JintExpression.Build(_expression)).GetBooleanValue(frame.Context);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void Completed()
@@ -354,14 +358,14 @@ internal sealed class KernelRoot : KernelExpression
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private JsValue Interpret(KernelFrame frame) => (_handler ??= JintExpression.Build(_expression)).GetValue(frame.Context);
+    internal JsValue Interpret(KernelFrame frame) => (_handler ??= JintExpression.Build(_expression)).GetValue(frame.Context);
 }
 
 /// <summary>An expression the kernel leaves to the interpreter's handler.</summary>
 internal sealed class KernelInterpreted : KernelExpression
 {
-    private readonly JintExpression _handler;
-    private readonly bool _canDiscard;
+    internal readonly JintExpression _handler;
+    internal readonly bool _canDiscard;
 
     public KernelInterpreted(Expression expression) : base(expression)
     {

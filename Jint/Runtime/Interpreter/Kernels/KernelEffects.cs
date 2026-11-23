@@ -64,10 +64,10 @@ internal abstract class KernelEffect : KernelExpression
     private protected JintExpression Handler => _handler ??= JintExpression.Build(_expression);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private protected JsValue Interpret(KernelFrame frame) => Handler.GetValue(frame.Context);
+    internal JsValue Interpret(KernelFrame frame) => Handler.GetValue(frame.Context);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private protected void InterpretDiscarded(KernelFrame frame)
+    internal void InterpretDiscarded(KernelFrame frame)
     {
         var handler = Handler;
         if (handler.HasDiscardFastPath)
@@ -90,10 +90,10 @@ internal abstract class KernelEffect : KernelExpression
 /// </summary>
 internal sealed class KernelAssignSlot : KernelEffect
 {
-    private readonly KernelName _target;
-    private readonly KernelExpression _value;
-    private readonly Expression _valueExpression;
-    private readonly bool _isDeclarator;
+    internal readonly KernelName _target;
+    internal readonly KernelExpression _value;
+    internal readonly Expression _valueExpression;
+    internal readonly bool _isDeclarator;
     private JintExpression? _initializerHandler;
     private JintIdentifierExpression? _targetHandler;
 
@@ -162,7 +162,7 @@ internal sealed class KernelAssignSlot : KernelEffect
 
     /// <summary>What JintVariableDeclaration does for a declarator whose initializer needs no name.</summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private JsValue InterpretDeclarator(KernelFrame frame)
+    internal JsValue InterpretDeclarator(KernelFrame frame)
     {
         var context = frame.Context;
         var target = _targetHandler ??= new JintIdentifierExpression((Identifier) _target._expression);
@@ -188,9 +188,9 @@ internal sealed class KernelAssignSlot : KernelEffect
 /// </summary>
 internal sealed class KernelUpdateSlot : KernelEffect
 {
-    private readonly KernelName _target;
-    private readonly double _change;
-    private readonly bool _prefix;
+    internal readonly KernelName _target;
+    internal readonly double _change;
+    internal readonly bool _prefix;
 
     public KernelUpdateSlot(UpdateExpression expression, KernelName target) : base(expression)
     {
@@ -232,8 +232,8 @@ internal sealed class KernelUpdateSlot : KernelEffect
 /// </summary>
 internal sealed class KernelCompoundSlot : KernelEffect
 {
-    private readonly KernelName _target;
-    private readonly KernelBinary _operation;
+    internal readonly KernelName _target;
+    internal readonly KernelBinary _operation;
 
     public KernelCompoundSlot(Expression expression, KernelName target, KernelBinary operation) : base(expression)
     {
@@ -293,9 +293,9 @@ internal sealed class KernelCompoundSlot : KernelEffect
 /// </summary>
 internal sealed class KernelStoreElement : KernelEffect
 {
-    private readonly KernelExpression _object;
-    private readonly KernelExpression _key;
-    private readonly KernelExpression _value;
+    internal readonly KernelExpression _object;
+    internal readonly KernelExpression _key;
+    internal readonly KernelExpression _value;
 
     public KernelStoreElement(Expression expression, KernelExpression obj, KernelExpression key, KernelExpression value) : base(expression)
     {

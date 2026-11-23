@@ -1,0 +1,626 @@
+using System.Buffers.Binary;
+using System.Runtime.CompilerServices;
+using Jint.Constraints;
+using Jint.Native;
+using Jint.Native.TypedArray;
+using Jint.Runtime.Environments;
+
+namespace Jint.Runtime.Interpreter.Kernels;
+
+/// <summary>
+/// The .NET code a <see cref="KernelForStatement"/> was compiled to (see <c>KernelEmitter</c>): the same steps as the
+/// kernel's tree, with Numbers in locals, names read through the slots they resolved to on entry, and no call per node.
+/// Every case the tree hands back to the interpreter is handed back at the same point, every case the code does not
+/// compile runs the tree's own node, and the statement checks run at the same statements, so a run of the code and a
+/// run of the tree do the same observable things. It can be entered where the tree loop starts or at the head of an
+/// iteration the tree loop is about to begin, with the state the tree has left in the environments.
+/// </summary>
+internal sealed class KernelCode
+{
+    /// <summary>
+    /// The code from <paramref name="entry"/> (<see cref="StartEntry"/>, or a loop's <see cref="KernelForStatement._entry"/>
+    /// for that loop's head): 0 for a normal completion of the outermost loop, 3 for an abrupt one, left in
+    /// <see cref="KernelFrame.Abrupt"/>.
+    /// </summary>
+    internal delegate int Entry(object[] constants, KernelFrame frame, int entry);
+
+    /// <summary>The entry where the outermost loop starts.</summary>
+    internal const int StartEntry = -1;
+
+    /// <summary>
+    /// How many statements the tree of a kernel checks per node of the kernel before the kernel is compiled: the JIT
+    /// takes about as long to compile a node as the tree takes to run this many statements (a few hundred
+    /// microseconds), and the code runs them in a fraction of that.
+    /// </summary>
+    internal const int DefaultThreshold = 16384;
+
+    private readonly Entry _entry;
+    private readonly object[] _constants;
+
+    internal KernelCode(Entry entry, object[] constants)
+    {
+        _entry = entry;
+        _constants = constants;
+    }
+
+    /// <summary>Whether this runtime compiles code at run time to machine code; where it does not, kernels stay trees.</summary>
+    internal static bool Supported
+    {
+        get
+        {
+#if NET
+            return RuntimeFeature.IsDynamicCodeSupported && RuntimeFeature.IsDynamicCodeCompiled;
+#else
+            return false;
+#endif
+        }
+    }
+
+    internal int Run(KernelFrame frame, int entry)
+    {
+        frame.Engine._loopKernelCodeRuns++;
+        frame.InCode = true;
+        try
+        {
+            return _entry(_constants, frame, entry);
+        }
+        finally
+        {
+            frame.InCode = false;
+        }
+    }
+
+    /// <summary>The loop's code, or null where code cannot be compiled.</summary>
+    internal static KernelCode? TryCompile(KernelForStatement loop)
+    {
+#if NET
+        if (!Supported)
+        {
+            return null;
+        }
+
+        try
+        {
+            return KernelEmitter.Compile(loop);
+        }
+        catch (Exception e) when (e is PlatformNotSupportedException or NotSupportedException)
+        {
+            return null;
+        }
+#else
+        return null;
+#endif
+    }
+}
+
+/// <summary>
+/// What a kernel expression answers, as compiled code holds it: a null <see cref="Value"/> with the
+/// <see cref="Number"/>, or the value, or Bail. Returned in two registers, and kept in two once inlined, where an out
+/// parameter would keep the Number in memory.
+/// </summary>
+internal readonly struct KernelResult
+{
+    internal readonly JsValue? Value;
+    internal readonly double Number;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal KernelResult(JsValue? value, double number)
+    {
+        Value = value;
+        Number = number;
+    }
+
+    internal static KernelResult Bail
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => new(KernelExpression.Bail, 0);
+    }
+}
+
+/// <summary>
+/// A read of a name compiled code does not hold in a local: the value as <see cref="KernelResult"/> holds it, and
+/// whether the code may hold it until anything else runs (<see cref="MutableNumber"/> for a Number in a slot the code
+/// may also store it to, <see cref="Value"/> for any other value it read).
+/// </summary>
+internal readonly struct KernelNameRead
+{
+    internal const int Uncached = 0;
+    internal const int MutableNumber = 1;
+    internal const int Value = 2;
+
+    internal readonly JsValue? Result;
+    internal readonly double Number;
+    internal readonly int Kind;
+
+    internal KernelNameRead(JsValue? result, double number, int kind)
+    {
+        Result = result;
+        Number = number;
+        Kind = kind;
+    }
+}
+
+/// <summary>
+/// The steps of the kernel nodes that compiled code calls, each the same code as the node's own, small enough to be
+/// inlined into it.
+/// </summary>
+internal static class KernelCodeRuntime
+{
+    /// <summary>
+    /// The slot name <paramref name="binding"/> resolves to in this run, resolved now if it was not; a null reference
+    /// for a name that is not in a slot, which the code reads through its node.
+    /// </summary>
+    internal static ref Binding Bind(KernelFrame frame, int binding, out DeclarativeEnvironment? environment)
+    {
+        if (frame.NeedsResolving(binding))
+        {
+            frame.Resolve(binding);
+        }
+
+        ref var slot = ref frame.Slots[binding];
+        environment = slot.Environment;
+        if (environment?._slots is { } slots && (uint) slot.Index < (uint) slots.Length)
+        {
+            return ref slots[slot.Index];
+        }
+
+        environment = null;
+        return ref Unsafe.NullRef<Binding>();
+    }
+
+    /// <summary><see cref="KernelName.Evaluate"/> of a name whose slot holds: the Number, or the value, or Bail.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static KernelResult ReadSlot(ref Binding binding)
+    {
+        if (binding.IsUnboxedNumber)
+        {
+            return new KernelResult(null, binding.UnboxedNumber);
+        }
+
+        var value = binding.IsPlainValue ? binding.PeekValue : null;
+        return value is not null && (value._type & InternalTypes.ReadHook) == InternalTypes.Empty ? new KernelResult(value, 0) : KernelResult.Bail;
+    }
+
+    /// <summary>
+    /// <see cref="KernelName.Evaluate"/> for compiled code: through the slot the name resolved to on entry while it
+    /// holds (no binding injected since <paramref name="epoch"/>), through the node otherwise.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static KernelNameRead ReadNameCold(ref Binding slot, KernelName name, KernelFrame frame, int epoch)
+    {
+        KernelResult result;
+        if (!Unsafe.IsNullRef(ref slot) && frame.Engine._envBindingInjectionEpoch == epoch)
+        {
+            if (slot.TryGetMutableNumber(out var number))
+            {
+                return new KernelNameRead(null, number, KernelNameRead.MutableNumber);
+            }
+
+            result = ReadSlot(ref slot);
+        }
+        else
+        {
+            result = ReadName(name, frame);
+        }
+
+        var value = result.Value;
+        var kind = value is not null && !ReferenceEquals(value, KernelExpression.Bail) ? KernelNameRead.Value : KernelNameRead.Uncached;
+        return new KernelNameRead(value, result.Number, kind);
+    }
+
+    /// <summary><see cref="KernelName.TryReadNumber"/> of a name whose slot holds: the Number, or Bail.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static KernelResult ReadSlotNumber(ref Binding binding)
+    {
+        if (binding.IsUnboxedNumber)
+        {
+            return new KernelResult(null, binding.UnboxedNumber);
+        }
+
+        if (binding.PeekValue is { } value && (value._type & (InternalTypes.Number | InternalTypes.Integer)) != InternalTypes.Empty)
+        {
+            return new KernelResult(null, Unsafe.As<JsNumber>(value)._value);
+        }
+
+        return KernelResult.Bail;
+    }
+
+    /// <summary>A node's <see cref="KernelExpression.Evaluate"/>.</summary>
+    internal static KernelResult Evaluate(KernelExpression expression, KernelFrame frame)
+    {
+        var value = expression.Evaluate(frame, out var number);
+        return new KernelResult(value, number);
+    }
+
+    /// <summary><see cref="KernelName.Evaluate"/>, for a name read through its node.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static KernelResult EvaluateName(KernelName name, KernelFrame frame)
+    {
+        var value = name.Evaluate(frame, out var number);
+        return new KernelResult(value, number);
+    }
+
+    /// <summary>
+    /// <see cref="KernelName.Evaluate"/> of a name not read through a slot: the global binding its node last read,
+    /// while it holds, as <c>ReadGlobal</c> reads it; anything else through the node.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static KernelResult ReadName(KernelName name, KernelFrame frame)
+    {
+        ref var slot = ref frame.Slots[name._binding];
+        if (slot.Index == KernelFrame.GlobalBinding
+            && slot.Epoch == frame.Engine._envBindingInjectionEpoch
+            && frame.Global is { } globalEnv
+            && ReferenceEquals(globalEnv, name._cachedGlobalEnv)
+            && globalEnv._global._propertiesVersion == name._cachedGlobalShapeVersion
+            && globalEnv._lexicalMutations == name._cachedGlobalLexicalVersion)
+        {
+            var value = name._cachedGlobalDescriptor!.Value;
+            if (value is not null && (value._type & InternalTypes.ReadHook) == InternalTypes.Empty)
+            {
+                return new KernelResult(value, 0);
+            }
+        }
+
+        return EvaluateName(name, frame);
+    }
+
+    /// <summary><see cref="KernelExpression.IsNumber"/>: the Number of a value, or Bail.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static KernelResult ToNumber(JsValue? value, double number)
+    {
+        if (value is null)
+        {
+            return new KernelResult(null, number);
+        }
+
+        if ((value._type & (InternalTypes.Number | InternalTypes.Integer)) != InternalTypes.Empty)
+        {
+            return new KernelResult(null, Unsafe.As<JsNumber>(value)._value);
+        }
+
+        return KernelResult.Bail;
+    }
+
+    /// <summary>ToBoolean of a value a kernel expression answered (not Bail).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool Truthy(JsValue? value, double number)
+        => value is null ? number != 0 && !double.IsNaN(number) : TypeConverter.ToBoolean(value);
+
+    /// <summary>ToBoolean of a Number.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool Truthy(double number) => number != 0 && !double.IsNaN(number);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static JsValue Box(JsValue? value, double number) => value ?? JsNumber.Create(number);
+
+    /// <summary><see cref="KernelElement.Evaluate"/> once its base and key are evaluated.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static KernelResult ReadElement(JsValue target, double key)
+    {
+        if (target is JsTypedArray typedArray)
+        {
+            return ReadTypedElement(typedArray, key);
+        }
+
+        if (target is JsArray array)
+        {
+            var index = (uint) key;
+            if (index == key && index != uint.MaxValue && array.TryGetValueFast(index, out var element))
+            {
+                return new KernelResult(element, 0);
+            }
+        }
+
+        return KernelResult.Bail;
+    }
+
+    /// <summary><see cref="KernelProperty.Read"/>, with the shape its node last read and a typed array's length inline.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static KernelResult ReadProperty(KernelProperty property, JsValue target)
+    {
+        if (target is JsObject plain
+            && (plain._type & (InternalTypes.ShapeMode | InternalTypes.HasLazySlots)) == InternalTypes.ShapeMode
+            && ReferenceEquals(plain.ShapeOf, property._cachedShape))
+        {
+            return new KernelResult(plain.GetSlot(property._cachedSlot), 0);
+        }
+
+        if (property._isLength && target is JsArray array)
+        {
+            return new KernelResult(null, array.GetLength());
+        }
+
+        if (property._isLength && target is JsTypedArray typedArray && property.CachedTypedArrayLengthHolds(typedArray))
+        {
+            var buffer = typedArray._viewedArrayBuffer;
+            if (buffer._arrayBufferData is not null && typedArray._arrayLength != JsTypedArray.LengthAuto && buffer._arrayBufferMaxByteLength is null)
+            {
+                return new KernelResult(null, typedArray._arrayLength);
+            }
+        }
+
+        return ReadPropertySlow(property, target);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static KernelResult ReadPropertySlow(KernelProperty property, JsValue target)
+    {
+        var value = property.Read(target, out var number);
+        return new KernelResult(value, number);
+    }
+
+    /// <summary>
+    /// <see cref="JsTypedArray.ReadNumberKey"/>, with the elements of a fixed-length view of a fixed-length buffer read
+    /// in place as <see cref="JsArrayBuffer.RawBytesToNumeric"/> reads them on a little-endian host.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static KernelResult ReadTypedElement(JsTypedArray typedArray, double key)
+    {
+        var buffer = typedArray._viewedArrayBuffer;
+        if (buffer._arrayBufferData is { } data
+            && typedArray._contentType == TypedArrayContentType.Number
+            && typedArray._arrayLength != JsTypedArray.LengthAuto
+            && buffer._arrayBufferMaxByteLength is null
+            && BitConverter.IsLittleEndian)
+        {
+            // -0 is the key "0"
+            if (key >= 0 && key < typedArray._arrayLength)
+            {
+                var index = (int) key;
+                if (index == key)
+                {
+                    var offset = typedArray._byteOffset;
+                    switch (typedArray._arrayElementType)
+                    {
+                        case TypedArrayElementType.Uint8:
+                        case TypedArrayElementType.Uint8C:
+                            return new KernelResult(null, data[offset + index]);
+                        case TypedArrayElementType.Int8:
+                            return new KernelResult(null, (sbyte) data[offset + index]);
+                        case TypedArrayElementType.Int16:
+                            return new KernelResult(null, BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(offset + index * 2)));
+                        case TypedArrayElementType.Uint16:
+                            return new KernelResult(null, BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(offset + index * 2)));
+                        case TypedArrayElementType.Int32:
+                            return new KernelResult(null, BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(offset + index * 4)));
+                        case TypedArrayElementType.Uint32:
+                            return new KernelResult(null, BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(offset + index * 4)));
+                        case TypedArrayElementType.Float32:
+                            {
+                                // A NaN read canonicalizes to the NaN Number value.
+                                var single = BitConverter.ToSingle(data, offset + index * 4);
+                                return new KernelResult(null, float.IsNaN(single) ? double.NaN : single);
+                            }
+
+                        case TypedArrayElementType.Float64:
+                            return new KernelResult(null, BitConverter.ToDouble(data, offset + index * 8));
+                    }
+                }
+            }
+        }
+
+        return ReadTypedElementSlow(typedArray, key);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static KernelResult ReadTypedElementSlow(JsTypedArray typedArray, double key)
+    {
+        var value = typedArray.ReadNumberKey(key, out var number);
+        return new KernelResult(value, number);
+    }
+
+    /// <summary><see cref="KernelStoreElement"/>'s store once its operands are evaluated.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool StoreElement(JsValue target, double key, double value)
+        => target is JsTypedArray typedArray && StoreTypedElement(typedArray, key, value);
+
+    /// <summary>
+    /// <see cref="JsTypedArray.TryWriteNumberKey"/>, with the elements of a fixed-length view of a fixed-length buffer
+    /// written in place as <see cref="JsArrayBuffer.SetValueInBuffer"/> writes them on a little-endian host.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static bool StoreTypedElement(JsTypedArray typedArray, double key, double value)
+    {
+        var buffer = typedArray._viewedArrayBuffer;
+        if (buffer._arrayBufferData is { } data
+            && typedArray._contentType == TypedArrayContentType.Number
+            && !buffer._isImmutable
+            && typedArray._arrayLength != JsTypedArray.LengthAuto
+            && buffer._arrayBufferMaxByteLength is null
+            && BitConverter.IsLittleEndian)
+        {
+            // TypedArraySetElement: the value is a Number already; the index decides whether it is stored. -0 is "0".
+            if (key >= 0 && key < typedArray._arrayLength)
+            {
+                var index = (int) key;
+                if (index == key)
+                {
+                    var offset = typedArray._byteOffset;
+                    switch (typedArray._arrayElementType)
+                    {
+                        case TypedArrayElementType.Uint8:
+                            data[offset + index] = (byte) ToInteger(value);
+                            return true;
+                        case TypedArrayElementType.Int8:
+                            data[offset + index] = (byte) (sbyte) ToInteger(value);
+                            return true;
+                        case TypedArrayElementType.Int16:
+                        case TypedArrayElementType.Uint16:
+                            BinaryPrimitives.WriteInt16LittleEndian(data.AsSpan(offset + index * 2), (short) ToInteger(value));
+                            return true;
+                        case TypedArrayElementType.Int32:
+                        case TypedArrayElementType.Uint32:
+                            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(offset + index * 4), (int) ToInteger(value));
+                            return true;
+                        case TypedArrayElementType.Float32:
+                            {
+                                var single = (float) value;
+                                BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(offset + index * 4), Unsafe.As<float, int>(ref single));
+                                return true;
+                            }
+
+                        case TypedArrayElementType.Float64:
+                            BinaryPrimitives.WriteInt64LittleEndian(data.AsSpan(offset + index * 8), BitConverter.DoubleToInt64Bits(value));
+                            return true;
+                    }
+                }
+            }
+        }
+
+        return StoreTypedElementSlow(typedArray, key, value);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static bool StoreTypedElementSlow(JsTypedArray typedArray, double key, double value) => typedArray.TryWriteNumberKey(key, value);
+
+    /// <summary><see cref="JsArrayBuffer.DoubleToInt64"/>: truncated toward zero, NaN, ±0 and ±∞ to 0.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static long ToInteger(double value)
+        => double.IsNaN(value) || value == 0 || double.IsInfinity(value) ? 0 : (long) value;
+
+    /// <summary>The store of <see cref="KernelAssignSlot"/> once the right-hand side is evaluated.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static void StoreAssigned(ref Binding binding, DeclarativeEnvironment? environment, KernelAssignSlot node, KernelFrame frame, JsValue? value, double number)
+    {
+        if (binding.IsAssignable)
+        {
+            if (value is null)
+            {
+                Binding.StoreUnboxedNumber(ref binding, number);
+            }
+            else
+            {
+                binding = binding.ChangeMutableValue(value);
+            }
+        }
+        else
+        {
+            StoreDegenerate(environment!, node, frame, value, number);
+        }
+    }
+
+    // The right-hand side changed the binding's state; the full store produces the exact semantics.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void StoreDegenerate(DeclarativeEnvironment environment, KernelAssignSlot node, KernelFrame frame, JsValue? value, double number)
+        => environment.SetMutableBinding(node._target._name, KernelExpression.Box(value, number), frame.Engine.ExecutionContext.Strict);
+
+    /// <summary><see cref="KernelUpdateSlot"/> on a binding holding a mutable Number: its value; Bail, having done nothing, otherwise.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static KernelResult TryUpdate(ref Binding binding, double change, bool prefix)
+    {
+        if (binding.TryGetMutableNumber(out var value))
+        {
+            var updated = value + change;
+            Binding.StoreMutableNumber(ref binding, updated);
+            return new KernelResult(null, prefix ? updated : value);
+        }
+
+        return KernelResult.Bail;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool IsMutableNumber(ref Binding binding) => binding.TryGetMutableNumber(out _);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static void StoreMutableNumber(ref Binding binding, double value) => Binding.StoreMutableNumber(ref binding, value);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool IsAssignable(ref Binding binding) => binding.IsAssignable;
+
+    /// <summary>What <see cref="KernelStatement"/>'s checks do before a statement.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static void Check(EvaluationContext context, Engine engine, Statement statement, bool exact, MaxStatementsConstraint? counter)
+    {
+        engine.SetLastSyntaxElement(statement);
+        if (exact)
+        {
+            if (engine._statementsBeforeExactChecks > 0)
+            {
+                engine._statementsBeforeExactChecks--;
+            }
+            else
+            {
+                engine.RunPerStatementChecks(statement);
+            }
+        }
+        else if (counter is not null)
+        {
+            counter.Check();
+        }
+
+        if (context.RunsAmortizedChecks && --engine._amortizedConstraintCountdown <= 0)
+        {
+            CheckAmortized(engine);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static void CheckAmortized(Engine engine)
+    {
+        engine._amortizedConstraintCountdown = EvaluationContext.AmortizedConstraintCheckInterval;
+        engine.CheckAmortizedConstraints();
+    }
+
+    /// <summary>The completion of a <c>return</c>.</summary>
+    internal static void SetReturn(KernelFrame frame, JsValue value, Statement statement)
+        => frame.Abrupt = new Completion(CompletionType.Return, value, statement);
+}
+
+/// <summary>
+/// The statements of the blocks compiled code runs, each a site: a block, the index of the statement in it, and the
+/// site of the statement around the block. The code's one handler handles an exception at a site as the handlers of
+/// the blocks around it would, innermost first (see <see cref="KernelBlockStatement"/>).
+/// </summary>
+internal sealed class KernelCodeSites
+{
+    private readonly KernelBlockStatement[] _blocks;
+    private readonly int[] _indices;
+    private readonly int[] _parents;
+
+    internal KernelCodeSites(List<(KernelBlockStatement Block, int Index, int Parent)> sites)
+    {
+        _blocks = new KernelBlockStatement[sites.Count];
+        _indices = new int[sites.Count];
+        _parents = new int[sites.Count];
+        for (var i = 0; i < sites.Count; i++)
+        {
+            (_blocks[i], _indices[i], _parents[i]) = sites[i];
+        }
+    }
+
+    /// <summary>The filter: whether the handler of a block around <paramref name="site"/> catches the exception.</summary>
+    internal bool Catches(object exception, int site)
+        => site >= 0 && exception is Exception e && Interpreter.JintStatementList.ShouldCatch(e);
+
+    /// <summary>
+    /// The handlers of the blocks around <paramref name="site"/>, innermost first, each as
+    /// <see cref="KernelBlockStatement"/>'s: true once one has made the exception the block's throw completion (in
+    /// <see cref="KernelFrame.Abrupt"/>), or false, with the location attached, to rethrow it past them all.
+    /// </summary>
+    internal bool Catch(KernelFrame frame, Exception exception, int site)
+    {
+        var context = frame.Context;
+        var engine = context.Engine;
+        for (; site >= 0; site = _parents[site])
+        {
+            // A block whose handler rethrew is followed by the filter of the block around it.
+            if (!Interpreter.JintStatementList.ShouldCatch(exception))
+            {
+                return false;
+            }
+
+            var statement = _blocks[site]._statements[_indices[site]]._statement;
+            if (exception is JintException)
+            {
+                frame.Abrupt = Interpreter.JintStatementList.HandleStatementException(context, exception, statement);
+                return true;
+            }
+
+            var location = engine.HasLastSyntaxElement ? engine.LastSyntaxLocation : statement.Location;
+            ExceptionDataHelper.TryAttachJavaScriptLocation(exception, engine, location);
+        }
+
+        return false;
+    }
+}

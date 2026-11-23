@@ -2260,6 +2260,16 @@ public sealed partial class Engine : IDisposable
     // How many loops ran on kernels; read by tests.
     internal int _loopKernelRuns;
 
+    // How many loops ran as compiled code (counting each entry); read by tests.
+    internal int _loopKernelCodeRuns;
+
+    // For tests: the statements the tree of any kernel checks before it is compiled, in place of the threshold per node.
+    internal long _loopKernelCodeWork = -1;
+
+    // How many statements per node of a kernel its tree checks before the kernel is compiled to .NET code, or -1 where
+    // code is not compiled (a runtime without a JIT, or a test comparing the tree with the code it compiles to).
+    internal int _loopKernelCodeThreshold = Runtime.Interpreter.Kernels.KernelCode.Supported ? Runtime.Interpreter.Kernels.KernelCode.DefaultThreshold : -1;
+
     // Call environments of functions whose environment nothing can capture
     // (JintFunctionDefinition.State.ReusesEnvironmentAcrossInstances), parked after a call by an instance that does not
     // keep its own, for the next call of any instance of the same definition: the methods a constructor makes for each

@@ -295,7 +295,7 @@ public class JsArrayBuffer : ObjectInstance
 
     // ℝ(value) truncated toward zero, with NaN, ±0 and ±∞ mapping to 0 — the integer conversion the
     // spec's SetValueInBuffer applies before encoding an integer element type.
-    private static long DoubleToInt64(double doubleValue)
+    internal static long DoubleToInt64(double doubleValue)
         => double.IsNaN(doubleValue) || doubleValue == 0 || double.IsInfinity(doubleValue) ? 0 : (long) doubleValue;
 
     private static byte[] FloatToRawBytes(TypedArrayElementType type, TypedArrayValue value)

@@ -15,10 +15,10 @@ namespace Jint.Runtime.Interpreter.Kernels;
 /// </summary>
 internal sealed class KernelElement : KernelExpression
 {
-    private readonly KernelExpression _object;
-    private readonly KernelExpression _key;
-    private readonly KernelName? _objectName;
-    private readonly KernelName? _keyName;
+    internal readonly KernelExpression _object;
+    internal readonly KernelExpression _key;
+    internal readonly KernelName? _objectName;
+    internal readonly KernelName? _keyName;
 
     public KernelElement(Expression expression, KernelExpression obj, KernelExpression key) : base(expression)
     {
@@ -74,13 +74,13 @@ internal sealed class KernelElement : KernelExpression
 /// </summary>
 internal sealed class KernelProperty : KernelExpression
 {
-    private readonly KernelExpression _object;
-    private readonly JsString _name;
-    private readonly Key _key;
-    private readonly bool _isLength;
+    internal readonly KernelExpression _object;
+    internal readonly JsString _name;
+    internal readonly Key _key;
+    internal readonly bool _isLength;
 
-    private Shape? _cachedShape;
-    private int _cachedSlot;
+    internal Shape? _cachedShape;
+    internal int _cachedSlot;
 
     // A built-in object's data property: valid while the object's own properties are unchanged; a value write
     // changes the descriptor in place. Built-ins live as long as their realm, so the entry keeps nothing alive.
@@ -191,6 +191,23 @@ internal sealed class KernelProperty : KernelExpression
         return descriptor!._value ?? Bail;
     }
 
+    /// <summary>
+    /// Whether what <see cref="ReadTypedArrayLength"/> last checked holds for <paramref name="typedArray"/>: no own
+    /// properties, the same prototype and <c>%TypedArray%.prototype</c> above it, neither changed since.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal bool CachedTypedArrayLengthHolds(JsTypedArray typedArray)
+    {
+        var link = _typedArrayLengthLink;
+        var holder = _typedArrayLengthHolder;
+        return holder is not null
+               && typedArray._properties is null
+               && ReferenceEquals(typedArray._prototype, link)
+               && link!._propertiesVersion == _typedArrayLengthLinkVersion
+               && ReferenceEquals(link._prototype, holder)
+               && holder._propertiesVersion == _typedArrayLengthHolderVersion;
+    }
+
     /// <summary>JintMemberExpression.TryReadTypedArrayLength.</summary>
     private JsValue? ReadTypedArrayLength(JsTypedArray typedArray, out double number)
     {
@@ -245,20 +262,20 @@ internal sealed class KernelProperty : KernelExpression
 /// </summary>
 internal sealed class KernelCall : KernelExpression
 {
-    private readonly KernelExpression? _base;
-    private readonly KernelProperty? _member;
-    private readonly KernelExpression? _callee;
-    private readonly KernelExpression[] _arguments;
+    internal readonly KernelExpression? _base;
+    internal readonly KernelProperty? _member;
+    internal readonly KernelExpression? _callee;
+    internal readonly KernelExpression[] _arguments;
     private JintExpression? _handler;
     private JintExpression? _calleeHandler;
 
-    private Function? _fastCallee;
-    private FastCallShape _fastShape;
+    internal Function? _fastCallee;
+    internal FastCallShape _fastShape;
 
     // JintCallExpression's register lane for an interpreted callee of at most four arguments: the definition last
     // probed, and its state when the lane serves it.
-    private JintFunctionDefinition? _registerDefinition;
-    private JintFunctionDefinition.State? _registerState;
+    internal JintFunctionDefinition? _registerDefinition;
+    internal JintFunctionDefinition.State? _registerState;
 
     public KernelCall(CallExpression expression, KernelProperty? member, KernelExpression? callee, KernelExpression[] arguments) : base(expression)
     {
@@ -330,6 +347,118 @@ internal sealed class KernelCall : KernelExpression
         return CallWithFrame(frame, function, thisValue, arg0, arg1);
     }
 
+    /// <summary>
+    /// For compiled code, the steps of <see cref="Evaluate"/> between the callee and the arguments: 0 to leave the
+    /// whole call to the interpreter, 1 for a built-in through its fast lane (<paramref name="shape"/>), 2 for an
+    /// interpreted function through the register lane (<paramref name="state"/>), 3 for one with an argument list. The
+    /// lane's state is taken before any argument runs, as <see cref="Evaluate"/> takes it.
+    /// </summary>
+    internal int Prepare(JsValue? callee, out FastCallShape shape, out JintFunctionDefinition.State? state)
+    {
+        shape = default;
+        state = null;
+        if (callee is not Function function)
+        {
+            return 0;
+        }
+
+        if (function is ScriptFunction script)
+        {
+            if (_arguments.Length <= 4 && !script._isClassConstructor)
+            {
+                var definition = script._functionDefinition;
+                if (!ReferenceEquals(definition, _registerDefinition))
+                {
+                    _registerDefinition = definition;
+                    _registerState = script.TryInitializeDefinition() is { SupportsRegisterCall: true } probed ? probed : null;
+                }
+
+                if (_registerState is { } registerState)
+                {
+                    state = registerState;
+                    return 2;
+                }
+            }
+
+            return 3;
+        }
+
+        if (!ReferenceEquals(function, _fastCallee))
+        {
+            if (function._functionDefinition is not null || _arguments.Length > 2)
+            {
+                return 0;
+            }
+
+            var probedShape = function.GetFastCallShape(_arguments.Length);
+            if (!probedShape.Supported || probedShape.Variadic)
+            {
+                return 0;
+            }
+
+            _fastCallee = function;
+            _fastShape = probedShape;
+        }
+
+        shape = _fastShape;
+        return 1;
+    }
+
+    /// <summary>Whether a built-in's fast lane needs no call stack frame for these values: it then runs no script.</summary>
+    internal static bool IsLeaf(FastCallShape shape, JsValue thisValue, JsValue arg0, JsValue arg1) => shape.IsLeafFor(thisValue, arg0, arg1);
+
+    /// <summary>The call of a built-in through its fast lane, the arguments evaluated (undefined past the last).</summary>
+    internal JsValue CallBuiltin(KernelFrame frame, Function function, JsValue thisValue, FastCallShape shape, JsValue arg0, JsValue arg1)
+    {
+        if (shape.IsLeafFor(thisValue, arg0, arg1))
+        {
+            return function.CallFast(thisValue, arg0, arg1);
+        }
+
+        return CallWithFrame(frame, function, thisValue, arg0, arg1);
+    }
+
+    /// <summary>The call of an interpreted function through the register lane, the arguments evaluated.</summary>
+    internal JsValue CallRegisterLane(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, JsValue arg0, JsValue arg1, JsValue arg2, JsValue arg3)
+        => CallFromRegisters(frame, function, thisValue, state, arg0, arg1, arg2, arg3, _arguments.Length);
+
+    /// <summary>The argument list of an interpreted function's call, rented for compiled code to fill.</summary>
+    internal JsValue[] RentArguments(KernelFrame frame) => _arguments.Length == 0 ? [] : frame.Engine._jsValueArrayPool.RentArray(_arguments.Length);
+
+    /// <summary>The call of an interpreted function with an argument list filled from <see cref="RentArguments"/>.</summary>
+    internal JsValue CallWithArguments(KernelFrame frame, ScriptFunction function, JsValue thisValue, JsValue[] values)
+    {
+        var engine = frame.Engine;
+        var oldSyntaxElement = engine.MarkLastSyntaxElement();
+        frame.Context.PrepareFor(_expression);
+
+        var callStack = engine.CallStack;
+        var recursionDepth = callStack.Push(function, CalleeHandler, engine.ExecutionContext);
+        if (recursionDepth > engine._maxRecursionDepth)
+        {
+            engine.AbandonImplicitMemoryOperation();
+            Throw.RecursionDepthOverflowException(callStack);
+        }
+
+        JsValue result;
+        try
+        {
+            result = function.CallWithStackFrame(thisValue, values);
+        }
+        finally
+        {
+            callStack.TryPopAndDiscard();
+        }
+
+        if (values.Length > 0)
+        {
+            engine._jsValueArrayPool.ReturnArray(values);
+        }
+
+        engine.RestoreLastSyntaxElement(in oldSyntaxElement);
+        return result;
+    }
+
     private JsValue CallScript(KernelFrame frame, ScriptFunction function, JsValue thisValue)
     {
         var engine = frame.Engine;
@@ -397,7 +526,11 @@ internal sealed class KernelCall : KernelExpression
         var arg1 = count >= 2 ? Box(arguments[1].Evaluate(frame, out var n1), n1) : JsValue.Undefined;
         var arg2 = count >= 3 ? Box(arguments[2].Evaluate(frame, out var n2), n2) : JsValue.Undefined;
         var arg3 = count >= 4 ? Box(arguments[3].Evaluate(frame, out var n3), n3) : JsValue.Undefined;
+        return CallFromRegisters(frame, function, thisValue, state, arg0, arg1, arg2, arg3, count);
+    }
 
+    private JsValue CallFromRegisters(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, JsValue arg0, JsValue arg1, JsValue arg2, JsValue arg3, int count)
+    {
         var engine = frame.Engine;
         var oldSyntaxElement = engine.MarkLastSyntaxElement();
         frame.Context.PrepareFor(_expression);
@@ -425,7 +558,7 @@ internal sealed class KernelCall : KernelExpression
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private JsValue CallWithFrame(KernelFrame frame, Function function, JsValue thisValue, JsValue arg0, JsValue arg1)
+    internal JsValue CallWithFrame(KernelFrame frame, Function function, JsValue thisValue, JsValue arg0, JsValue arg1)
     {
         var engine = frame.Engine;
         var oldSyntaxElement = engine.MarkLastSyntaxElement();
@@ -457,7 +590,7 @@ internal sealed class KernelCall : KernelExpression
     private JintExpression CalleeHandler => _calleeHandler ??= JintExpression.Build((Expression) ((CallExpression) _expression).Callee);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private JsValue Interpret(KernelFrame frame) => (_handler ??= JintExpression.Build(_expression)).GetValue(frame.Context);
+    internal JsValue Interpret(KernelFrame frame) => (_handler ??= JintExpression.Build(_expression)).GetValue(frame.Context);
 }
 
 /// <summary>
@@ -466,9 +599,9 @@ internal sealed class KernelCall : KernelExpression
 /// </summary>
 internal sealed class KernelComparison : KernelExpression
 {
-    private readonly Operator _operator;
-    private readonly KernelExpression _left;
-    private readonly KernelExpression _right;
+    internal readonly Operator _operator;
+    internal readonly KernelExpression _left;
+    internal readonly KernelExpression _right;
 
     public KernelComparison(Expression expression, Operator op, KernelExpression left, KernelExpression right) : base(expression)
     {
@@ -510,7 +643,7 @@ internal sealed class KernelComparison : KernelExpression
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private bool CompareValues(KernelFrame frame, JsValue left, JsValue right)
+    internal bool CompareValues(KernelFrame frame, JsValue left, JsValue right)
     {
         frame.Context.PrepareFor(_expression);
         switch (_operator)

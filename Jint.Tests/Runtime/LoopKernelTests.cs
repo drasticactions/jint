@@ -1,14 +1,35 @@
 using Jint.Runtime;
+using Jint.Runtime.Interpreter.Kernels;
 
 namespace Jint.Tests.Runtime;
 
 /// <summary>
-/// A loop kernel stands in for the interpreter's handlers of a <c>for</c> loop, so each script here runs twice, with
-/// kernels and without, and must produce the same value or the same error at the same place, and check the same
-/// number of statements.
+/// A loop kernel stands in for the interpreter's handlers of a <c>for</c> loop, so each script here runs on the
+/// interpreter's handlers, on kernel trees, and on the code kernels are compiled to (from the loop's start, and from an
+/// iteration the tree has begun), and must produce the same value or the same error at the same place, and check the
+/// same number of statements.
 /// </summary>
 public class LoopKernelTests
 {
+    /// <summary>How a script's loops run.</summary>
+    public enum Mode
+    {
+        Interpreter,
+        Tree,
+
+        // Compiled before the first iteration.
+        Code,
+
+        // Compiled once the tree has checked two statements, entered at the head of the loop it is running then.
+        CodeMidLoop,
+
+        // Compiled once the tree has checked a thousand statements, enough for the statements it hardly ran to stay on
+        // the tree; a script whose loops do less stays on the tree.
+        CodeLate,
+    }
+
+    private static readonly Mode[] KernelModes = [Mode.Tree, Mode.Code, Mode.CodeMidLoop, Mode.CodeLate];
+
     private static readonly string[] Scripts =
     [
         // numbers, -0, NaN, the arithmetic, bitwise and shift operators
@@ -173,6 +194,49 @@ public class LoopKernelTests
         function test() {
           var o = {};
           for (var i = 0; i < 3; i++) { o = i == 2 ? null : o; o.x = i; }
+        }
+        """,
+        // an error out of a later statement of a block, of a nested block, and of the loop's own test and update
+        """
+        function test() {
+          var out = [];
+          for (var i = 0; i < 3; i++) {
+            out.push(i);
+            if (i == 2) { out.push("x"); { out.push("y"); null.x; } }
+          }
+        }
+        """,
+        // an error that takes its location from the statement it is thrown in (the break keeps the loop off the
+        // interpreter's tight lane, which reports it at the loop)
+        """
+        function test() {
+          var out = [];
+          for (var i = 0; i < 3; i++) {
+            out.push(i);
+            if (i == 2) { out.push("x"); { out.push("y"); out instanceof 5; } }
+            if (i > 5) break;
+          }
+        }
+        """,
+        """
+        function test() {
+          var out = [];
+          for (var j = 0; j < 3 && (j < 2 || out instanceof 5); j++) { out.push(j); { out.push(j + 1); } }
+        }
+        """,
+        // the same out of code entered at the head of the inner loop, inside a block of the outer loop's tree
+        """
+        function test() {
+          var out = [];
+          for (var j = 0; j < 3 && (j < 2 || out instanceof 5); j++) { out.push(j); { for (var q = 0; q < 2; q++) { out.push(q); } } }
+        }
+        """,
+        """
+        function test() {
+          var out = [], n = [1, 2, 3];
+          try { for (var i = 0; i < n.length; i++) { out.push(i); if (i == 1) n = null; } } catch (e) { out.push(e.message, e.stack.split("\n")[1]); }
+          var m = { k: 0 };
+          for (var j = 0; j < 3; j = m.k++) { out.push(j); if (j == 1) m = undefined; }
         }
         """,
         // const and the temporal dead zone, let in the body, closures over the loop variable
@@ -340,10 +404,19 @@ public class LoopKernelTests
         """,
     ];
 
-    private static IEnumerable<int> Cases() => Enumerable.Range(0, Scripts.Length);
+    private static IEnumerable<TestCaseData> Cases()
+    {
+        for (var i = 0; i < Scripts.Length; i++)
+        {
+            foreach (var mode in KernelModes)
+            {
+                yield return new TestCaseData(i, mode);
+            }
+        }
+    }
 
     [TestCaseSource(nameof(Cases))]
-    public void KernelMatchesTheInterpreter(int index)
+    public void KernelMatchesTheInterpreter(int index, Mode mode)
     {
         var script = Scripts[index];
         // Called often enough for the functions' bodies to run on kernels too.
@@ -351,15 +424,51 @@ public class LoopKernelTests
                    + (script.Contains("function run()", StringComparison.Ordinal) ? "run()" : "test()")
                    + "); results.join('|')";
 
-        var withKernels = Run(script, call, kernels: true, out var kernelChecks, out var kernelRuns);
-        var withoutKernels = Run(script, call, kernels: false, out var interpreterChecks, out _);
+        var withKernels = Run(script, call, mode, out var kernelChecks, out var kernelRuns, out var codeRuns);
+        var withoutKernels = Run(script, call, Mode.Interpreter, out var interpreterChecks, out _, out _);
 
         withKernels.Should().Be(withoutKernels);
         kernelChecks.Should().Be(interpreterChecks);
         kernelRuns.Should().BeGreaterThan(0, "the script's loops should have run on kernels");
+        if (mode == Mode.Tree)
+        {
+            codeRuns.Should().Be(0, "the tree mode compiles nothing");
+        }
+        else if (mode != Mode.CodeLate)
+        {
+            codeRuns.Should().BeGreaterThan(0, "the script's loops should have run as compiled code");
+        }
 
         // Without an exact constraint the interpreter runs its own tight loop lanes.
-        Run(script, call, kernels: true, exact: false).Should().Be(Run(script, call, kernels: false, exact: false));
+        Run(script, call, mode, exact: false).Should().Be(Run(script, call, Mode.Interpreter, exact: false));
+    }
+
+    [Test]
+    public void LoopsStayTreesWhereCodeIsNotCompiled()
+    {
+        // A runtime without a JIT (Native AOT) answers false, and engines there start with the threshold that keeps
+        // every kernel a tree; the tree mode of the tests above is that configuration.
+        var engine = new Engine();
+        engine._loopKernelCodeThreshold.Should().Be(KernelCode.Supported ? KernelCode.DefaultThreshold : -1);
+        KernelCode.Supported.Should().Be(System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeCompiled);
+
+        Run("function test() { var t = 0; for (var i = 0; i < 5000; i++) { t += i; } return t; }", "test()", Mode.Tree, out _, out var runs, out var codeRuns)
+            .Should().Be("12497500");
+        runs.Should().Be(1);
+        codeRuns.Should().Be(0);
+    }
+
+    [Test]
+    public void LongLoopsAreCompiled()
+    {
+        var engine = new Engine();
+        engine.Evaluate("function test(n) { var t = 0; for (var i = 0; i < n; i++) { t += i; } return t; }");
+        engine.Evaluate("test(10)").AsNumber().Should().Be(45);
+        engine._loopKernelCodeRuns.Should().Be(0, "a loop of a few iterations stays a tree");
+        engine.Evaluate("test(" + (KernelCode.DefaultThreshold * 20) + ")");
+        engine._loopKernelCodeRuns.Should().Be(1, "the loop is compiled once the tree has done enough work, and entered mid-loop");
+        engine.Evaluate("test(10)").AsNumber().Should().Be(45);
+        engine._loopKernelCodeRuns.Should().Be(2, "once compiled, the loop runs as code from its start");
     }
 
     [Test]
@@ -368,12 +477,15 @@ public class LoopKernelTests
         const string Script = "var progress = ''; function f() { var t = 0; for (var i = 0; i < 1000; i++) { if (i % 3) { t += i; progress = t; } else t--; } return t; } f();";
         for (var limit = 1; limit < 60; limit++)
         {
-            Outcome(true).Should().Be(Outcome(false), $"the limit of {limit} statements");
+            foreach (var mode in KernelModes)
+            {
+                Outcome(mode).Should().Be(Outcome(Mode.Interpreter), $"the limit of {limit} statements on {mode}");
+            }
 
-            string Outcome(bool kernels)
+            string Outcome(Mode mode)
             {
                 var engine = new Engine(o => o.LimitStatements(limit));
-                engine._loopKernelsDisabled = !kernels;
+                Configure(engine, mode);
                 try
                 {
                     return engine.Evaluate(Script).ToString();
@@ -390,12 +502,15 @@ public class LoopKernelTests
     public void RecursionLimitStopsAtTheSameDepth()
     {
         const string Script = "var depth = 0; function f(n) { for (var i = 0; i < 2; i++) { depth = n; if (i == 1) f(n + 1); } } f(0);";
-        Outcome(true).Should().Be(Outcome(false));
+        foreach (var mode in KernelModes)
+        {
+            Outcome(mode).Should().Be(Outcome(Mode.Interpreter), mode.ToString());
+        }
 
-        static string Outcome(bool kernels)
+        static string Outcome(Mode mode)
         {
             var engine = new Engine(o => o.Constraints.MaxRecursionDepth = 40);
-            engine._loopKernelsDisabled = !kernels;
+            Configure(engine, mode);
             try
             {
                 engine.Execute(Script);
@@ -408,10 +523,27 @@ public class LoopKernelTests
         }
     }
 
-    private static string Run(string script, string call, bool kernels, bool exact = true)
-        => Run(script, call, kernels, out _, out _, exact);
+    private static void Configure(Engine engine, Mode mode)
+    {
+        engine._loopKernelsDisabled = mode == Mode.Interpreter;
+        engine._loopKernelCodeThreshold = mode switch
+        {
+            Mode.Code => 0,
+            Mode.CodeMidLoop or Mode.CodeLate => KernelCode.DefaultThreshold,
+            _ => -1,
+        };
+        engine._loopKernelCodeWork = mode switch
+        {
+            Mode.CodeMidLoop => 2,
+            Mode.CodeLate => 1000,
+            _ => -1,
+        };
+    }
 
-    private static string Run(string script, string call, bool kernels, out int checks, out int runs, bool exact = true)
+    private static string Run(string script, string call, Mode mode, bool exact = true)
+        => Run(script, call, mode, out _, out _, out _, exact);
+
+    private static string Run(string script, string call, Mode mode, out int checks, out int runs, out int codeRuns, bool exact = true)
     {
         var counter = new CountingConstraint();
         var engine = new Engine(o =>
@@ -421,7 +553,7 @@ public class LoopKernelTests
                 o.AddConstraint(counter);
             }
         });
-        engine._loopKernelsDisabled = !kernels;
+        Configure(engine, mode);
 
         string result;
         try
@@ -436,6 +568,7 @@ public class LoopKernelTests
 
         checks = counter.Checks;
         runs = engine._loopKernelRuns;
+        codeRuns = engine._loopKernelCodeRuns;
         return result;
     }
 

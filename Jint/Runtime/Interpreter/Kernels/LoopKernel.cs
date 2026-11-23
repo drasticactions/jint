@@ -34,6 +34,19 @@ internal sealed class KernelFrame
     internal Completion Abrupt;
     internal bool InUse;
 
+    // How many statements per node of the kernel the tree checks before the kernel runs as compiled code, or -1 to
+    // stay on the tree (Engine._loopKernelCodeThreshold).
+    internal int CodeThreshold;
+
+    // Whether compiled code of this kernel is running in this frame, the code it completed the outermost loop with
+    // when it was entered from a loop inside, and whether an exception is leaving the code through the tree.
+    internal bool InCode;
+    internal int FinishedCode;
+    internal bool Escaping;
+
+    // The statements the tree has checked in this run.
+    internal long Work;
+
     // The slot names of the environment the kernel was entered in the first time, and the slot each name has there
     // (or -1): a run entered in an environment of that layout resolves those names without a walk.
     internal Key[]? Layout;
@@ -207,6 +220,7 @@ internal abstract class KernelProgram
 
         frame.Layout = _layout;
         frame.LayoutIndices = _layoutIndices;
+        frame.CodeThreshold = engine._loopKernelCodeThreshold;
         engine._loopKernelRuns++;
         return frame;
     }
@@ -242,6 +256,9 @@ internal abstract class KernelProgram
         frame.LayoutIndices = null;
         frame.Context = null!;
         frame.Engine = null!;
+        frame.InCode = false;
+        frame.Escaping = false;
+        frame.Work = 0;
         frame.InUse = false;
     }
 }
@@ -249,11 +266,31 @@ internal abstract class KernelProgram
 /// <summary>A <c>for</c> loop run on a kernel.</summary>
 internal sealed class LoopKernel : KernelProgram
 {
-    private readonly KernelForStatement _loop;
+    internal readonly KernelForStatement _loop;
 
-    private LoopKernel(KernelForStatement loop, Environment.BindingName[] names) : base(names)
+    // The kernel's code (see KernelCode), compiled once the tree has checked CodeThreshold statements per node of the
+    // kernel; the statements checked and the iterations begun until then, and whether compiling failed.
+    internal KernelCode? _code;
+    internal int _iterations;
+    private long _work;
+    private readonly int _size;
+    private bool _noCode;
+
+    // The kernel's loops, by entry.
+    internal readonly KernelForStatement[] _loops;
+
+    private LoopKernel(KernelForStatement loop, Environment.BindingName[] names, List<KernelForStatement> loops, int size) : base(names)
     {
         _loop = loop;
+        _size = size;
+        _loops = loops.ToArray();
+
+        // Entry 0 is the outermost loop, whose code is also entered where it starts; every loop has one at its head.
+        for (var i = 0; i < loops.Count; i++)
+        {
+            loops[i]._kernel = this;
+            loops[i]._entry = i;
+        }
     }
 
     internal static LoopKernel? TryCreate(JintForStatement owner, ForStatement statement)
@@ -265,7 +302,30 @@ internal sealed class LoopKernel : KernelProgram
             return null;
         }
 
-        return new LoopKernel(loop, compiler.Names);
+        return new LoopKernel(loop, compiler.Names, compiler.Loops, compiler.Size);
+    }
+
+    /// <summary>
+    /// Whether the tree has done enough work for the code to pay: compiling costs about as much as running the tree
+    /// for CodeThreshold statements per node, and code that runs a statement costs a fraction of the tree.
+    /// </summary>
+    internal bool WorthCompiling(KernelFrame frame)
+    {
+        var work = frame.Engine._loopKernelCodeWork;
+        return _code is not null || _work + frame.Work >= (work >= 0 ? work : (long) frame.CodeThreshold * _size);
+    }
+
+    /// <summary>The kernel's code, compiled now if it has none yet; null where it cannot be compiled.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    internal KernelCode? Compile()
+    {
+        if (_code is null && !_noCode)
+        {
+            _code = KernelCode.TryCompile(_loop);
+            _noCode = _code is null;
+        }
+
+        return _code;
     }
 
     /// <summary>Whether the context lets the loop run on its kernel: completion values must be dead too.</summary>
@@ -277,6 +337,12 @@ internal sealed class LoopKernel : KernelProgram
         try
         {
             var code = _loop.Execute(frame);
+            _work += frame.Work;
+            if (code == KernelStatement.Finished)
+            {
+                code = frame.FinishedCode;
+            }
+
             return code == KernelStatement.Abrupt
                 ? frame.Abrupt
                 : new Completion(CompletionType.Normal, JsValue.Undefined, _loop._statement);

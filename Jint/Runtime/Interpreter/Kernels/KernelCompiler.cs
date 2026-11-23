@@ -21,6 +21,12 @@ internal sealed class KernelCompiler
     /// <summary>Whether any part of the loop runs on kernel nodes rather than on the interpreter's handlers.</summary>
     internal bool CompiledAnything => _compiled > 0;
 
+    /// <summary>How many nodes the kernel has, what compiling it costs in proportion to.</summary>
+    internal int Size => _compiled;
+
+    /// <summary>The loops compiled, the outermost first.</summary>
+    internal List<KernelForStatement> Loops { get; } = [];
+
     /// <summary>The loop, or null when its header is not one a kernel runs: a lexical declaration or a label.</summary>
     internal KernelForStatement? CompileLoop(ForStatement statement, JintForStatement? owner)
     {
@@ -49,8 +55,12 @@ internal sealed class KernelCompiler
 
         var test = statement.Test is null ? null : CompileTest(statement.Test);
         var update = statement.Update is null ? null : CompileEffect(statement.Update);
+        var index = Loops.Count;
+        Loops.Add(null!);
         var body = CompileStatement(statement.Body, blockLevel: false);
-        return new KernelForStatement(statement, initStatement, initExpression, test, update, body, owner);
+        var loop = new KernelForStatement(statement, initStatement, initExpression, test, update, body, owner);
+        Loops[index] = loop;
+        return loop;
     }
 
     /// <summary>A statement of a statement list, where a <c>return</c> of a literal is resolved without running it.</summary>
