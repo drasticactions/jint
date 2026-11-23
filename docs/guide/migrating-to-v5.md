@@ -8773,6 +8773,24 @@ The `Array.prototype` methods whose spec asks `HasProperty` before `Get` (`forEa
 otherwise returns what `Get` returns. An array whose prototype chain is the intrinsic `Array.prototype` and
 `Object.prototype`, with no index on either, reads what it did. There is no switch back.
 
+### 4.238 The `Function` constructors convert their arguments before the host is asked
+
+`new Function(...)` and its async and generator siblings called `Host.EnsureCanCompileStrings` first and converted the
+parameter and body arguments with `ToString` after it. [CreateDynamicFunction](https://tc39.es/ecma262/#sec-createdynamicfunction)
+asks the host after the conversion, with the strings, and so does Jint now. A host that refuses string compilation
+still refuses it, but a `toString` on an argument has already run by then:
+
+```js
+// with Options.Host.StringCompilationAllowed = false
+let calls = 0;
+try { new Function({ toString() { calls++; return 'return 1'; } }); } catch {}
+calls;
+// 5.0: 0    5.x: 1
+```
+
+**What could break:** a host whose check depends on no argument conversion having run. `eval` is unchanged: a string
+argument needs no conversion.
+
 ## 5. New in v5
 
 Everything in the table below is opt-in: nothing in it is installed unless the host asks for it, so
@@ -10112,6 +10130,17 @@ credential partitioning, lifecycle and disk failure behavior.
 for `serve`, `fetch`, `eval` and `mcp`. `BrowserOptions.ConfigureContext` configures every context, including
 protocol-created contexts; callbacks run on the creating caller's thread after supplied options.
 `BrowserAgentOptions.HttpCache` configures the MCP session's context.
+
+### 5.42 A host can see what `eval` and `Function` compile, and let an object stand for code
+
+`Host.EnsureCanCompileStrings(Realm, Realm, StringCompilation)` is called for `eval` and the `Function` constructors
+with what they compile: the parameter and body strings, the whole source that will be parsed, the values the script
+passed and whether an `eval` is direct. Its default calls the two-argument overload, so a host that overrides only that
+one is asked as before. `Host.GetCodeForEval(ObjectInstance)` lets an object stand for code: `eval` runs the string it
+returns instead of returning the object, and a `Function` constructor uses it for an argument instead of calling the
+object's `toString`. Its default returns null, which keeps every object what it was. Together they are the host hooks
+of [Dynamic Code Brand Checks](https://tc39.es/proposal-dynamic-code-brand-checks/), which a browser uses for
+Trusted Types: a `TrustedScript` is evaluated by `eval`, and the Content Security Policy sees the source it checks.
 
 ## 6. AOT and trimming
 

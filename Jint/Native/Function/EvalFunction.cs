@@ -1,4 +1,5 @@
 using System.Threading;
+using Jint.Native.Object;
 using Jint.Runtime;
 using Jint.Runtime.Descriptors;
 using Jint.Runtime.Environments;
@@ -96,9 +97,17 @@ public sealed class EvalFunction : Function
     /// </summary>
     internal JsValue PerformEval(JsValue x, Realm callerRealm, bool strictCaller, bool direct)
     {
+        // An object that the host says stands for code is evaluated as that code
+        // (https://tc39.es/proposal-dynamic-code-brand-checks/#sec-performeval).
+        var argument = x;
         if (!x.IsString())
         {
-            return x;
+            if (x is not ObjectInstance o || _engine._host.GetCodeForEval(o) is not { } code)
+            {
+                return x;
+            }
+
+            x = new JsString(code);
         }
 
         // Evaluating source text re-enters the interpreter without entering a function, so none of the
@@ -109,7 +118,9 @@ public sealed class EvalFunction : Function
         _engine._stackGuard.EnsureStackHeadroom();
 
         var evalRealm = _realm;
-        _engine._host.EnsureCanCompileStrings(callerRealm, evalRealm);
+        var source = x.ToString();
+        _engine._host.EnsureCanCompileStrings(callerRealm, evalRealm,
+            new StringCompilation(StringCompilationKind.Eval, [], source, source, [], argument, direct));
 
         var inFunction = false;
         var inMethod = false;
@@ -159,7 +170,6 @@ public sealed class EvalFunction : Function
         // For indirect eval, parse in non-strict mode (strictness only from "use strict" in code)
         // For direct eval, inherit caller's strictness
         var strictParse = direct && strictCaller;
-        var source = x.ToString();
         var parsingConstraints = _engine.GetActiveParsingConstraints();
         parsingConstraints.CheckSourceLength(source.Length);
 

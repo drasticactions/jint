@@ -127,6 +127,22 @@ public class Host
     }
 
     /// <summary>
+    /// https://tc39.es/proposal-dynamic-code-brand-checks/#sec-hostensurecancompilestrings — the check of <c>eval</c> and the
+    /// <c>Function</c> constructors, which also sees what they compile. The default is
+    /// <see cref="EnsureCanCompileStrings(Realm, Realm)"/>.
+    /// </summary>
+    public virtual void EnsureCanCompileStrings(Realm callerRealm, Realm evalRealm, StringCompilation compilation)
+    {
+        EnsureCanCompileStrings(callerRealm, evalRealm);
+    }
+
+    /// <summary>
+    /// https://tc39.es/proposal-dynamic-code-brand-checks/#sec-hostgetcodeforeval — the source that <c>eval</c> runs for an
+    /// object that stands for code, or null for an object that <c>eval</c> returns as it is. The default is null.
+    /// </summary>
+    public virtual string? GetCodeForEval(ObjectInstance value) => null;
+
+    /// <summary>
     /// https://tc39.es/ecma262/#sec-GetImportedModule
     /// </summary>
     /// <remarks>

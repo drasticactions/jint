@@ -1870,7 +1870,9 @@ namespace Jint.Runtime
         protected virtual void CreateIntrinsics(Jint.Runtime.Realm realmRec) { }
         protected virtual Jint.Runtime.Realm CreateRealm() { }
         public virtual void EnsureCanCompileStrings(Jint.Runtime.Realm callerRealm, Jint.Runtime.Realm evalRealm) { }
+        public virtual void EnsureCanCompileStrings(Jint.Runtime.Realm callerRealm, Jint.Runtime.Realm evalRealm, Jint.Runtime.StringCompilation compilation) { }
         public virtual void FinalizeImportMeta(Jint.Native.Object.ObjectInstance importMeta, Jint.Runtime.Modules.ModuleRecord moduleRecord) { }
+        public virtual string? GetCodeForEval(Jint.Native.Object.ObjectInstance value) { }
         public virtual System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<Jint.Native.JsValue, Jint.Native.JsValue>> GetImportMetaProperties(Jint.Runtime.Modules.ModuleRecord moduleRecord) { }
         public void Initialize(Jint.Engine engine) { }
         protected virtual void InitializeHostDefinedRealm() { }
@@ -1977,6 +1979,21 @@ namespace Jint.Runtime
     public sealed class StatementsCountOverflowException : Jint.JintException
     {
         public StatementsCountOverflowException() { }
+    }
+    public sealed class StringCompilation
+    {
+        public Jint.Native.JsValue BodyArg { get; }
+        public string BodyString { get; }
+        public string CodeString { get; }
+        public bool Direct { get; }
+        public Jint.Runtime.StringCompilationKind Kind { get; }
+        public System.Collections.Generic.IReadOnlyList<Jint.Native.JsValue> ParameterArgs { get; }
+        public System.Collections.Generic.IReadOnlyList<string> ParameterStrings { get; }
+    }
+    public enum StringCompilationKind
+    {
+        Eval = 0,
+        Function = 1,
     }
     public static class TypeConverter
     {

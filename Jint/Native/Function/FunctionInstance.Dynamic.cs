@@ -44,8 +44,6 @@ public partial class Function
         var callerRealm = callerContext.Realm;
         var calleeRealm = _engine.ExecutionContext.Realm;
 
-        _engine._host.EnsureCanCompileStrings(callerRealm, calleeRealm);
-
         if (newTarget.IsUndefined())
         {
             newTarget = constructor;
@@ -91,20 +89,20 @@ public partial class Function
 
         if (argCount == 1)
         {
-            body = TypeConverter.ToString(arguments[0]);
+            body = ToCodeString(arguments[0]);
         }
         else if (argCount > 1)
         {
             parameters = new string[argCount - 1];
             for (var k = 0; k < parameters.Length; k++)
             {
-                var parameter = TypeConverter.ToString(arguments[k]);
+                var parameter = ToCodeString(arguments[k]);
                 parameters[k] = parameter;
                 parametersLength += parameter.Length;
             }
 
             parametersLength += parameters.Length - 1;
-            body = TypeConverter.ToString(arguments[argCount - 1]);
+            body = ToCodeString(arguments[argCount - 1]);
         }
 
         JintFunctionDefinition? definition = null;
@@ -138,6 +136,15 @@ public partial class Function
             _engine.CheckParsingSourceLength(prefix!.Length + parametersLength + 7L + body.Length);
             var p = parameters is null ? "" : string.Join(',', parameters);
             var functionExpression = prefix + p + "\n) {\n" + body + "\n}";
+
+            // The host sees the parameters and the body as strings and as the values passed, and the source that will be
+            // parsed (https://tc39.es/proposal-dynamic-code-brand-checks/#sec-createdynamicfunction).
+            // The arguments array can be covariant (a JsString[]), which a span over it rejects.
+            var parameterArgs = argCount > 1 ? new JsValue[argCount - 1] : [];
+            System.Array.Copy(arguments, parameterArgs, parameterArgs.Length);
+            var bodyArg = argCount > 0 ? arguments[argCount - 1] : JsValue.Undefined;
+            _engine._host.EnsureCanCompileStrings(callerRealm, calleeRealm,
+                new StringCompilation(StringCompilationKind.Function, parameters ?? [], body, functionExpression, parameterArgs, bodyArg, direct: false));
 
             _engine.CheckParsingSourceLength(functionExpression!.Length);
 
@@ -232,6 +239,13 @@ public partial class Function
 
         return F;
     }
+
+    /// <summary>
+    /// The string of a parameter or body argument: the code of an object that the host says stands for code, without
+    /// calling its toString, else ToString (https://tc39.es/proposal-dynamic-code-brand-checks/#sec-createdynamicfunction).
+    /// </summary>
+    private string ToCodeString(JsValue value) =>
+        value is ObjectInstance o && _engine._host.GetCodeForEval(o) is { } code ? code : TypeConverter.ToString(value);
 
     /// <summary>
     /// Enforces CreateDynamicFunction steps 17-24 for a source assembled by

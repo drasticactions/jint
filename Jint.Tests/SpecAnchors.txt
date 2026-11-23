@@ -14,8 +14,8 @@
 # The 'verified' date is the only thing bounding anchor rot: a clause renamed upstream keeps
 # resolving here until somebody re-runs that.
 #
-verified: 2026-11-22
-anchors: 1356
+verified: 2026-11-23
+anchors: 1360
 absent: 2
 !proposal-decorators sec-autoaccessordefinitionevaluation  # tc39.es still renders the 2018 descriptor design, which has no such clause
 !proposal-decorators sec-createdecoratorcontextobject  # tc39.es still renders the 2018 descriptor design, which has no such clause
@@ -1110,6 +1110,10 @@ proposal-defer-import-eval sec-GetModuleExportsList
 proposal-defer-import-eval sec-IsModuleSCCEvaluated
 proposal-defer-import-eval sec-IsSymbolLikeNamespaceKey
 proposal-defer-import-eval sec-ReadyForSyncExecution
+proposal-dynamic-code-brand-checks sec-createdynamicfunction
+proposal-dynamic-code-brand-checks sec-hostensurecancompilestrings
+proposal-dynamic-code-brand-checks sec-hostgetcodeforeval
+proposal-dynamic-code-brand-checks sec-performeval
 proposal-error-stacks sec-get-error.prototype-stack
 proposal-error-stacks sec-set-error.prototype-stack
 proposal-float16array sec-math.f16round
