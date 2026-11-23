@@ -38,6 +38,23 @@ public partial class Engine
         }
 
         /// <summary>
+        /// Returns the syntax tree of the active script or module, or <see langword="null"/> when no script or module runs.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The active script or module is the one
+        /// <see href="https://tc39.es/ecma262/#sec-getactivescriptormodule">GetActiveScriptOrModule</see> answers: that of the
+        /// innermost running code, which <c>eval</c> code and a <c>Function</c> constructor body share with the code that ran them.
+        /// </para>
+        /// <para>
+        /// It is the reference <see cref="Prepared{TProgram}.Program"/> and <c>DebugHandler.BeforeEvaluate</c> hand over, so a
+        /// host can key state of its own per script, such as the fetch options a script was fetched with, by it.
+        /// </para>
+        /// </remarks>
+        /// <returns>The active script's or module's syntax tree, or <see langword="null"/>.</returns>
+        public Program? GetActiveScriptOrModuleProgram() => _engine.GetActiveScriptOrModule()?.Program;
+
+        /// <summary>
         /// Permanently stops this engine's queued work and releases transient web and module state.
         /// </summary>
         /// <remarks>

@@ -87,6 +87,7 @@ namespace Jint
             public Jint.Native.Object.ObjectInstance CreateProxy(Jint.Native.Object.ObjectInstance target, Jint.Runtime.Interop.ProxyHandler handler) { }
             public Jint.Runtime.Interop.RevocableProxy CreateRevocableProxy(Jint.Native.Object.ObjectInstance target, Jint.Runtime.Interop.ProxyHandler handler) { }
             public void DiscardInterpreterCaches() { }
+            public Acornima.Ast.Program? GetActiveScriptOrModuleProgram() { }
             public System.Collections.Generic.IReadOnlyList<string> GetGlobalLexicalNames() { }
             public Jint.Native.Object.PropertyAccessSemantics GetPropertyAccessSemantics(Jint.Native.Object.ObjectInstance value) { }
             public bool HasSharedShape(Jint.Native.Object.ObjectInstance value) { }

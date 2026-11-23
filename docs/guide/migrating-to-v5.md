@@ -10163,6 +10163,15 @@ object's `toString`. Its default returns null, which keeps every object what it 
 of [Dynamic Code Brand Checks](https://tc39.es/proposal-dynamic-code-brand-checks/), which a browser uses for
 Trusted Types: a `TrustedScript` is evaluated by `eval`, and the Content Security Policy sees the source it checks.
 
+### 5.43 A host can ask which script is active
+
+`Engine.Advanced.GetActiveScriptOrModuleProgram()` returns the syntax tree of the active script or module — the one
+[GetActiveScriptOrModule](https://tc39.es/ecma262/#sec-getactivescriptormodule) answers — or `null` when none runs.
+`eval` code and a `Function` constructor body answer the code that ran them, and a function answers the script it was
+declared in, whoever calls it. The tree is the reference `Prepared<Script>.Program` and `DebugHandler.BeforeEvaluate`
+hand over, so a host can keep state per script by it where two scripts share a source name: a browser keys the fetch
+options of its inline scripts and event handlers, which a dynamic `import()` uses, this way.
+
 ## 6. AOT and trimming
 
 Jint 4.16 asserted Native AOT compatibility with the `IsAotCompatible` property and nothing else. In
