@@ -355,18 +355,22 @@ public sealed class ModuleLoadCompletion
         try
         {
             _modules.RemovePendingLoad(_cacheKey);
-            var loadError = error;
-            if (loadError is null)
+            if (error is not null)
             {
-                loadError = exception is null
-                    ? CreateError(message)
-                    : Throw.CreateClrError(
-                        Engine,
-                        exception,
-                        Engine.Options.Modules.ExposeDetailedLoadErrors ? message : GenericLoadErrorMessage,
-                        moduleErrorPolicyApplied: true);
+                FinishWaiters(module: null, error, exception);
+                return;
             }
-            FinishWaiters(module: null, loadError, exception);
+
+            // Each importer that waits on the failed load gets an error of its own, as each one's own load of
+            // the module would have failed with a new error (HTML's HostLoadImportedModule throws a new
+            // TypeError for every failed fetch); an error that the loader handed over is shared.
+            FinishWaiters(module: null, error: null, exception, () => exception is null
+                ? CreateError(message)
+                : Throw.CreateClrError(
+                    Engine,
+                    exception,
+                    Engine.Options.Modules.ExposeDetailedLoadErrors ? message : GenericLoadErrorMessage,
+                    moduleErrorPolicyApplied: true));
         }
 
         finally
@@ -382,7 +386,7 @@ public sealed class ModuleLoadCompletion
         ExceptionDispatchInfo.Capture(exception).Throw();
     }
 
-    private void FinishWaiters(ModuleRecord? module, JsValue? error, Exception? exception)
+    private void FinishWaiters(ModuleRecord? module, JsValue? error, Exception? exception, Func<JsValue>? mintError = null)
     {
         if (error is not null
             && exception is JavaScriptException javaScriptException
@@ -405,7 +409,7 @@ public sealed class ModuleLoadCompletion
             var waiter = _waiters[i];
             try
             {
-                Engine._host.FinishLoadingImportedModule(waiter.Referrer, waiter.ReferrerLocation, waiter.Request, waiter.Payload, module, error);
+                Engine._host.FinishLoadingImportedModule(waiter.Referrer, waiter.ReferrerLocation, waiter.Request, waiter.Payload, module, mintError is not null ? mintError() : error);
             }
             catch (Exception ex)
             {
