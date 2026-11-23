@@ -1435,11 +1435,20 @@ AppendEscapedNewLine:
                 };
             }
 
+            // A compiled program is a pure function of pattern and flags and is immutable, so every construction of
+            // the same pattern shares one: RegExp.prototype[@@split] and friends construct a fresh splitter per call.
+            if (CustomRegExpEngineCache.TryGet(pattern, regExpFlags, out var cached))
+            {
+                return cached;
+            }
+
             using var cts = regexTimeout.TotalMilliseconds > 0 && regexTimeout != Timeout.InfiniteTimeSpan
                 ? new CancellationTokenSource(regexTimeout)
                 : null;
 
-            return JintRegExpEngine.Compile(pattern, regExpFlags, cts?.Token ?? default);
+            var compiled = JintRegExpEngine.Compile(pattern, regExpFlags, cts?.Token ?? default);
+            CustomRegExpEngineCache.Add(pattern, regExpFlags, compiled);
+            return compiled;
         }
         catch (OperationCanceledException)
         {

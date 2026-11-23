@@ -301,6 +301,42 @@ public class RegExpTests
         result.Should().Be("[[\"\",\"a\",\"\"],[\"\"],[]]");
     }
 
+    [TestCase("'a\\uD83D\\uDE00b'.split(/(?:)/u)", "[\"a\",\"😀\",\"b\"]")]
+    [TestCase("'axbxxc'.split(/x*/u)", "[\"a\",\"b\",\"c\"]")]
+    [TestCase("'axbyc'.split(/(x)|(y)/u)", "[\"a\",\"x\",null,\"b\",null,\"y\",\"c\"]")]
+    [TestCase("'babab'.split(/(?<=a)/u)", "[\"ba\",\"ba\",\"b\"]")]
+    [TestCase("'a\\nb\\nc'.split(/^/mu)", "[\"a\\n\",\"b\\n\",\"c\"]")]
+    [TestCase("'Hello, w\\u00f6rld! 123'.split(/[^\\p{L}\\p{N}]+/u)", "[\"Hello\",\"wörld\",\"123\"]")]
+    [TestCase("'a,b,c'.split(/,/uy)", "[\"a\",\"b\",\"c\"]")]
+    [TestCase("'a,b,c'.split(/,/ug)", "[\"a\",\"b\",\"c\"]")]
+    [TestCase("'aBcD'.split(/[\\p{L}--[a-z]]/v)", "[\"a\",\"c\",\"\"]")]
+    public void SplitOnCustomEngineMatchesEveryPositionInTurn(string expression, string expected)
+    {
+        // The custom engine searches forward for the next match instead of trying the sticky splitter at each
+        // position; the results must be those of the position-by-position loop.
+        var engine = new Engine();
+        var result = engine.Evaluate($"JSON.stringify({expression})").AsString();
+
+        result.Should().Be(expected);
+    }
+
+    [Test]
+    public void SplitOnCustomEngineLeavesTheSourceLastIndexAndObservesOverriddenExec()
+    {
+        var engine = new Engine();
+        var result = engine.Evaluate("""
+            var r = /,/u; r.lastIndex = 3;
+            var plain = 'a,b'.split(r);
+            var calls = 0, exec = RegExp.prototype.exec;
+            RegExp.prototype.exec = function (s) { calls++; return exec.call(this, s); };
+            var patched = 'a,b'.split(/,/u);
+            RegExp.prototype.exec = exec;
+            JSON.stringify([plain, r.lastIndex, patched, calls]);
+            """).AsString();
+
+        result.Should().Be("[[\"a\",\"b\"],3,[\"a\",\"b\"],3]");
+    }
+
     private const string TestRegex = "^(https?:\\/\\/)?([\\da-z\\.-]+)\\.([a-z\\.]{2,6})([\\/\\w\\.-]*)*\\/?$";
     private const string TestedValue = "https://archiverbx.blob.core.windows.net/static/C:/Users/USR/Documents/Projects/PROJ/static/images/full/1234567890.jpg";
 

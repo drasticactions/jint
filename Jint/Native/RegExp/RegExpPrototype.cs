@@ -848,7 +848,81 @@ internal sealed partial class RegExpPrototype : Prototype
             }
         }
 
+        if (splitter is JsRegExp customSplitter && customSplitter.HasDefaultRegExpExec && !customSplitter.UsesDotNetEngine)
+        {
+            return SplitWithCustomEngine(customSplitter, s, unicodeMatching, lim);
+        }
+
         return SplitSlow(s, splitter, unicodeMatching, lim);
+    }
+
+    /// <summary>
+    /// <see cref="SplitSlow"/> for a splitter that runs on the custom engine with the built-in exec. The spec tries
+    /// the sticky splitter at every position in turn; searching forward with the same pattern without the sticky
+    /// flag finds the same next match in one pass (the first position at which the pattern matches is where the
+    /// search stops, and a match from a given position does not depend on how the position was reached). The
+    /// splitter is the method's own object, so the lastIndex writes and result arrays the spec makes for it are not
+    /// observable and are skipped.
+    /// </summary>
+    private JsArray SplitWithCustomEngine(JsRegExp splitter, string s, bool unicodeMatching, long lim)
+    {
+        var flags = splitter.Flags.Replace("y", "");
+        var searcher = RegExpConstructor.TryCompileWithCustomEngine(_realm, splitter.Source, flags, GetCustomEngineTimeout(splitter));
+        var builder = new JsValueListBuilder(16);
+        try
+        {
+            var size = s.Length;
+            var p = 0;
+            var q = 0;
+            var iterations = 0;
+            while (q < size)
+            {
+                if (++iterations % ConstraintCheckInterval == 0)
+                {
+                    _engine.Constraints.Check();
+                }
+
+                var match = ExecuteWithTimeout(splitter, searcher, s, q);
+                if (!match.Success || match.Index >= size)
+                {
+                    break;
+                }
+
+                q = match.Index;
+                var e = System.Math.Min(match.Index + match.Length, size);
+                if (e == p)
+                {
+                    q = (int) AdvanceStringIndex(s, (ulong) q, unicodeMatching);
+                    continue;
+                }
+
+                builder.Add(s.Substring(p, q - p));
+                if (builder.Length == lim)
+                {
+                    return _realm.Intrinsics.Array.ConstructFromBuilder(ref builder);
+                }
+
+                p = e;
+                var groups = match.Groups;
+                for (var i = 1; groups is not null && i < groups.Length; i++)
+                {
+                    builder.Add(groups[i].Success ? groups[i].Value : Undefined);
+                    if (builder.Length == lim)
+                    {
+                        return _realm.Intrinsics.Array.ConstructFromBuilder(ref builder);
+                    }
+                }
+
+                q = p;
+            }
+
+            builder.Add(s.Substring(p));
+            return _realm.Intrinsics.Array.ConstructFromBuilder(ref builder);
+        }
+        finally
+        {
+            builder.Dispose();
+        }
     }
 
     /// <summary>
