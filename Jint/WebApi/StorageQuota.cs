@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Threading;
 
 namespace Jint.WebApi;
@@ -65,4 +64,3 @@ internal sealed class StorageQuota(long maxBytes)
         internal long Bytes;
     }
 }
-#endif

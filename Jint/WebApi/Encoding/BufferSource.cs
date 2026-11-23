@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.TypedArray;
 
@@ -90,4 +89,3 @@ internal static class BufferSource
         return data.AsSpan(offset, Math.Min(length, data.Length - offset));
     }
 }
-#endif

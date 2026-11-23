@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.WebApi.Fetch;
 
@@ -18,4 +17,3 @@ internal class JsPerformanceResourceTiming : JsPerformanceEntry
     internal ResourceTimingInfo Info { get; }
     internal override JsString EntryType => ResourceEntryType;
 }
-#endif

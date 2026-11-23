@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -293,4 +292,3 @@ public class BodyCloneTeeTests
             """).UnwrapIfPromise().AsString().Should().Be("3:" + string.Join("|", Enumerable.Repeat(string.Join("-", Enumerable.Range(1, 16)), 3)));
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 
 namespace Jint.WebApi.Url.Parsing;
@@ -313,4 +312,3 @@ internal sealed class UrlRecord
         }
     }
 }
-#endif

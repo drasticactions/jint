@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Function;
 using Jint.Native.Object;
@@ -54,4 +53,3 @@ internal sealed class CacheConstructor : Constructor
     internal JsCache CreateInstance(string name, CacheStore store)
         => new(_engine, name, store) { _prototype = PrototypeObject };
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 #pragma warning disable JINT0002 // the WebSocket observer is a preview surface
 
@@ -1477,4 +1476,3 @@ public class WebSocketTests
         Log(engine).Should().Be("open:1:|replaced|listener|listener|listener");
     }
 }
-#endif

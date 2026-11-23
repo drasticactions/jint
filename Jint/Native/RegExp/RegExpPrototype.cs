@@ -791,14 +791,12 @@ internal sealed partial class RegExpPrototype : Prototype
                 int lastIndex = 0;
                 var matchCount = 0;
 
-#if NET8_0_OR_GREATER
                 // Kept in its own method: inlining it here grew RegExp.prototype.split enough to cost
                 // the capture-carrying path ~5% (measured), even though that path never enters it.
                 if (GetRegexGroupCount(R) == 1)
                 {
                     return SplitWithoutCaptures(R, s, lim, ref builder);
                 }
-#endif
 
                 for (var match = R.Value.Match(s, 0); match.Success; match = match.NextMatch())
                 {
@@ -853,7 +851,6 @@ internal sealed partial class RegExpPrototype : Prototype
         return SplitSlow(s, splitter, unicodeMatching, lim);
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// Splits on a pattern that has no capture groups, which makes the caller's group loop dead code
     /// and leaves nothing in the scan needing a <see cref="Match"/> — only each match's index and
@@ -893,7 +890,6 @@ internal sealed partial class RegExpPrototype : Prototype
         builder.Add(s.Substring(lastIndex));
         return _realm.Intrinsics.Array.ConstructFromBuilder(ref builder);
     }
-#endif
 
     private JsArray SplitSlow(string s, ObjectInstance splitter, bool unicodeMatching, long lim)
     {

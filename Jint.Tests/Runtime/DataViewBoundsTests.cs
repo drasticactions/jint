@@ -133,15 +133,6 @@ public class DataViewBoundsTests
         }
     }
 
-    /// <summary>
-    /// Decoding a Float16 needs <c>System.Half</c>, which the net472 asset this project binds there does
-    /// not have — a read there raises <c>NotImplementedException</c> from <c>JsArrayBuffer</c>. That gap is
-    /// older than this file and unrelated to it, so the in-range half of the boundary test below skips
-    /// Float16 where <c>Half</c> is missing. Its rejection half runs everywhere, because the range check
-    /// happens before the decode.
-    /// </summary>
-    private static readonly bool SupportsHalf = Type.GetType("System.Half") is not null;
-
     [Test]
     public void TheLastInRangeIndexOfEachWidthStillReads()
     {
@@ -159,11 +150,6 @@ public class DataViewBoundsTests
         {
             var last = 16 - elementSize;
             ThrownErrorName($"view.get{accessor}({last + 1})").Should().Be("RangeError", $"get{accessor}({last + 1}) is past the end");
-
-            if (accessor == "Float16" && !SupportsHalf)
-            {
-                continue;
-            }
 
             _engine.Evaluate($"view.get{accessor}({last})").ToString().Should().Be("0", $"get{accessor}({last}) is in range");
         }

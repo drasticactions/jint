@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Array;
 using Jint.Native.Object;
@@ -247,4 +246,3 @@ internal sealed class MessageEventConstructor : Constructor
         JsValue Source,
         JsArray Ports);
 }
-#endif

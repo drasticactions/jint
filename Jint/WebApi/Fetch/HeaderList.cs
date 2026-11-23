@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 
 namespace Jint.WebApi.Fetch;
@@ -419,4 +418,3 @@ internal sealed class HeaderList
     /// <summary>https://fetch.spec.whatwg.org/#http-whitespace</summary>
     internal static bool IsHttpWhitespace(char c) => c is '\t' or '\n' or '\r' or ' ';
 }
-#endif

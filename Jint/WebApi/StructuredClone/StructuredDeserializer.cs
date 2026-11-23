@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using Jint.Native;
 using Jint.Native.Error;
@@ -724,4 +723,3 @@ internal sealed class StructuredDeserializer
         }
     }
 }
-#endif

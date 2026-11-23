@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 using Jint.Native;
 using Jint.Runtime;
@@ -1089,4 +1088,3 @@ public sealed class IndexedDbTests
             """).Should().Be("s|s|new,s");
     }
 }
-#endif

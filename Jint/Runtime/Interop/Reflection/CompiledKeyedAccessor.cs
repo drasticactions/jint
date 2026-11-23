@@ -1,12 +1,10 @@
 using System.Reflection;
 
-#if NET8_0_OR_GREATER
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 using Expression = System.Linq.Expressions.Expression;
-#endif
 
 // The delegates are compiled with System.Linq.Expressions and only reference the reflected declaring
 // type, whose visibility is checked before anything is emitted. The reflection and dynamic-code use is
@@ -61,13 +59,11 @@ internal static class CompiledKeyedAccessor
     /// </summary>
     internal delegate void KeyedValueSetter(object target, object key, object? value);
 
-#if NET8_0_OR_GREATER
     // a null value is the "known ineligible" sentinel so an ineligible shape is never re-probed
     private static readonly ConcurrentDictionary<MethodInfo, KeyedValueGetter?> _valueGetters = new();
     private static readonly ConcurrentDictionary<MethodInfo, KeyedIndexerGetter?> _indexerGetters = new();
     private static readonly ConcurrentDictionary<MethodInfo, KeyedPredicate?> _keyPredicates = new();
     private static readonly ConcurrentDictionary<MethodInfo, KeyedValueSetter?> _valueSetters = new();
-#endif
 
     /// <summary>
     /// Returns the compiled reader for a dictionary's <c>bool TryGetValue(TKey, out TValue)</c>, or
@@ -75,16 +71,12 @@ internal static class CompiledKeyedAccessor
     /// </summary>
     internal static KeyedValueGetter? GetValueGetter(MethodInfo? tryGetValue)
     {
-#if NET8_0_OR_GREATER
         if (tryGetValue is null)
         {
             return null;
         }
 
         return _valueGetters.GetOrAdd(tryGetValue, static m => BuildValueGetter(m));
-#else
-        return null;
-#endif
     }
 
     /// <summary>
@@ -93,16 +85,12 @@ internal static class CompiledKeyedAccessor
     /// </summary>
     internal static KeyedIndexerGetter? GetIndexerGetter(MethodInfo? getMethod)
     {
-#if NET8_0_OR_GREATER
         if (getMethod is null)
         {
             return null;
         }
 
         return _indexerGetters.GetOrAdd(getMethod, static m => BuildIndexerGetter(m));
-#else
-        return null;
-#endif
     }
 
     /// <summary>
@@ -111,16 +99,12 @@ internal static class CompiledKeyedAccessor
     /// </summary>
     internal static KeyedPredicate? GetKeyPredicate(MethodInfo? method)
     {
-#if NET8_0_OR_GREATER
         if (method is null)
         {
             return null;
         }
 
         return _keyPredicates.GetOrAdd(method, static m => BuildKeyPredicate(m));
-#else
-        return null;
-#endif
     }
 
     /// <summary>
@@ -129,19 +113,14 @@ internal static class CompiledKeyedAccessor
     /// </summary>
     internal static KeyedValueSetter? GetValueSetter(MethodInfo? setMethod)
     {
-#if NET8_0_OR_GREATER
         if (setMethod is null)
         {
             return null;
         }
 
         return _valueSetters.GetOrAdd(setMethod, static m => BuildValueSetter(m));
-#else
-        return null;
-#endif
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// The checks every lane shares. A constructed generic interface is only visible when its type arguments
     /// are, so the single visibility check also covers a non-public key or value type. Value-type receivers
@@ -322,5 +301,4 @@ internal static class CompiledKeyedAccessor
             return null;
         }
     }
-#endif
 }

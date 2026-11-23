@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -339,4 +338,3 @@ public class PerformanceObserverTests
             .Should().Be("before,after", "the timeline is data behind a restored binding and survives");
     }
 }
-#endif

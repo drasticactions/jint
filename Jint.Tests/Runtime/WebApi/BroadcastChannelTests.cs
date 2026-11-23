@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -715,4 +714,3 @@ public class BroadcastChannelTests
         broker.ActiveNameCount.Should().Be(0);
     }
 }
-#endif

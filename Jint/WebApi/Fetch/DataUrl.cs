@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 using SystemEncoding = System.Text.Encoding;
 using Jint.WebApi.Base64;
@@ -245,4 +244,3 @@ internal static class DataUrl
         });
     }
 }
-#endif

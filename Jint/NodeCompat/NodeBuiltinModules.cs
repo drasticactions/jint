@@ -29,25 +29,19 @@ internal static class NodeBuiltinModules
     private const string PathModule = "node:path";
     private const string PathPosixModule = "node:path/posix";
     private const string PathWin32Module = "node:path/win32";
-#if NET8_0_OR_GREATER
     private const string QueryStringModule = "node:querystring";
     private const string UrlModule = "node:url";
-#endif
 
     /// <summary>
-    /// The provided names, in the order the failure message lists them. Which entries exist depends on the
-    /// target framework: the two URL-based modules are built on the engine's WHATWG URL implementation, which
-    /// needs .NET 8.
+    /// The provided names, in the order the failure message lists them.
     /// </summary>
     private static readonly string[] _names =
     [
         PathModule,
         PathPosixModule,
         PathWin32Module,
-#if NET8_0_OR_GREATER
         QueryStringModule,
         UrlModule,
-#endif
     ];
 
     /// <summary>The provided names as a message fragment: <c>a, b and c</c>.</summary>
@@ -107,12 +101,10 @@ internal static class NodeBuiltinModules
                 return NodePathModule.CreateExports(engine, configuration, NodePathFlavor.Posix);
             case PathWin32Module:
                 return NodePathModule.CreateExports(engine, configuration, NodePathFlavor.Win32);
-#if NET8_0_OR_GREATER
             case QueryStringModule:
                 return NodeQueryStringModule.CreateExports(engine);
             case UrlModule:
                 return NodeUrlModule.CreateExports(engine, configuration);
-#endif
             default:
                 Throw.InvalidOperationException($"'{canonicalName}' is not a Node builtin module Jint provides.");
                 return null!;

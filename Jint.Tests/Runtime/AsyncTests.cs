@@ -995,7 +995,7 @@ public class AsyncTests
     });
 
     // The four "an async host method invokes a JavaScript callback" tests — these two, and the ValueTask
-    // pair under the !NETFRAMEWORK guard below — are what sebastienros/jint#3201 saw fail on net472 with
+    // pair below — are what sebastienros/jint#3201 saw fail on net472 with
     // "This Engine is already in use by another thread". Nothing here is racing the engine, and nothing
     // here can fix it: the mechanism is in the engine's callback admission and is recorded as such.
     //
@@ -1232,8 +1232,6 @@ public class AsyncTests
         neverCompletes.TrySetCanceled();
     });
 
-#if !NETFRAMEWORK
-
     [Test]
     public Task ShouldCompleteWithAsyncValueTaskCallbacks() => DedicatedThread.RunAsync(() =>
     {
@@ -1431,7 +1429,6 @@ public class AsyncTests
         var result = engine.Invoke("test").UnwrapIfPromise();
         result.Should().Be(AsyncTestClass.TestString);
     });
-#endif
 
     [Test]
     public void ShouldHaveCorrectOrder()
@@ -1515,7 +1512,6 @@ public class AsyncTests
         val.UnwrapIfPromise().AsInteger().Should().Be(1);
     });
 
-#if !NETFRAMEWORK // we are having trouble with timeouts on .NET Framework CI runs
     [Test]
     public async Task ShouldEventLoopBeThreadSafeWhenCalledConcurrently()
     {
@@ -1579,7 +1575,6 @@ public class AsyncTests
             await Task.Delay(100, TestContext.CurrentContext.CancellationToken);
         }
     }
-#endif
 
     [Test]
     public void AsyncFunctionShouldNotBlockWhenCalledWithoutAwait()
@@ -2211,7 +2206,6 @@ public class AsyncTests
     // EvaluateAsync / ExecuteAsync Tests
     // ========================================================================
 
-#if !NETFRAMEWORK
     [Test]
     public async Task EvaluateAsyncShouldResolvePromise()
     {
@@ -2648,9 +2642,7 @@ public class AsyncTests
 
         result.AsString().Should().Be("done");
     }
-#endif
 
-#if !NETFRAMEWORK
     // ========================================================================
     // Engine Reuse & State Recovery Edge Cases
     // ========================================================================
@@ -2921,7 +2913,6 @@ public class AsyncTests
         var result = await engine.EvaluateAsync("Promise.resolve(42)");
         result.AsInteger().Should().Be(42);
     }
-#endif
 
     // ========================================================================
     // Chained Promise Tests
@@ -3451,7 +3442,6 @@ public class AsyncTests
         result.AsString().Should().Be("{}");
     }
 
-#if !NETFRAMEWORK
     [Test]
     public async Task EventLoopShouldSignalAllConcurrentWaiters()
     {
@@ -3478,7 +3468,6 @@ public class AsyncTests
         waiter1.IsCompletedSuccessfully.Should().BeTrue();
         waiter2.IsCompletedSuccessfully.Should().BeTrue();
     }
-#endif
 
     class TestAsyncClass
     {

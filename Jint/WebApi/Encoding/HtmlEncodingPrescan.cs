@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 namespace Jint.WebApi.Encoding;
 
 /// <summary>
@@ -552,4 +551,3 @@ internal static class HtmlEncodingPrescan
         return -1;
     }
 }
-#endif

@@ -459,7 +459,6 @@ public partial class InteropTests
         root.Probes.Should().Be(5);
     }
 
-#if NET
     [Test]
     public void ImmutableCrossingRemovesThePerReadAllocationOfANestedWalk()
     {
@@ -504,5 +503,4 @@ public partial class InteropTests
         engine.Evaluate(script);
         return GC.GetAllocatedBytesForCurrentThread() - before;
     }
-#endif
 }

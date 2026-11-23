@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -334,4 +333,3 @@ public class FileReaderTests
         engine.Evaluate("order.length").AsNumber().Should().Be(0);
     }
 }
-#endif

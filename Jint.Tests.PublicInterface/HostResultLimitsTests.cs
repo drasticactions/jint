@@ -16,14 +16,11 @@ public class HostResultLimitsTests
     /// The budget one host operation gets in <see cref="OperationDeadlineSpansEvaluationAndConversion"/>.
     /// </summary>
     /// <remarks>
-    /// On the target frameworks that have <c>TimeProvider</c> the row drives the constraint's clock itself,
-    /// so the number is arbitrary and nothing has to fit inside any part of it. On the downlevel leg it is
-    /// wall clock, and nothing has to fit inside a <em>slice</em> of it either: the only entry that must
-    /// complete is a warm four-hundred-statement evaluation, and the whole budget is its headroom.
+    /// The row drives the constraint's clock itself, so the number is arbitrary and nothing has to fit inside
+    /// any part of it.
     /// </remarks>
     private static readonly TimeSpan OperationBudget = TimeSpan.FromMilliseconds(400);
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// One tick of <see cref="ManualClock"/>, which is what the deterministic leg of
     /// <see cref="OperationDeadlineSpansEvaluationAndConversion"/> spends to cross the budget. The clock
@@ -31,20 +28,6 @@ public class HostResultLimitsTests
     /// tick are the same thing and the row can straddle the deadline exactly.
     /// </summary>
     private static readonly TimeSpan OneClockTick = TimeSpan.FromTicks(1);
-#else
-    /// <summary>
-    /// How far past <see cref="OperationBudget"/> the host sleeps, so that no timer granularity anywhere
-    /// can leave time on a budget the test needs gone.
-    /// </summary>
-    private static readonly TimeSpan BudgetOverspend = TimeSpan.FromMilliseconds(100);
-
-    /// <summary>
-    /// Absorbs the constraint's truncation of the budget into <see cref="Stopwatch"/> ticks when deciding
-    /// whether a throw out of the evaluation entry means the runner stalled or the budget was armed in
-    /// the past.
-    /// </summary>
-    private static readonly TimeSpan AttributionSlack = TimeSpan.FromMilliseconds(1);
-#endif
 
     /// <summary>
     /// A script whose evaluation <em>and</em> whose getter each run well past the interpreter's amortized
@@ -409,7 +392,6 @@ public class HostResultLimitsTests
         new JsonSerializer(engine).Serialize(value).AsString().Should().Be("""{"value":42}""");
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// Evaluating a script and converting its result are two separate top-level entries, and the engine
     /// rewinds every ordinary constraint at each of those boundaries. This one declines, so what the
@@ -440,8 +422,8 @@ public class HostResultLimitsTests
         var deadline = new OperationDeadlineConstraint(clock);
         using var engine = new Engine(options => options.AddConstraint(deadline));
 
-        // Warm parsing, the getter's call path and ConvertResult. Nothing depends on it any more — the
-        // clock does not move on its own — but it keeps the row's shape comparable with the downlevel leg.
+        // Warm parsing, the getter's call path and ConvertResult. Nothing depends on it — the clock does not
+        // move on its own — but it keeps the row's shape comparable with the other rows.
         engine.ConvertResult(engine.Evaluate(CheckedEvaluationSource));
 
         deadline.Begin(OperationBudget);
@@ -469,63 +451,6 @@ public class HostResultLimitsTests
 
         engine.Evaluate("1 + 1").AsNumber().Should().Be(2);
     }
-#else
-    [Test]
-    public void OperationDeadlineSpansEvaluationAndConversion()
-    {
-        // Evaluating a script and converting its result are two separate top-level entries, and the
-        // engine rewinds every ordinary constraint at each of those boundaries. This one declines, so
-        // what the evaluation entry left of the operation's budget is what the conversion entry gets —
-        // here, nothing.
-        //
-        // This is the leg without TimeProvider, so the budget is spent on the host's own clock rather
-        // than by a pause inside the script, and that is the whole point of the shape. A script pause
-        // long enough to exhaust the budget would fail the entry that ran it, so exhausting it from
-        // inside the engine means splitting the budget into slices and requiring the evaluation to fit
-        // in one — which is a claim about the runner, and is exactly how this row failed a macOS leg of
-        // a workers-only change (#3221). The budget is wall clock from Begin, host time counts against
-        // it just as engine time does, and Thread.Sleep only ever overshoots: no machine is slow enough
-        // to leave time on it. The net8.0-and-later leg above drives the clock instead and needs none
-        // of this.
-        var deadline = new OperationDeadlineConstraint();
-        using var engine = new Engine(options => options.AddConstraint(deadline));
-
-        // Warm parsing, the getter's call path and ConvertResult before the clock starts.
-        engine.ConvertResult(engine.Evaluate(CheckedEvaluationSource));
-
-        var stopwatch = Stopwatch.StartNew();
-        deadline.Begin(OperationBudget);
-        try
-        {
-            JsValue value = null;
-            var evaluationFailure = Caught.Exception(() => value = engine.Evaluate(CheckedEvaluationSource));
-
-            // A stall long enough to fail this entry is the runner's doing, and failing it is what the
-            // engine promises, but it leaves the run with nothing to say about the conversion. A budget
-            // armed in the past fails the same entry with the stopwatch reading nearly zero, and that is
-            // a defect — hence the elapsed-time condition rather than a bare "did it throw", and hence
-            // the assertion that follows for every other failure.
-            if (evaluationFailure is TimeoutException && stopwatch.Elapsed >= OperationBudget - AttributionSlack)
-            {
-                Assert.Ignore("the runner stalled the evaluation entry past the whole operation budget");
-            }
-            evaluationFailure.Should().BeNull("the evaluation entry runs inside a budget it cannot have spent");
-
-            Thread.Sleep(OperationBudget + BudgetOverspend);
-
-            Invoking(() => engine.ConvertResult(value))
-                .Should().ThrowExactly<TimeoutException>(
-                    "the conversion is a fresh top-level entry, and the engine's per-entry reset must not "
-                    + "refund it the operation's budget");
-        }
-        finally
-        {
-            deadline.End();
-        }
-
-        engine.Evaluate("1 + 1").AsNumber().Should().Be(2);
-    }
-#endif
 
     [Test]
     public void ExplicitMemoryOperationSpansEvaluationAndConversion()
@@ -745,7 +670,6 @@ public class HostResultLimitsTests
         }
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// A clock the test moves itself, so that "the operation's budget elapsed" is something the row states
     /// rather than something it waits for. Reports <see cref="TimeSpan.TicksPerSecond"/> so that a tick of
@@ -761,5 +685,4 @@ public class HostResultLimitsTests
 
         internal void Advance(TimeSpan amount) => _timestamp += amount.Ticks;
     }
-#endif
 }

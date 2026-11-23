@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 
 namespace Jint.WebApi.DomException;
@@ -45,4 +44,3 @@ internal sealed class JsQuotaExceededError : JsDomException
     /// <summary>The <c>[[Requested]]</c>: <see cref="JsValue.Null"/> or a number.</summary>
     internal JsValue Requested { get; }
 }
-#endif

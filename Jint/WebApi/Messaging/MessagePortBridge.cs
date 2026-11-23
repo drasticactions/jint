@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Threading;
 using Jint.Runtime;
 using Jint.WebApi.StructuredClone;
@@ -420,4 +419,3 @@ internal sealed class MessagePortEndpoint
         }
     }
 }
-#endif

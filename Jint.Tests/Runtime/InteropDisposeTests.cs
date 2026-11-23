@@ -7,18 +7,14 @@ public class InteropDisposeTests
     private readonly Engine _engine;
     private readonly SyncDisposable _syncDisposable = new();
 
-#if NETCOREAPP
     private readonly AsyncDisposable _asyncDisposable = new();
-#endif
 
     public InteropDisposeTests()
     {
         _engine = new Engine();
         _engine.SetValue("getSync", () => _syncDisposable);
 
-#if NETCOREAPP
         _engine.SetValue("getAsync", () => _asyncDisposable);
-#endif
     }
 
     [TestCase("{ using temp = getSync(); }")]
@@ -42,7 +38,6 @@ public class InteropDisposeTests
         }
     }
 
-#if NETCOREAPP
     [TestCase("(async function x() { await using temp = getAsync(); })();")]
     public void ShouldAsyncDispose(string program)
     {
@@ -447,5 +442,4 @@ public class InteropDisposeTests
             return new ValueTask(Task.FromException(new InvalidOperationException("dispose fault")));
         }
     }
-#endif
 }

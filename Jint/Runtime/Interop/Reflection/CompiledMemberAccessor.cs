@@ -2,13 +2,11 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Jint.Native;
 
-#if NET8_0_OR_GREATER
 using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 using Expression = System.Linq.Expressions.Expression;
 using ConditionalExpression = System.Linq.Expressions.ConditionalExpression;
-#endif
 
 // The delegates are compiled with System.Linq.Expressions; every member they reference is public
 // (JsValue implicit operators, JsValueExtensions accessors, JsValue.Null, Math.Floor) so the
@@ -59,7 +57,6 @@ internal static class CompiledMemberAccessor
     /// </summary>
     internal delegate bool JsValueSetter(object target, JsValue value);
 
-#if NET8_0_OR_GREATER
     private static readonly ConcurrentDictionary<MemberInfo, Func<object, JsValue>?> _jsValueGetters = new();
     private static readonly ConcurrentDictionary<MemberInfo, Func<object, object?>?> _rawGetters = new();
     private static readonly ConcurrentDictionary<MemberInfo, JsValueSetter?> _jsValueSetters = new();
@@ -75,7 +72,6 @@ internal static class CompiledMemberAccessor
     // (double) long.MaxValue rounds up to 2^63 which overflows long, the bound must be exclusive -
     // this mirrors InteropHelper.TryConvertNumberFast exactly.
     private const double LongMaxValueExclusiveUpperBound = 9223372036854775808d;
-#endif
 
     /// <summary>
     /// Returns a delegate producing the member value as a <see cref="JsValue"/> without boxing, or
@@ -83,11 +79,7 @@ internal static class CompiledMemberAccessor
     /// </summary>
     internal static Func<object, JsValue>? GetJsValueGetter(MemberInfo member)
     {
-#if NET8_0_OR_GREATER
         return _jsValueGetters.GetOrAdd(member, static m => BuildJsValueGetter(m));
-#else
-        return null;
-#endif
     }
 
     /// <summary>
@@ -96,11 +88,7 @@ internal static class CompiledMemberAccessor
     /// </summary>
     internal static Func<object, object?>? GetRawGetter(MemberInfo member)
     {
-#if NET8_0_OR_GREATER
         return _rawGetters.GetOrAdd(member, static m => BuildRawGetter(m));
-#else
-        return null;
-#endif
     }
 
     /// <summary>
@@ -109,11 +97,7 @@ internal static class CompiledMemberAccessor
     /// </summary>
     internal static JsValueSetter? GetJsValueSetter(MemberInfo member)
     {
-#if NET8_0_OR_GREATER
         return _jsValueSetters.GetOrAdd(member, static m => BuildJsValueSetter(m));
-#else
-        return null;
-#endif
     }
 
     /// <summary>
@@ -123,14 +107,9 @@ internal static class CompiledMemberAccessor
     /// </summary>
     internal static Action<object, object?>? GetRawSetter(MemberInfo member)
     {
-#if NET8_0_OR_GREATER
         return _rawSetters.GetOrAdd(member, static m => BuildRawSetter(m));
-#else
-        return null;
-#endif
     }
 
-#if NET8_0_OR_GREATER
     private static Func<object, JsValue>? BuildJsValueGetter(MemberInfo member)
     {
         if (!TryBuildRead(member, out var target, out var access, out var memberType)
@@ -566,5 +545,4 @@ internal static class CompiledMemberAccessor
             Expression.Not(Expression.TypeIs(value, jsType)),
             Expression.Return(returnLabel, Expression.Constant(false)));
     }
-#endif
 }

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 namespace Jint.Tests.Runtime.NodeCompat;
@@ -43,4 +42,3 @@ public class ProcessTimerOrderingTests
         engine.Evaluate("log.join(',')").AsString().Should().Be("t1,tick,t2");
     }
 }
-#endif

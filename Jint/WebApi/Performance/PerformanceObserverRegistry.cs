@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Runtime;
 
@@ -317,4 +316,3 @@ internal sealed class PerformanceObserverRegistry(Engine engine)
         return JsObject.Create(_engine, _callbackOptionsLayout, [JsNumber.Create(dropped)]);
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -307,4 +306,3 @@ public class ReadableStreamAsyncIterationTests
         Log(engine).Should().Be("2|4|6");
     }
 }
-#endif

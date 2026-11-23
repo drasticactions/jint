@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Linq;
 using Jint.Native;
 using Jint.Native.Object;
@@ -130,4 +129,3 @@ internal sealed partial class IdbKeyRangePrototype : Prototype
         return JsBoolean.Create(range.Contains(IndexedDbKeyConverter.Require(_engine, _realm, args[0])));
     }
 }
-#endif

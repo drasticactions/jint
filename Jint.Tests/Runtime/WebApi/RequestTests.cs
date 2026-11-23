@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -539,4 +538,3 @@ public class RequestTests
         engine.Evaluate("new Request(b).method").AsString().Should().Be("POST");
     }
 }
-#endif

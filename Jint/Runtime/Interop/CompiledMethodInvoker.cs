@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -496,4 +495,3 @@ internal static class CompiledMethodInvoker
         return Expression.Assign(resultParam, Expression.Coalesce(Expression.Convert(call, typeof(JsValue)), nullConstant));
     }
 }
-#endif

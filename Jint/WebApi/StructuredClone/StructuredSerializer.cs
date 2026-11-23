@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics.CodeAnalysis;
 using Jint.Native;
 using Jint.Native.Array;
@@ -986,4 +985,3 @@ internal sealed class StructuredSerializer
         }
     }
 }
-#endif

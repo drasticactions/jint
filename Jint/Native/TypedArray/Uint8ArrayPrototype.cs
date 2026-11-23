@@ -118,11 +118,7 @@ internal sealed partial class Uint8ArrayPrototype : Prototype
         var alphabet = Uint8ArrayConstructor.GetAndValidateAlphabetOption(_engine, opts);
 
         var omitPadding = TypeConverter.ToBoolean(opts.Get("omitPadding"));
-#if NET8_0_OR_GREATER
         var toEncode = GetUint8ArrayBytes(o);
-#else
-        var toEncode = GetUint8ArrayBytes(o).ToArray();
-#endif
 
         string outAscii;
         if (alphabet == "base64")

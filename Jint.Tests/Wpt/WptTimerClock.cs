@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Security.Cryptography;
@@ -83,4 +82,3 @@ internal sealed class WptTimerClock : TimeProvider
 
     private static string Hash(string source) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source)));
 }
-#endif

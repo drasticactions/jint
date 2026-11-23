@@ -37,7 +37,6 @@ internal class AsyncTestClass
         throw new Exception("Task threw exception");
     }
 
-#if !NETFRAMEWORK
     public async ValueTask<string> ReturnDelayedValueTaskAsync()
     {
         await Task.Delay(100).ConfigureAwait(false);
@@ -70,5 +69,4 @@ internal class AsyncTestClass
         await Task.Delay(10).ConfigureAwait(false);
         yield return "World";
     }
-#endif
 }

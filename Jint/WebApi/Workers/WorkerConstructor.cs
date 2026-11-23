@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Threading;
 using Jint.Constraints;
 using Jint.Native;
@@ -331,4 +330,3 @@ internal sealed partial class WorkerConstructor : Constructor
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Auto)]
     private readonly record struct WorkerOptionsValues(string Name, WorkerType Type);
 }
-#endif

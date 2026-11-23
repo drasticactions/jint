@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Runtime;
 
 namespace Jint.WebApi.Url.Pattern;
@@ -462,4 +461,3 @@ internal static class UrlPatternConstructorString
         }
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -261,4 +260,3 @@ internal sealed partial class CryptoPrototype : Prototype
         Throw.JavaScriptException(_engine, exception, in location);
     }
 }
-#endif

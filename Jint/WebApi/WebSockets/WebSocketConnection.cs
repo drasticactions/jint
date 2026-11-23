@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -162,4 +161,3 @@ internal sealed class WebSocketMessageTooLargeException : Exception
     {
     }
 }
-#endif

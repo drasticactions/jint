@@ -1,11 +1,9 @@
-#if NET8_0_OR_GREATER
 using Jint.Runtime;
 
 namespace Jint.WebApi;
 
 /// <summary>
-/// How <c>Engine.WebApi.CreateReadableStream</c> reads a host <see cref="Stream"/>. Requires .NET 8 or
-/// higher.
+/// How <c>Engine.WebApi.CreateReadableStream</c> reads a host <see cref="Stream"/>.
 /// </summary>
 /// <remarks>
 /// An options instance is read once, when the stream is created, and never held: one instance may be reused
@@ -79,8 +77,7 @@ public sealed class HostReadableStreamOptions
 }
 
 /// <summary>
-/// How <c>Engine.WebApi.CreateWritableStream</c> writes to a host <see cref="Stream"/>. Requires .NET 8 or
-/// higher.
+/// How <c>Engine.WebApi.CreateWritableStream</c> writes to a host <see cref="Stream"/>.
 /// </summary>
 /// <remarks>
 /// An options instance is read once, when the stream is created, and never held: one instance may be reused
@@ -130,7 +127,7 @@ public sealed class HostWritableStreamOptions
 
 /// <summary>
 /// How <c>Engine.WebApi.StartReadableStreamCopy</c> writes a script's <c>ReadableStream</c> to a host
-/// <see cref="Stream"/>. Requires .NET 8 or higher.
+/// <see cref="Stream"/>.
 /// </summary>
 /// <remarks>
 /// An options instance is read once, when the copy is started, and never held.
@@ -162,4 +159,3 @@ public sealed class HostStreamCopyOptions
     /// </remarks>
     public bool PreventCancel { get; set; }
 }
-#endif

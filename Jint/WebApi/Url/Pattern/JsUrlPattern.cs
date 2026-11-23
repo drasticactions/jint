@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native.Object;
 
 namespace Jint.WebApi.Url.Pattern;
@@ -26,4 +25,3 @@ internal sealed class JsUrlPattern : ObjectInstance
     /// <summary>https://urlpattern.spec.whatwg.org/#urlpattern-associated-url-pattern</summary>
     internal UrlPatternRecord Pattern { get; }
 }
-#endif

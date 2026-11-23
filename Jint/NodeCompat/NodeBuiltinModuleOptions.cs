@@ -15,12 +15,6 @@ namespace Jint.NodeCompat;
 /// available.
 /// </para>
 /// <para>
-/// <c>node:querystring</c> and <c>node:url</c> need .NET 8 or newer, because both are built on the engine's
-/// WHATWG URL implementation, which is. <c>node:path</c> depends on nothing but <see cref="string"/> and is
-/// available on every target framework Jint has. The failure message lists what the running build actually
-/// provides, so it stays truthful either way.
-/// </para>
-/// <para>
 /// Every value here is read once, when <c>UseNodeBuiltinModules</c> returns, and copied into an immutable
 /// snapshot. Mutating this object afterwards changes nothing, which is what makes one <see cref="Options"/>
 /// instance shared by concurrently constructed engines safe.

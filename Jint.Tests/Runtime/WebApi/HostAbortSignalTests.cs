@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Threading;
@@ -157,4 +156,3 @@ public class HostAbortSignalTests
         Assert.Throws<InvalidOperationException>(() => consoleOnly.WebApi.CreateAbortSignal(CancellationToken.None));
     }
 }
-#endif

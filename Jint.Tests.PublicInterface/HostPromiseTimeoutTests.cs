@@ -20,10 +20,9 @@ namespace Jint.Tests.PublicInterface;
 /// </para>
 /// <para>
 /// The claim has two halves, and they are asserted separately because they can fail separately. <em>Which</em>
-/// budget the wait resolved is stated by the rejection itself, on every target framework. <em>That the wait
+/// budget the wait resolved is stated by the rejection itself. <em>That the wait
 /// actually ended on it</em> is a property of the drain rather than of the resolution, and needs a clock the
-/// test controls — which is why that half is <c>net8.0</c> and later, where
-/// <c>Options.Constraints.TimeProvider</c> exists. It used to be a stopwatch race against the ten-second
+/// test controls, which is <c>Options.Constraints.TimeProvider</c>. It used to be a stopwatch race against the ten-second
 /// default, and since the wrong answer <em>is</em> that default, the margin could only ever sit at five
 /// seconds: not derivable from the budget under test, not wideable without asserting nothing, and duly
 /// failing an unrelated pull request at 47 s (sebastienros/jint#3406).
@@ -112,8 +111,6 @@ public class HostPromiseTimeoutTests
 
         manual.Promise.UnwrapIfPromise().AsNumber().Should().Be(42);
     }
-
-#if NET8_0_OR_GREATER
 
     /// <summary>
     /// How long the wait is given to end when it must not. A "did not happen" bound, so a loaded runner can
@@ -224,6 +221,4 @@ public class HostPromiseTimeoutTests
 
         public void Dispose() => Armed.Dispose();
     }
-
-#endif
 }

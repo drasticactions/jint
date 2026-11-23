@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Net.Http;
@@ -213,4 +212,3 @@ public class FetchHandlerTests
         Answer(engine, new HttpRequestMessage(HttpMethod.Get, "https://example.org/")).Should().Be("acme");
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 
 using Jint.Constraints;
 using Jint.Native;
@@ -14,10 +13,6 @@ namespace Jint.Tests.PublicInterface;
 /// is the guarantee that an embedder can reach it. That is the point of the seam being public rather than
 /// internal: a host that configures a timeout has exactly the same untestable wall clock Jint's own suite
 /// had, and #3232 is about ending that for both of them at once.
-/// </para>
-/// <para>
-/// Only <c>net8.0</c> and later. <c>TimeProvider</c> arrived in .NET 8, and reaching it from Jint's
-/// downlevel targets would mean a second runtime dependency on a package that has exactly one.
 /// </para>
 /// </summary>
 public class HostConstraintClockTests
@@ -204,5 +199,3 @@ public class HostConstraintClockTests
         public override long GetTimestamp() => 0;
     }
 }
-
-#endif

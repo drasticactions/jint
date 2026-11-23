@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Array;
 using Jint.Native.Object;
@@ -290,4 +289,3 @@ internal sealed partial class CachePrototype : Prototype
         return null!;
     }
 }
-#endif

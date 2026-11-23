@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics.CodeAnalysis;
 using Jint.Native;
 using Jint.Native.Object;
@@ -907,4 +906,3 @@ internal static class ReadableByteStreamControllerOperations
         Throw.JavaScriptException(engine, error, in location);
     }
 }
-#endif

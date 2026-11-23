@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 
 namespace Jint.WebApi.Url.Parsing;
@@ -1153,4 +1152,3 @@ internal ref struct UrlParser : IDisposable
         }
     }
 }
-#endif

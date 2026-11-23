@@ -1,10 +1,9 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 
 namespace Jint.WebApi;
 
 /// <summary>
-/// Where the engine's <c>caches</c> object keeps what a script stored. Requires .NET 8 or higher.
+/// Where the engine's <c>caches</c> object keeps what a script stored.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -77,7 +76,7 @@ public abstract class CacheStorageProvider
 }
 
 /// <summary>
-/// One named cache: an ordered list of request/response pairs. Requires .NET 8 or higher.
+/// One named cache: an ordered list of request/response pairs.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -120,7 +119,7 @@ public abstract class CacheStore
 }
 
 /// <summary>
-/// One atomic change to a <see cref="CacheStore"/>. Requires .NET 8 or higher.
+/// One atomic change to a <see cref="CacheStore"/>.
 /// </summary>
 /// <param name="RemovedIndexes">
 /// Ascending indexes into the list the immediately preceding <see cref="CacheStore.Entries"/> read returned.
@@ -135,14 +134,13 @@ public readonly record struct CacheWrite(IReadOnlyList<int> RemovedIndexes, IRea
 
 /// <summary>
 /// One cached request/response pair — https://w3c.github.io/ServiceWorker/#dfn-request-response-list.
-/// Requires .NET 8 or higher.
 /// </summary>
 /// <param name="Request">The request the pair is keyed by.</param>
 /// <param name="Response">The response that was stored for it.</param>
 public sealed record CacheEntry(CachedRequest Request, CachedResponse Response);
 
 /// <summary>
-/// A cached request, flattened out of a <c>Request</c> object. Requires .NET 8 or higher.
+/// A cached request, flattened out of a <c>Request</c> object.
 /// </summary>
 /// <param name="Url">
 /// The absolute URL, serialized. Written by the engine as the WHATWG URL serialization <i>including</i> any
@@ -163,7 +161,7 @@ public sealed record CacheEntry(CachedRequest Request, CachedResponse Response);
 public sealed record CachedRequest(string Url, string Method, IReadOnlyList<CachedHeader> Headers);
 
 /// <summary>
-/// A cached response, flattened out of a <c>Response</c> object. Requires .NET 8 or higher.
+/// A cached response, flattened out of a <c>Response</c> object.
 /// </summary>
 /// <param name="Status">The HTTP status code.</param>
 /// <param name="StatusText">The reason phrase, possibly empty.</param>
@@ -194,7 +192,7 @@ public sealed record CachedResponse(
     bool Redirected);
 
 /// <summary>
-/// One header of a cached request or response. Requires .NET 8 or higher.
+/// One header of a cached request or response.
 /// </summary>
 /// <param name="Name">
 /// The header's name. The engine writes it already lowercased, and reads every name back
@@ -207,7 +205,7 @@ public readonly record struct CachedHeader(string Name, string Value);
 
 /// <summary>
 /// Thrown by a <see cref="CacheStore"/> or a <see cref="CacheStorageProvider"/> to refuse a write for want of
-/// room. Requires .NET 8 or higher.
+/// room.
 /// </summary>
 /// <remarks>
 /// This is the one provider failure with a specified meaning: the engine turns it into the
@@ -292,4 +290,3 @@ public sealed class CacheQuotaExceededException : Exception
     /// </summary>
     public double? Requested { get; }
 }
-#endif

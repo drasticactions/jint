@@ -19,9 +19,7 @@ namespace Jint.Tests;
 /// <para>
 /// A <see cref="ModuleInitializerAttribute">module initializer</see> is early enough by construction: the runtime
 /// runs it before any code in this assembly executes, and Jint is only ever reached <em>from</em> this assembly's
-/// code. It also needs nothing per target framework — <c>net472</c> has no
-/// <c>ModuleInitializerAttribute</c> in its BCL, but the repository's global <c>PolySharp</c> reference emits one,
-/// and the compiler recognizes the attribute by name rather than by identity.
+/// code.
 /// </para>
 ///
 /// <para>

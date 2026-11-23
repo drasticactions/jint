@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Runtime;
 using Jint.WebApi.Url.Parsing;
@@ -27,4 +26,3 @@ internal static class UrlValues
     internal static string? ToOptionalUsvString(JsValue value)
         => value.IsUndefined() ? null : ToUsvString(value);
 }
-#endif

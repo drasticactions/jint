@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.WebApi.Url.Parsing;
 
 namespace Jint.WebApi.Fetch;
@@ -74,4 +73,3 @@ internal sealed class FetchNetworkContext
     private static UrlRecord? Parse(Uri? uri)
         => uri is { IsAbsoluteUri: true } ? UrlParser.Parse(uri.AbsoluteUri) : null;
 }
-#endif

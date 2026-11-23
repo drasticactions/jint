@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Net.Http;
@@ -712,4 +711,3 @@ public class MultipartTests
         Assert.Throws<JavaScriptException>(() => engine.Evaluate("Request.prototype.formData.call({})"));
     }
 }
-#endif

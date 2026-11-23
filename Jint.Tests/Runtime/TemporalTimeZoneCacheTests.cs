@@ -115,7 +115,6 @@ public class TemporalTimeZoneCacheTests
             }
         }
 
-#if !NETFRAMEWORK
         // On Windows the first loop does nothing, because the system's zones are Windows identifiers. Ask
         // .NET for the IANA name of each instead: that is the key space the screen actually has to survive,
         // and it is a real check on the platform where the first loop is empty.
@@ -128,7 +127,6 @@ public class TemporalTimeZoneCacheTests
                 screened++;
             }
         }
-#endif
 
         // never vacuous: Linux fills the first loop, Windows the second and third
         screened.Should().BeGreaterThan(0);

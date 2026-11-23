@@ -166,9 +166,6 @@ internal ref struct ValueStringBuilder
         int remaining = _pos - index;
         _chars.Slice(index, remaining).CopyTo(_chars.Slice(index + count));
         s
-#if !NET8_0_OR_GREATER
-            .AsSpan()
-#endif
             .CopyTo(_chars.Slice(index));
         _pos += count;
     }
@@ -221,7 +218,6 @@ internal ref struct ValueStringBuilder
         }
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// Appends a formattable value using the invariant culture, which every caller of this builder
     /// wants: what it produces is machine-readable output — JSON, ISO 8601 dates, stack traces —
@@ -243,19 +239,6 @@ internal ref struct ValueStringBuilder
             Append(value.ToString(format: null, CultureInfo.InvariantCulture));
         }
     }
-#else
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Append(int value)
-    {
-        Append(value.ToString(CultureInfo.InvariantCulture));
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Append(long value)
-    {
-        Append(value.ToString(CultureInfo.InvariantCulture));
-    }
-#endif
 
     private void AppendSlow(string s)
     {
@@ -266,9 +249,6 @@ internal ref struct ValueStringBuilder
         }
 
         s
-#if !NET8_0_OR_GREATER
-            .AsSpan()
-#endif
             .CopyTo(_chars.Slice(pos));
         _pos += s.Length;
     }

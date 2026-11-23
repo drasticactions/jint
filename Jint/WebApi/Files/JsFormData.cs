@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using Jint.Native;
 using Jint.Native.Object;
@@ -58,4 +57,3 @@ internal sealed class JsFormData : ObjectInstance
 /// <param name="Value">The entry's value: a <see cref="JsString"/> or a <see cref="JsFile"/>, never a bare blob.</param>
 [StructLayout(LayoutKind.Auto)]
 internal readonly record struct FormDataEntry(string Name, JsValue Value);
-#endif

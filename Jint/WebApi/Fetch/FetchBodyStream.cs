@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Buffers;
 using System.Net.Http;
 using System.Threading;
@@ -384,4 +383,3 @@ internal sealed class FetchBodyStream : IDisposable
         pull?.Resolve(JsValue.Undefined);
     }
 }
-#endif

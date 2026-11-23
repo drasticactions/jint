@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics.CodeAnalysis;
 using Jint.Native;
 using Jint.Native.Object;
@@ -872,4 +871,3 @@ internal sealed class EventListenerRegistration
     /// <summary>The abort algorithm <see cref="Signal"/> holds for this entry, so it can be taken off again.</summary>
     internal Action? AbortAlgorithm { get; set; }
 }
-#endif

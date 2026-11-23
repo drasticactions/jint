@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Diagnostics;
@@ -357,7 +356,6 @@ internal static class WptHarness
 
     /// <summary>Every file the local-scheme lane claims, so the inventory can hold the list to the corpus.</summary>
     internal static IEnumerable<string> LocalSchemeBackedFiles => _localSchemeFiles;
-
 
     internal static WptRunOutcome Run(string testFilePath)
     {
@@ -1101,4 +1099,3 @@ internal static class WptHarness
         _ => $"{ex.GetType().Name}: {ex.Message}",
     };
 }
-#endif

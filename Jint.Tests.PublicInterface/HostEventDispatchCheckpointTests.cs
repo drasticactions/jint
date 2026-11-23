@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint;
@@ -112,4 +111,3 @@ public class HostEventDispatchCheckpointTests
             () => engine.Call(dispatchEvent, engine.GetValue("target"), [engine.Evaluate("new Event('ping')")]));
     }
 }
-#endif

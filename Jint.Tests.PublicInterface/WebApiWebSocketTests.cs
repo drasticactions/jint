@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint;
@@ -274,4 +273,3 @@ public class WebApiWebSocketTests
         engine.Evaluate("new ShadowRealm().evaluate('typeof WebSocket')").AsString().Should().Be("undefined");
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Diagnostics;
@@ -582,4 +581,3 @@ public class FetchStreamTests
         handler.Body.ReadCount.Should().Be(3);
     });
 }
-#endif

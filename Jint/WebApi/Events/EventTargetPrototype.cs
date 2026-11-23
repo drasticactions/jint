@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Object;
 using Jint.Runtime;
@@ -322,4 +321,3 @@ internal static class EventTargetArguments
     /// </summary>
     private readonly record struct ListenerOptions(bool Capture, bool Passive, bool Once, JsAbortSignal? Signal);
 }
-#endif

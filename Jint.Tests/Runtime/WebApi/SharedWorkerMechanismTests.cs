@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 using Jint.Native;
 using Jint.WebApi;
@@ -88,4 +87,3 @@ public sealed class SharedWorkerMechanismTests
         receiver.Evaluate("result").AsString().Should().Be("one");
     }
 }
-#endif

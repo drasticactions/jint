@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -642,4 +641,3 @@ public class PerformanceTimelineTests
         second.Evaluate("performance.getEntries().map(e => e.name).join()").AsString().Should().Be("c");
     }
 }
-#endif

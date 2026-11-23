@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Threading;
 using Jint.WebApi.Locks;
 
@@ -7,7 +6,7 @@ namespace Jint.WebApi;
 /// <summary>
 /// The lock state a set of engines coordinate through — what the Web Locks API calls a
 /// <see href="https://w3c.github.io/web-locks/#lock-managers">lock manager</see>, and what
-/// <c>navigator.locks</c> is the handle on. Requires .NET 8 or higher.
+/// <c>navigator.locks</c> is the handle on.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -405,4 +404,3 @@ public sealed class LockManager
         return queue;
     }
 }
-#endif

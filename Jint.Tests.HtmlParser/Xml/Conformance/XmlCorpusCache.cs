@@ -60,8 +60,8 @@ internal static class XmlCorpusCache
     }
 
     /// <summary>
-    /// Writes through a unique sibling and renames it into place, so the net8.0 and net10.0 test processes
-    /// that share this folder never observe a partial file.
+    /// Writes through a unique sibling and renames it into place, so test processes that share this folder
+    /// never observe a partial file.
     /// </summary>
     internal static void WriteAtomically(string path, byte[] bytes)
     {

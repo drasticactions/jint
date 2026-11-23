@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native.Object;
 using Jint.Runtime;
 using Jint.WebApi.Url.Parsing;
@@ -44,4 +43,3 @@ internal sealed class JsUrlSearchParams : ObjectInstance
         UrlObject.Url.Query = serialized.Length == 0 ? null : serialized;
     }
 }
-#endif

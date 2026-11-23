@@ -1,5 +1,4 @@
 #nullable enable
-#if NET8_0_OR_GREATER
 using Jint.HtmlParser;
 using Jint.HtmlParser.Css;
 
@@ -23,4 +22,3 @@ public sealed class HostCssSyntaxTests
         source.Substring(function.Span.Start, function.Span.Length).Should().Be("f([a])");
     }
 }
-#endif

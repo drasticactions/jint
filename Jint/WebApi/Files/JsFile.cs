@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 namespace Jint.WebApi.Files;
 
 /// <summary>
@@ -34,4 +33,3 @@ internal sealed class JsFile : JsBlob
     /// </remarks>
     internal long LastModified { get; }
 }
-#endif

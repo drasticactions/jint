@@ -155,7 +155,6 @@ public class JavaScriptExceptionMessageTests
         engine.Evaluate("ran").AsNumber().Should().Be(0);
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// A <c>DOMException</c>'s <c>message</c> is a WebIDL prototype accessor by design, so it is answered from
     /// the instance's own slot — which is also what it answers when a script replaces that accessor.
@@ -179,5 +178,4 @@ public class JavaScriptExceptionMessageTests
             engine.Evaluate("ran").AsNumber().Should().Be(0);
         }
     }
-#endif
 }

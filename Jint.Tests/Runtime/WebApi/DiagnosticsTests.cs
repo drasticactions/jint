@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native.Promise;
@@ -748,4 +747,3 @@ public class DiagnosticsTests
         engine.Evaluate("typeof console").AsString().Should().Be("undefined");
     }
 }
-#endif

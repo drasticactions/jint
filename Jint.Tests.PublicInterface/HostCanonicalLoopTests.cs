@@ -16,7 +16,6 @@ namespace Jint.Tests.PublicInterface;
 /// </remarks>
 public class HostCanonicalLoopTests
 {
-#if NET8_0_OR_GREATER
     /// <summary>
     /// A host-supplied clock, so that a test about turns need not sleep for one. Only
     /// <see cref="TimeProvider.GetTimestamp"/> is ever asked for.
@@ -33,7 +32,6 @@ public class HostCanonicalLoopTests
 
         internal void Advance(int milliseconds) => _timestamp += milliseconds * TimeSpan.TicksPerMillisecond;
     }
-#endif
 
     /// <summary>
     /// Pumping an engine that has nothing scheduled is legal and does nothing — the shape a host loop takes
@@ -49,7 +47,6 @@ public class HostCanonicalLoopTests
         engine.Tasks.TimeUntilNextScheduledWork.Should().BeNull();
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// The whole loop, end to end: turn the timers on, let script schedule a callback, ask when it is due,
     /// and give the engine the turn it needs to run it. Nothing else in the public surface runs that
@@ -102,5 +99,4 @@ public class HostCanonicalLoopTests
         engine.Tasks.ProcessTasks();
         ran.Should().BeTrue();
     }
-#endif
 }

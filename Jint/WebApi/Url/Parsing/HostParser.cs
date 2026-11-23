@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 
 namespace Jint.WebApi.Url.Parsing;
@@ -549,4 +548,3 @@ internal static class HostParser
         }
     }
 }
-#endif

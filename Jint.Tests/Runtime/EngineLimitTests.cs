@@ -1,5 +1,4 @@
-﻿#if !NETFRAMEWORK
-#nullable enable
+﻿#nullable enable
 
 using System.Runtime.ExceptionServices;
 using System.Text;
@@ -9,7 +8,6 @@ namespace Jint.Tests.Runtime;
 
 public class EngineLimitTests
 {
-
 #if RELEASE
     const int FunctionNestingCount = 990;
 #else
@@ -98,5 +96,3 @@ public class EngineLimitTests
         return sb.ToString();
     }
 }
-
-#endif

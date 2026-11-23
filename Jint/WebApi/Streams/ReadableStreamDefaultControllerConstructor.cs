@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Function;
 using Jint.Native.Object;
@@ -45,4 +44,3 @@ internal sealed class ReadableStreamDefaultControllerConstructor : Constructor
         return null!;
     }
 }
-#endif

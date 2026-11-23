@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -357,4 +356,3 @@ public class WebApiDiagnosticsTests
         engine.Evaluate("new ShadowRealm().evaluate('typeof reportError')").AsString().Should().Be("undefined");
     }
 }
-#endif

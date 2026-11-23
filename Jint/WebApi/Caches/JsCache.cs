@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native.Object;
 
 namespace Jint.WebApi.Caches;
@@ -40,4 +39,3 @@ internal sealed class JsCache : ObjectInstance
     /// <summary>The host storage behind this object.</summary>
     internal CacheStore Store { get; }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Promise;
 using Jint.Runtime;
@@ -550,4 +549,3 @@ internal sealed class ReadableStreamPipe
         internal override void ErrorSteps(JsValue error) => _readCapability.Reject(error);
     }
 }
-#endif

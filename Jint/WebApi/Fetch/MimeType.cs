@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 
 namespace Jint.WebApi.Fetch;
@@ -312,4 +311,3 @@ internal sealed class MimeType
         return true;
     }
 }
-#endif

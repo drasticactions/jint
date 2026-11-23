@@ -46,10 +46,8 @@ A loop shape, a two-call protocol, a factory whose lifetime is not obvious. Not 
 **`<inheritdoc/>` counts as documented.** The declaration it inherits from is in the same surface and
 is held to these rules in its own right, so writing the summary twice is worse than pointing at it.
 
-**A doc comment on a `partial` type goes on a part every target framework compiles.** Jint ships five
-assemblies; a comment inside `#if NET8_0_OR_GREATER` is invisible to the three that resolve the
-`netstandard` and `net472` assets. `PublicApiDocumentationTest.NoTargetFrameworkIsDocumentedLessThanTheNewest`
-checks this, and found two.
+**A doc comment on a `partial` type goes on a part that is always compiled**, never inside a preprocessor
+directive.
 
 ## Three rewrites
 

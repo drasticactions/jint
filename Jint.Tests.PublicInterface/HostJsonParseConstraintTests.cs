@@ -6,9 +6,7 @@ using System.Text;
 using Jint.Constraints;
 using Jint.Native.Json;
 using Jint.Runtime;
-#if NET8_0_OR_GREATER
 using Microsoft.Extensions.Time.Testing;
-#endif
 
 namespace Jint.Tests.PublicInterface;
 
@@ -159,7 +157,6 @@ public class HostJsonParseConstraintTests
                 "a host-issued parse allocates into the engine's realm and is an operation like any other");
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// The reported case, made exact with a host clock: the same document, the same engine, the same limit —
     /// and the only difference is that the engine has been used for something else first, and then left idle.
@@ -260,5 +257,4 @@ public class HostJsonParseConstraintTests
 
         public override void Reset() => _advanced = false;
     }
-#endif
 }

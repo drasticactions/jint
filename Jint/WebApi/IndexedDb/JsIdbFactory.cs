@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Linq;
 using Jint.Native;
 using Jint.Native.Array;
@@ -147,4 +146,3 @@ internal sealed class JsIdbFactory : ObjectInstance
         return capability.PromiseInstance;
     }
 }
-#endif

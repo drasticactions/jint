@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Collections.Concurrent;
@@ -2032,4 +2031,3 @@ public class WorkerMechanismTests
             => ModuleFactory.BuildSourceTextModule(engine, resolved, _sources[resolved.Key]);
     }
 }
-#endif

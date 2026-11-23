@@ -146,8 +146,8 @@ internal sealed class RefStack<T> : IEnumerable<T> where T : struct
     {
         if (_size > 0)
         {
-            // Array.Clear zeroes the elements (== default(T) for the struct T) and is a JIT intrinsic on
-            // every target framework, so it beats both the manual loop (old targets) and Array.Fill(default).
+            // Array.Clear zeroes the elements (== default(T) for the struct T) and is a JIT intrinsic, so it
+            // beats both a manual loop and Array.Fill(default).
             Array.Clear(_array, 0, _size);
             _size = 0;
         }

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Collections.Frozen;
@@ -695,4 +694,3 @@ internal readonly record struct WptTemplateToken(WptTemplateTokenKind Kind, stri
 /// file with its placeholders intact — fails the test somewhere far away from the cause.
 /// </summary>
 internal sealed class WptServerFileException(string message) : Exception(message);
-#endif

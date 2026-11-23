@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Runtime;
 using Jint.WebApi.Events;
@@ -72,4 +71,3 @@ internal abstract class JsXmlHttpRequestEventTarget : JsEventTarget
         DispatchEvent(ev);
     }
 }
-#endif

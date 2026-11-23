@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Object;
 using Jint.Native.Promise;
@@ -366,4 +365,3 @@ internal static class CrossRealmTransform
     private static ObjectInstance ChannelGoneError(Realm realm) => realm.Intrinsics.TypeError.Construct(
         "The transferred stream's channel was closed before the stream finished");
 }
-#endif

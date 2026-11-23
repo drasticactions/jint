@@ -65,7 +65,7 @@ namespace Jint.Constraints;
 /// the budget.
 /// </para>
 /// <para>
-/// On <c>net8.0</c> and later the host may hand the instance a <c>TimeProvider</c> instead, which then
+/// The host may hand the instance a <c>TimeProvider</c> instead, which then
 /// answers every timestamp the budget is measured against. The constructor that takes one is the whole
 /// seam: the instance is the host's to create, so the clock is the host's to supply, and nothing about the
 /// engine-registered <c>TimeoutInterval</c> constraint is involved. See <c>ConstraintClock</c> for why
@@ -80,7 +80,6 @@ public sealed class OperationDeadlineConstraint : Constraint
     // not-started sentinel, and is also what a non-positive budget arms.
     private const long Disarmed = 0;
 
-#if NET8_0_OR_GREATER
     // Null unless the host named a clock, which is what keeps Check() and Begin() on the direct
     // Stopwatch read they have always used.
     private readonly TimeProvider? _timeProvider;
@@ -88,7 +87,6 @@ public sealed class OperationDeadlineConstraint : Constraint
     // Stopwatch.Frequency unless _timeProvider is non-null; resolved once so arming a budget stays
     // arithmetic on a field.
     private readonly long _frequency;
-#endif
 
     // Timestamp the current operation must not pass, on whichever clock this constraint reads, or Disarmed.
     private long _deadline;
@@ -100,17 +98,11 @@ public sealed class OperationDeadlineConstraint : Constraint
     /// Creates a constraint measuring its budget against the system's monotonic clock
     /// (<see cref="Stopwatch.GetTimestamp"/>).
     /// </summary>
-    // Declared rather than left implicit on the target frameworks that have no TimeProvider: an implicit
-    // constructor is still public API and cannot carry the summary above, which is what left downlevel
-    // consumers looking at an undocumented one. Only the chained call is conditional.
     public OperationDeadlineConstraint()
-#if NET8_0_OR_GREATER
         : this(timeProvider: null)
-#endif
     {
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// Creates a constraint measuring its budget against <paramref name="timeProvider"/>.
     /// </summary>
@@ -135,7 +127,6 @@ public sealed class OperationDeadlineConstraint : Constraint
         _timeProvider = ConstraintClock.Resolve(timeProvider);
         _frequency = ConstraintClock.FrequencyOf(_timeProvider);
     }
-#endif
 
     /// <summary>
     /// A deadline and a cancellation token are both external state that <see cref="Check"/> only reads and
@@ -267,7 +258,6 @@ public sealed class OperationDeadlineConstraint : Constraint
     {
     }
 
-#if NET8_0_OR_GREATER
     // Converts a budget to ticks on this constraint's own clock, clamped so that adding it to a timestamp
     // cannot overflow. See ConstraintClock.ToTimestampTicks.
     private long ToTimestampTicks(TimeSpan budget) => ConstraintClock.ToTimestampTicks(budget, _frequency);
@@ -278,13 +268,4 @@ public sealed class OperationDeadlineConstraint : Constraint
         var provider = _timeProvider;
         return provider is null ? Stopwatch.GetTimestamp() : provider.GetTimestamp();
     }
-#else
-    // Converts a budget to ticks on this constraint's own clock, clamped so that adding it to a timestamp
-    // cannot overflow. See ConstraintClock.ToTimestampTicks.
-    private static long ToTimestampTicks(TimeSpan budget)
-        => ConstraintClock.ToTimestampTicks(budget, Stopwatch.Frequency);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static long GetTimestamp() => Stopwatch.GetTimestamp();
-#endif
 }

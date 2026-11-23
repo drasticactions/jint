@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Threading;
@@ -545,4 +544,3 @@ public class WebApiMessagingTests
         return (host, worker);
     }
 }
-#endif

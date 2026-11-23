@@ -50,14 +50,6 @@ public sealed class JsonParser
     /// </summary>
     private const int Utf8TranscodeStackallocLimit = 256;
 
-#if !SUPPORTS_UTF8_TRANSCODE
-    /// <summary>
-    /// Throws on malformed input instead of substituting U+FFFD, matching the strictness of
-    /// <c>Utf8.ToUtf16(..., replaceInvalidSequences: false)</c> used on the newer runtimes.
-    /// </summary>
-    private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
-#endif
-
     private readonly Engine _engine;
     private readonly int _maxDepth;
 
@@ -404,7 +396,6 @@ public sealed class JsonParser
         return null!;
     }
 
-#if NET8_0_OR_GREATER
     // Characters that terminate a bulk string-content run: the closing quote, the escape backslash and
     // every control character (< 0x20, which JSON forbids unescaped). Any other code point \u2014 including
     // the Unicode line separators U+2028/U+2029, which the JSON grammar permits raw inside strings \u2014
@@ -423,30 +414,6 @@ public sealed class JsonParser
         stops[33] = '\\';
         return SearchValues.Create(stops);
     }
-#else
-    // Portable fallback: the vectorized IndexOfAny locates the next quote/backslash, then we make sure
-    // no control character (< 0x20) appears earlier, so the returned index matches the NET8
-    // SearchValues path.
-    //
-    // Deliberately NOT routed through an IndexOfAny(SearchValues<char>) polyfill, even though one
-    // exists. This keeps the vectorized IndexOfAny that every target framework has and only walks the
-    // span up to the quote; a polyfilled SearchValues search would test every character one at a time
-    // over the whole run, which is a real regression in the hottest parser here. The #if stays.
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int IndexOfStringStop(ReadOnlySpan<char> span)
-    {
-        var qb = span.IndexOfAny('"', '\\');
-        var limit = qb < 0 ? span.Length : qb;
-        for (var i = 0; i < limit; i++)
-        {
-            if (span[i] < ' ')
-            {
-                return i;
-            }
-        }
-        return qb;
-    }
-#endif
 
     private Token ScanStringLiteral(ref State state, bool isPropertyKey)
     {
@@ -466,11 +433,7 @@ public sealed class JsonParser
             // per-char loop would have stopped at, so escapes and every error position are preserved
             // byte-for-byte.
             var remaining = source.Slice(_index, length - _index);
-#if NET8_0_OR_GREATER
             var stop = remaining.IndexOfAny(JsonStringStopChars);
-#else
-            var stop = IndexOfStringStop(remaining);
-#endif
             if (stop < 0)
             {
                 // No closing quote (and no special character) remains: unterminated literal, reported
@@ -1101,7 +1064,6 @@ public sealed class JsonParser
             return 0;
         }
 
-#if SUPPORTS_UTF8_TRANSCODE
         // The destination cannot be too small (see the caller) and the whole document is present, so Done
         // is the only non-error outcome; everything else means the bytes are not well-formed UTF-8.
         var status = System.Text.Unicode.Utf8.ToUtf16(utf8Json, destination, out var bytesRead, out var charsWritten, replaceInvalidSequences: false);
@@ -1111,23 +1073,6 @@ public sealed class JsonParser
         }
 
         return charsWritten;
-#else
-        // No span-based decoding on the legacy runtimes: a UTF8Encoding configured to throw gives the same
-        // strictness through the pointer overloads, and reports the offending offset on the exception.
-        try
-        {
-            fixed (byte* bytes = utf8Json)
-            fixed (char* chars = destination)
-            {
-                return StrictUtf8.GetChars(bytes, utf8Json.Length, chars, destination.Length);
-            }
-        }
-        catch (DecoderFallbackException ex)
-        {
-            ThrowError(ex.Index, Messages.InvalidUtf8);
-            return 0;
-        }
-#endif
     }
 
     /// <summary>

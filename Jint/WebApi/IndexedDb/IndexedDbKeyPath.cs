@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Linq;
 using System.Globalization;
 using System.Text;
@@ -267,4 +266,3 @@ internal sealed class IndexedDbKeyPath(string[] paths, bool sequence)
 
     private readonly record struct KeyFrame(SerializedValue Value, List<IndexedDbKey> Keys, uint Length);
 }
-#endif

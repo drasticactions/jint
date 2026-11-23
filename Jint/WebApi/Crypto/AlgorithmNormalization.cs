@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 using Jint.Native;
 using Jint.Native.ArrayBuffer;
@@ -945,4 +944,3 @@ internal static class AlgorithmNormalization
         return integer;
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Collections.Concurrent;
 using Jint.Native;
 using Jint.Native.Object;
@@ -1085,4 +1084,3 @@ internal static class WebApiRegistration
 
     private static readonly ConcurrentDictionary<string, JsString> _globalNames = new(StringComparer.Ordinal);
 }
-#endif

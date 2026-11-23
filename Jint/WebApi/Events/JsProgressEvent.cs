@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 
 namespace Jint.WebApi.Events;
@@ -47,4 +46,3 @@ internal sealed class JsProgressEvent : JsEvent
     /// <summary>https://xhr.spec.whatwg.org/#dom-progressevent-total.</summary>
     internal double Total { get; }
 }
-#endif

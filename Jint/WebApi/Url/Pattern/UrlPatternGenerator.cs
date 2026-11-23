@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 
 namespace Jint.WebApi.Url.Pattern;
@@ -346,4 +345,3 @@ internal static class UrlPatternGenerator
         return c;
     }
 }
-#endif

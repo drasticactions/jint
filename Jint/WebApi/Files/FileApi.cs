@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Buffers;
 using SystemEncoding = System.Text.Encoding;
 using Jint.Native;
@@ -448,4 +447,3 @@ internal static class FileApi
         return (long) System.Math.Round(number, MidpointRounding.ToEven);
     }
 }
-#endif

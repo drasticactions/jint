@@ -19,10 +19,6 @@ namespace Jint.NodeCompat;
 /// one <see cref="Options"/> instance shared by concurrently constructed engines safe: no engine build ever
 /// reads a collection the host may be writing to.
 /// </para>
-/// <para>
-/// Unlike the WHATWG web APIs this compiles for every target framework: it depends on nothing newer than
-/// <c>netstandard2.0</c>.
-/// </para>
 /// </remarks>
 public sealed class NodeProcessOptions
 {

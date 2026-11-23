@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint;
@@ -176,4 +175,3 @@ public class WebApiWebLocksTests
         Assert.Throws<InvalidOperationException>(() => engine.Options.WebApi.Locks.Manager = new LockManager());
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Linq;
 using Jint.Native;
 using Jint.Runtime;
@@ -252,4 +251,3 @@ internal sealed class JsIdbTransaction : JsEventTarget
 
     private sealed record Operation(JsIdbRequest? Request, Func<JsValue> Execute);
 }
-#endif

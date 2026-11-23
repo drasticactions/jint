@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Function;
 using Jint.Runtime;
@@ -62,4 +61,3 @@ internal sealed class ReportErrorFunction : Jint.Native.Function.Function
         return JsValue.Undefined;
     }
 }
-#endif

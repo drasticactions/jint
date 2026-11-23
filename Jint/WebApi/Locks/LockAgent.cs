@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Runtime;
 
 namespace Jint.WebApi.Locks;
@@ -64,4 +63,3 @@ internal sealed class LockAgent
     internal void Schedule(int generation, Action work)
         => _engine.AddToEventLoop(work, generation, EventLoopJobKind.Task);
 }
-#endif

@@ -1,10 +1,9 @@
-#if NET8_0_OR_GREATER
 namespace Jint.WebApi;
 
 /// <summary>
 /// The store behind a <c>localStorage</c> or <c>sessionStorage</c> object: the
 /// <see href="https://html.spec.whatwg.org/multipage/webstorage.html#concept-storage-map">storage map</see>
-/// the Web Storage algorithms operate on. Requires .NET 8 or higher.
+/// the Web Storage algorithms operate on.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -133,7 +132,7 @@ public abstract class StorageProvider
 
 /// <summary>
 /// Thrown by a <see cref="StorageProvider"/> that cannot store a value, and turned by the engine into the
-/// <c>QuotaExceededError</c> the Web Storage standard's <c>setItem</c> raises. Requires .NET 8 or higher.
+/// <c>QuotaExceededError</c> the Web Storage standard's <c>setItem</c> raises.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -214,4 +213,3 @@ public sealed class StorageQuotaExceededException : Exception
     /// </summary>
     public double? Requested { get; }
 }
-#endif

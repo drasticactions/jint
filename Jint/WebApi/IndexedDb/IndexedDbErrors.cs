@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics.CodeAnalysis;
 using Jint.Native;
 using Jint.Native.Object;
@@ -57,4 +56,3 @@ internal static class IndexedDbErrors
         return direction;
     }
 }
-#endif

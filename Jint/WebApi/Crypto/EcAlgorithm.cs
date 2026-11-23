@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Formats.Asn1;
 using System.Security.Cryptography;
 using Jint.Native;
@@ -1239,4 +1238,3 @@ internal static class EcAlgorithm
 
     private static string Describe(string? value) => value is null ? "an absent curve name" : "'" + value + "'";
 }
-#endif

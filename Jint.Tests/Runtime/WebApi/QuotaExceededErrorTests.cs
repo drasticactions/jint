@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -461,4 +460,3 @@ public class QuotaExceededErrorTests
             """).AsBoolean().Should().BeTrue();
     }
 }
-#endif

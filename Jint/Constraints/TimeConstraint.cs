@@ -40,7 +40,6 @@ internal sealed class TimeConstraint : Constraint
     // Options.LimitExecutionTime only constructs this for 0 < timeout < TimeSpan.MaxValue. The clamp inside
     // ToTimestampTicks keeps `now + _timeoutTicks` from overflowing for very large intervals, which would
     // otherwise wrap to a deadline already in the past.
-#if NET8_0_OR_GREATER
     // Kept, and the ticks are mutable, because binding a clock re-expresses the interval on that clock's
     // tick scale. On the targets with no TimeProvider there is one scale and both are fixed at construction.
     private readonly TimeSpan _timeout;
@@ -49,9 +48,6 @@ internal sealed class TimeConstraint : Constraint
     // Null in every engine that did not name a clock, which is what keeps Check() on the direct
     // Stopwatch read it has always used.
     private TimeProvider? _timeProvider;
-#else
-    private readonly long _timeoutTicks;
-#endif
 
     // Timestamp the current execution must not pass, on whichever clock this constraint reads; 0 means
     // "no execution has started", which mirrors the previous null-CancellationTokenSource state where
@@ -60,13 +56,10 @@ internal sealed class TimeConstraint : Constraint
 
     internal TimeConstraint(TimeSpan timeout)
     {
-#if NET8_0_OR_GREATER
         _timeout = timeout;
-#endif
         _timeoutTicks = ConstraintClock.ToTimestampTicks(timeout, Stopwatch.Frequency);
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// Points this constraint at the clock of the engine it was built for, and re-expresses the interval on
     /// that clock's tick scale.
@@ -86,7 +79,6 @@ internal sealed class TimeConstraint : Constraint
         _timeProvider = resolvedProvider;
         _timeoutTicks = ConstraintClock.ToTimestampTicks(_timeout, ConstraintClock.FrequencyOf(resolvedProvider));
     }
-#endif
 
     /// <summary>
     /// A deadline is external state that <see cref="Check"/> only reads, and a clock only advances, so
@@ -111,15 +103,10 @@ internal sealed class TimeConstraint : Constraint
         _deadline = deadline == 0 ? 1 : deadline;
     }
 
-#if NET8_0_OR_GREATER
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private long GetTimestamp()
     {
         var provider = _timeProvider;
         return provider is null ? Stopwatch.GetTimestamp() : provider.GetTimestamp();
     }
-#else
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static long GetTimestamp() => Stopwatch.GetTimestamp();
-#endif
 }

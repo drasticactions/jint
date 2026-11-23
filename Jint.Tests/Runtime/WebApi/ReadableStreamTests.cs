@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -737,4 +736,3 @@ public class ReadableStreamTests
         Log(engine).Should().Be("created:0,read:1:n=1");
     }
 }
-#endif

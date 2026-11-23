@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint;
 using Jint.Native;
 
@@ -266,4 +265,3 @@ public class WebApiStreamsTests
         outcome.AsString().Should().Be("AbortError:a");
     }
 }
-#endif

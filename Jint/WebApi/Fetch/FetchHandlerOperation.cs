@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Net.Http;
 using System.Runtime.ExceptionServices;
 using Jint.Native;
@@ -14,7 +13,6 @@ namespace Jint.WebApi.Fetch;
 /// An inbound request being handled by script, handed back by
 /// <c>Engine.WebApi.InvokeFetchHandler</c>. The engine makes progress on it only when it is given turns, so
 /// a host drives it by calling <c>engine.Tasks.ProcessTasks()</c> and watching <see cref="IsCompleted"/>.
-/// Requires .NET 8 or higher.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -297,4 +295,3 @@ public sealed class FetchHandlerOperation
         Fail(new InvalidOperationException(message));
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 namespace Jint.Tests.Wpt;
@@ -316,7 +315,6 @@ internal enum WptDivergence
     /// </para>
     /// </summary>
     NeedsBrowserRequestModel,
-
 
     /// <summary>
     /// <para>
@@ -700,7 +698,6 @@ internal enum WptDivergence
     /// </summary>
     NeedsXmlDocuments,
 
-
     /// <summary>
     /// <para>
     /// The test asserts behaviour <b>nothing requires of anybody</b> — not of Jint, and not of any
@@ -886,4 +883,3 @@ internal sealed record WptExclusion(
         static int WidthAt(string pattern, int at) => IsEscapedStar(pattern, at) ? 2 : 1;
     }
 }
-#endif

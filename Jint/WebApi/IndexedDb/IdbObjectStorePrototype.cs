@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Linq;
 using Jint.Native;
 using Jint.Native.Object;
@@ -116,4 +115,3 @@ internal sealed partial class IdbObjectStorePrototype : Prototype
         return Undefined;
     }
 }
-#endif

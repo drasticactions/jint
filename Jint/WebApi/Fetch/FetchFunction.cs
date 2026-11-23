@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Function;
 using Jint.Runtime;
@@ -63,4 +62,3 @@ internal sealed class FetchFunction : Jint.Native.Function.Function
         return FetchOperation.Start(_engine, _realm, _state, arguments);
     }
 }
-#endif

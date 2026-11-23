@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.ArrayBuffer;
 using Jint.Runtime;
@@ -326,4 +325,3 @@ internal sealed class FileReadOperation
         return "data:" + mediaType + ";base64," + Convert.ToBase64String(_bytes.Span);
     }
 }
-#endif

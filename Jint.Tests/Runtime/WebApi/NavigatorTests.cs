@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Text.RegularExpressions;
@@ -299,4 +298,3 @@ public class NavigatorTests
         engine.Evaluate("typeof navigator").AsString().Should().Be("object");
     }
 }
-#endif

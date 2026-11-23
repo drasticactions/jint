@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint;
 using Jint.Native;
 using Jint.Runtime;
@@ -103,4 +102,3 @@ public class WebApiBase64Tests
         engine.Evaluate("btoa('second')").AsString().Should().Be("c2Vjb25k");
     }
 }
-#endif

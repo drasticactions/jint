@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Reflection;
@@ -492,4 +491,3 @@ public class WebIdlPropertyAttributeTests
         public int GetHashCode(ObjectInstance obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
     }
 }
-#endif

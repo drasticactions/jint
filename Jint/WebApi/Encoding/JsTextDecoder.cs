@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native.Object;
 
 namespace Jint.WebApi.Encoding;
@@ -26,4 +25,3 @@ internal sealed class JsTextDecoder : ObjectInstance
     /// <summary>https://encoding.spec.whatwg.org/#textdecodercommon</summary>
     internal TextDecoderCommon Common { get; }
 }
-#endif

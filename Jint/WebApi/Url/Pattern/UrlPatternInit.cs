@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Globalization;
 using Jint.Runtime;
 using Jint.WebApi.Url.Parsing;
@@ -264,4 +263,3 @@ internal sealed class UrlPatternInit
         return (input[0] == '\\' && input[1] == '/') || (input[0] == '{' && input[1] == '/');
     }
 }
-#endif

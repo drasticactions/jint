@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native.Object;
 
 namespace Jint.WebApi.Files;
@@ -36,4 +35,3 @@ internal class JsBlob : ObjectInstance
     /// <summary>The normalized media type, or the empty string.</summary>
     internal string MediaType { get; }
 }
-#endif

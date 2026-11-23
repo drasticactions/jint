@@ -39,7 +39,7 @@ features:
     link: /packages/jint-devtools/
   - icon: 📦
     title: Modern .NET
-    details: Use the core engine from .NET Framework 4.7.2 through current .NET, with Native AOT support on modern targets.
+    details: Use the core engine on .NET 10, with Native AOT support.
     link: /guide/supported-platforms
 ---
 

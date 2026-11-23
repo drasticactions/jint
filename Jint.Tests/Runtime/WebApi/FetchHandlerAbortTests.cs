@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Net.Http;
@@ -362,4 +361,3 @@ public class FetchHandlerAbortTests
         engine.Evaluate("[signals[0].aborted, signals[1].aborted].join(',')").Should().Be(new JsString("true,false"));
     }
 }
-#endif

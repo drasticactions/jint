@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 #pragma warning disable JINT0002 // the fetch observer is a preview surface
@@ -546,4 +545,3 @@ public class DataUrlFetchTests
         observer.Calls.Should().Be(0);
     }
 }
-#endif

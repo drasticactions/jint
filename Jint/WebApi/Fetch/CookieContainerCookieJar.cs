@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Net;
 
 namespace Jint.WebApi.Fetch;
@@ -213,4 +212,3 @@ public sealed class CookieContainerCookieJar : CookieJar
         }
     }
 }
-#endif

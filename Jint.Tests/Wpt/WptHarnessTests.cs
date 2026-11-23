@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 namespace Jint.Tests.Wpt;
@@ -1137,4 +1136,3 @@ public class WptHarnessTests
         outcome.Results.Should().NotBeEmpty("its cases are built from encodings_table, which its first META script defines");
     }
 }
-#endif

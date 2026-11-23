@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 namespace Jint.Tests.Wpt;
@@ -342,4 +341,3 @@ public class WptCensusTests
         WptCensus.RefusalToRaise(Table(49, 714, notPassing), Table(49, 714, 154)).Should().BeNull();
     }
 }
-#endif

@@ -37,9 +37,7 @@ public class TypeDescriptorTests
         AssertAddressing(typeof(IndexedValueList), addressedByKeyOnly: false);
         AssertAddressing(typeof(NonGenericExplicitValueList), addressedByKeyOnly: true);
         AssertAddressing(typeof(NonGenericIndexedValueList), addressedByKeyOnly: false);
-#if NET9_0_OR_GREATER
         AssertAddressing(typeof(OrderedDictionary<string, int>), addressedByKeyOnly: true);
-#endif
 
         AssertAddressing(typeof(Dictionary<string, int>), addressedByKeyOnly: false);
         AssertAddressing(typeof(System.Dynamic.ExpandoObject), addressedByKeyOnly: false);

@@ -30,10 +30,8 @@ public class DefaultTypeConverter : ClrTypeConverter
     private static readonly Type objectType = typeof(object);
     private static readonly Type taskType = typeof(Task);
     private static readonly Type genTaskType = typeof(Task<>);
-#if !NETFRAMEWORK && !NETSTANDARD2_0
     private static readonly Type valueTaskType = typeof(ValueTask);
     private static readonly Type genValueTaskType = typeof(ValueTask<>);
-#endif
 
     // Every lookup below spells its receiver as `typeof(X)` rather than reading one of the Type fields
     // above, and that is not a style choice. A `typeof` token is a constant the trim analyzer folds, so
@@ -42,9 +40,7 @@ public class DefaultTypeConverter : ClrTypeConverter
     // lookups in this shape - the fields exist for the identity comparisons further down, not for
     // reflection.
     private static readonly MethodInfo taskFromResultInfo = typeof(Task).GetMethod("FromResult")!;
-#if !NETFRAMEWORK && !NETSTANDARD2_0
     private static readonly MethodInfo valueTaskFromResultInfo = typeof(ValueTask).GetMethod("FromResult")!;
-#endif
 
     private static readonly MethodInfo changeTypeIfConvertible = typeof(DefaultTypeConverter).GetMethod(
         nameof(ChangeTypeOnlyIfConvertible), BindingFlags.NonPublic | BindingFlags.Static)!;
@@ -603,20 +599,7 @@ public class DefaultTypeConverter : ClrTypeConverter
             return false;
         }
 
-#if !NETFRAMEWORK && !NETSTANDARD2_0
         return Enum.TryParse(enumType, value, ignoreCase: false, out result!);
-#else
-        try
-        {
-            result = Enum.Parse(enumType, value, ignoreCase: false);
-            return true;
-        }
-        catch (ArgumentException)
-        {
-            result = null!;
-            return false;
-        }
-#endif
     }
 
     private static Func<object, Delegate> GetOrBuildTargetBinderDelegate(
@@ -787,12 +770,10 @@ public class DefaultTypeConverter : ClrTypeConverter
             return Task.CompletedTask;
         }
 
-#if !NETFRAMEWORK && !NETSTANDARD2_0
         if (conversionType == valueTaskType)
         {
             return default(ValueTask);
         }
-#endif
 
         if (conversionType.IsGenericType && conversionType.GetGenericTypeDefinition() == genTaskType)
         {
@@ -804,7 +785,6 @@ public class DefaultTypeConverter : ClrTypeConverter
             }
         }
 
-#if NET8_0_OR_GREATER
         if (conversionType.IsGenericType && conversionType.GetGenericTypeDefinition() == genValueTaskType)
         {
             var key = new TypeConversionKey(conversionType.GetGenericArguments()[0], genValueTaskType);
@@ -814,7 +794,6 @@ public class DefaultTypeConverter : ClrTypeConverter
                 return fromResultMethod.Invoke(null, [value]);
             }
         }
-#endif
 
         if (value == null || value is IConvertible)
             return System.Convert.ChangeType(value, conversionType, provider);
@@ -825,12 +804,10 @@ public class DefaultTypeConverter : ClrTypeConverter
     private static MethodInfo? GetFromResultMethod(TypeConversionKey key)
     {
         var (target, taskType) = key;
-#if NET8_0_OR_GREATER
         if (taskType == genValueTaskType)
         {
             return valueTaskFromResultInfo.MakeGenericMethod(target);
         }
-#endif
         return taskFromResultInfo.MakeGenericMethod(target);
     }
 
@@ -880,5 +857,4 @@ public class DefaultTypeConverter : ClrTypeConverter
         converted = null;
         return false;
     }
-
 }

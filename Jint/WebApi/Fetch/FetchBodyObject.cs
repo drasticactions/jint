@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using SystemEncoding = System.Text.Encoding;
 using System.Buffers;
 using Jint.Native;
@@ -789,4 +788,3 @@ internal static class FetchBody
         return contentType is null ? string.Empty : FileApi.NormalizeMediaType(contentType);
     }
 }
-#endif

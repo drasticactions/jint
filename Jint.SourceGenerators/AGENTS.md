@@ -37,10 +37,8 @@ a package carrying no generator still compiles every line of Jint's public API.
 *below* the repository-wide version, and deliberately. An analyzer is loaded by whatever compiler the
 consumer's SDK carries, and a compiler refuses to load one built against a newer `Microsoft.CodeAnalysis`
 than its own: it reports `CS9057`, skips the generator, and the host's call to the generated `RegisterAll()`
-then fails to compile. 4.8.0 is the .NET 8 SDK's own Roslyn, which is the floor that makes the package
-usable on every in-support SDK — and `net472`, where the run-time compiled interop lanes decline outright,
-is both the target with the most to gain and the one most likely to be on that SDK. **Raising it is a
-breaking change for consumers with no signature to show for it.** `Jint.SourceGenerators` is deliberately
+then fails to compile. 4.8.0 is the .NET 8 SDK's own Roslyn. Jint targets `net10.0`, so a consumer builds with
+the .NET 10 SDK or later, whose compiler loads it; the pin stays because raising it buys nothing. `Jint.SourceGenerators` is deliberately
 not pinned: it never leaves this repository, so this repository's SDK floor is the only one it has to meet.
 
 ## The pipeline model must be value-equatable, and every odd type here is why

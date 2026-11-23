@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Collections;
@@ -308,4 +307,3 @@ public class SerializationRecordTests
         }
     }
 }
-#endif

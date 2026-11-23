@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Runtime;
 
 namespace Jint.WebApi.Xhr;
@@ -21,4 +20,3 @@ internal sealed class JsXmlHttpRequestUpload : JsXmlHttpRequestEventTarget
     {
     }
 }
-#endif

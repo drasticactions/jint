@@ -153,16 +153,6 @@ public class ExecutionConstraintTests
     }
 
     [Test]
-    public void AllocatedBytesForCurrentThreadIsReachableOnEveryExecutingTargetFramework()
-    {
-        // net472 resolves GC.GetAllocatedBytesForCurrentThread by reflection with the default binding
-        // flags, which see public members only; net10.0 calls it outright. Both have to answer, or
-        // LimitMemory is a no-op that reports itself as an unsupported platform.
-        GCPolyfills.TryGetAllocatedBytesForCurrentThread(out var allocatedBytes).Should().BeTrue();
-        allocatedBytes.Should().BePositive();
-    }
-
-    [Test]
     public void ShouldThrowTimeout()
     {
         Invoking(() => new Engine(cfg => cfg.LimitExecutionTime(new TimeSpan(0, 0, 0, 0, 500))).Evaluate("while(true);")).Should().ThrowExactly<TimeoutException>();

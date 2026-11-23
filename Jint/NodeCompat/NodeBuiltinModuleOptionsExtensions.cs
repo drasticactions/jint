@@ -39,10 +39,6 @@ public static class NodeBuiltinModuleOptionsExtensions
     /// supplies one of the modules Jint does not provide.
     /// </para>
     /// <para>
-    /// <c>node:querystring</c> and <c>node:url</c> need .NET 8 or newer, because both build on the engine's
-    /// WHATWG URL implementation. <c>node:path</c> is available on every target framework.
-    /// </para>
-    /// <para>
     /// Calling this twice is harmless; the last call's configuration is the one that wins. Every value is read
     /// here, when this method returns, so mutating <paramref name="configure"/>'s argument afterwards changes
     /// nothing.

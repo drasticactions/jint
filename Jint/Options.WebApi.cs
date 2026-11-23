@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics.CodeAnalysis;
 using Jint.Native;
 using Jint.Runtime;
@@ -13,10 +12,6 @@ public sealed partial class Options
     /// Opt-in WHATWG web platform APIs (<c>console</c>, <c>DOMException</c>, …). Nothing here is installed
     /// unless <see cref="WebApiOptions.Features"/> names it, so a default engine is byte-for-byte the engine
     /// it was before these existed.
-    /// <para>
-    /// <b>Requires .NET 8 or higher.</b> The whole surface is compiled only for <c>net8.0</c> and later; on
-    /// <c>net472</c>, <c>netstandard2.0</c> and <c>netstandard2.1</c> the property does not exist at all.
-    /// </para>
     /// </summary>
     /// <remarks>
     /// <para>
@@ -69,7 +64,7 @@ public sealed partial class Options
     }
 
     /// <summary>
-    /// Configuration for the opt-in web platform APIs. Requires .NET 8 or higher.
+    /// Configuration for the opt-in web platform APIs.
     /// </summary>
     /// <remarks>
     /// Like every other <see cref="Options"/> group this may be shared by any number of engines, including
@@ -213,7 +208,7 @@ public sealed partial class Options
 
     /// <summary>
     /// Settings for the <c>Messaging</c> feature — today, which <c>BroadcastChannel</c> objects can hear each
-    /// other. Requires .NET 8 or higher.
+    /// other.
     /// </summary>
     /// <remarks>
     /// Nothing here is needed for <c>MessageChannel</c>, <c>MessagePort</c> or <c>MessageEvent</c>: a port pair
@@ -248,7 +243,6 @@ public sealed partial class Options
 
     /// <summary>
     /// Settings for the <c>WebLocks</c> feature — which engines coordinate through one lock space.
-    /// Requires .NET 8 or higher.
     /// </summary>
     /// <remarks>
     /// There is one setting, for the same reason <see cref="MessagingOptions"/> has one: a lock addresses a
@@ -299,7 +293,7 @@ public sealed partial class Options
     }
 
     /// <summary>
-    /// Settings for the <c>navigator</c> object. Requires .NET 8 or higher.
+    /// Settings for the <c>navigator</c> object.
     /// </summary>
     /// <remarks>
     /// Like every other option group this may be shared by any number of engines, including concurrent ones:
@@ -350,7 +344,7 @@ public sealed partial class Options
 
     /// <summary>
     /// Settings for <c>Worker</c>: who builds the engine a worker runs on, and the two per-engine backstops
-    /// that keep a script from manufacturing engines and queues without bound. Requires .NET 8 or higher.
+    /// that keep a script from manufacturing engines and queues without bound.
     /// </summary>
     /// <remarks>
     /// Like every other option group this may be shared by any number of engines, including concurrent ones.
@@ -426,7 +420,7 @@ public sealed partial class Options
     }
 
     /// <summary>
-    /// Configures private in-memory IndexedDB storage on .NET 8 or later.
+    /// Configures private in-memory IndexedDB storage.
     /// </summary>
     public sealed partial class IndexedDbOptions
     {
@@ -469,7 +463,7 @@ public sealed partial class Options
     }
 
     /// <summary>
-    /// Settings for the <c>localStorage</c> and <c>sessionStorage</c> globals. Requires .NET 8 or higher.
+    /// Settings for the <c>localStorage</c> and <c>sessionStorage</c> globals.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -535,8 +529,7 @@ public sealed partial class Options
     }
 
     /// <summary>
-    /// Settings for the Cache API: where a script's cached request/response pairs are kept. Requires .NET 8
-    /// or higher.
+    /// Settings for the Cache API: where a script's cached request/response pairs are kept.
     /// </summary>
     /// <remarks>
     /// Like every other option group this may be shared by any number of engines, including concurrent ones.
@@ -574,7 +567,7 @@ public sealed partial class Options
 
     /// <summary>
     /// Settings for <c>fetch</c>: which requests it may make, how large an answer it will read and how long it
-    /// will wait. Requires .NET 8 or higher.
+    /// will wait.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -971,7 +964,7 @@ public sealed partial class Options
     }
 
     /// <summary>
-    /// Settings for <c>XMLHttpRequest</c>. Requires .NET 8 or higher.
+    /// Settings for <c>XMLHttpRequest</c>.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -1026,7 +1019,7 @@ public sealed partial class Options
     }
 
     /// <summary>
-    /// Settings for the <c>console</c> object. Requires .NET 8 or higher.
+    /// Settings for the <c>console</c> object.
     /// </summary>
     public sealed partial class ConsoleOptions
     {
@@ -1055,8 +1048,7 @@ public sealed partial class Options
     }
 
     /// <summary>
-    /// Settings for <c>setTimeout</c>, <c>setInterval</c> and their <c>clear</c> counterparts. Requires
-    /// .NET 8 or higher.
+    /// Settings for <c>setTimeout</c>, <c>setInterval</c> and their <c>clear</c> counterparts.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -1133,8 +1125,7 @@ public sealed partial class Options
     }
 
     /// <summary>
-    /// Settings for the engine's diagnostics channel — the script errors nobody caught. Requires .NET 8 or
-    /// higher.
+    /// Settings for the engine's diagnostics channel — the script errors nobody caught.
     /// </summary>
     public sealed partial class DiagnosticsOptions
     {
@@ -1171,7 +1162,7 @@ public sealed partial class Options
 }
 
 /// <summary>
-/// The web platform APIs an engine can be asked to expose. Requires .NET 8 or higher.
+/// The web platform APIs an engine can be asked to expose.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -1700,4 +1691,3 @@ public enum WebApiFeatures
     /// </summary>
     Default = Console | Timers | Encoding | Base64 | StructuredClone | Crypto | Performance | Events | Url | Files | Navigator | Streams | Scheduler | Messaging | Reporting | Compression | IdleCallback | GlobalEvents | WebLocks,
 }
-#endif

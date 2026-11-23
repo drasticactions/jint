@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Error;
 using Jint.Native.Function;
@@ -154,4 +153,3 @@ internal sealed partial class DomExceptionConstructor : Constructor
             PropertyDescriptor.CreateLazy(capture, static c => JsString.Create(c.Render()), PropertyFlag.NonEnumerable));
     }
 }
-#endif

@@ -203,7 +203,6 @@ internal sealed class MethodInfoFunction : Function
                 && arguments.Length >= parameterInfos.Length - method.ParameterDefaultValuesCount
                 && CanBindNullArguments(parameterInfos, arguments))
             {
-#if NET8_0_OR_GREATER
                 // exact-type fast lane: a compiled delegate binds and invokes without the object?[]
                 // parameter array, argument boxes, boxed return, and return-mapper lookup. Skipped
                 // when custom object converters are registered because those must see return values,
@@ -251,7 +250,6 @@ internal sealed class MethodInfoFunction : Function
                     }
                     // declined (non-exact argument) - fall through to the full binding path
                 }
-#endif
                 if (TryCall(method, arguments, thisObj, converter, out var fastResult))
                 {
                     return fastResult;

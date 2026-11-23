@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Globalization;
 using System.Linq;
 using System.Net;
@@ -378,4 +377,3 @@ internal sealed partial class HttpResponseCache : IDisposable
 
 [StructLayout(LayoutKind.Auto)]
 internal readonly record struct CacheResult(HttpResponseMessage Response, bool FromCache, bool Revalidated);
-#endif

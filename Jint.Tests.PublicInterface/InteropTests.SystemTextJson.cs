@@ -136,7 +136,6 @@ public partial class InteropTests
         engine.Evaluate("if(!variables.employees.falseValue){ return 1 ;} else {return 0;}").AsNumber().Should().Be(1);
         engine.Evaluate("if(!variables.employees.trueValue) return 1 ; else return 0;").AsNumber().Should().Be(0);
 
-
         // mutating original object that is wrapped inside the engine
         variables["employees"]["trueValue"] = false;
         variables["employees"]["number"] = 456.789;
@@ -169,10 +168,6 @@ public partial class InteropTests
         var engine = new Engine(options =>
         {
             options.Interop.AllowWrite = true;
-#if !NET8_0_OR_GREATER
-            // Jint doesn't know about the types statically as they are not part of the out-of-the-box experience
-            options.AddObjectConverter(SystemTextJsonValueConverter.Instance);
-#endif
         });
 
         return engine;

@@ -1,14 +1,13 @@
 ﻿// modified from
 // https://github.com/dotnet/aspnetcore/blob/fd060ce8c36ffe195b9e9a69a1bbd8fb53cc6d7c/src/Shared/WebEncoders/WebEncoders.cs
 //
-// Retire this file when net8.0 is dropped -- System.Buffers.Text.Base64Url is in-box from .NET 9.
+// System.Buffers.Text.Base64Url (in-box since .NET 9) could replace this file once its padding and
+// error behaviour are checked against the Uint8Array base64 and WebCrypto callers.
 
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
-#if NET8_0_OR_GREATER
 using System.Buffers;
-#endif
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 
@@ -135,20 +134,7 @@ internal static class WebEncoders
             throw new ArgumentNullException(nameof(input));
         }
 
-#if NET8_0_OR_GREATER
         return Base64UrlEncode(input.AsSpan(offset, count), omitPadding);
-#else
-        // Special-case empty input
-        if (count == 0)
-        {
-            return string.Empty;
-        }
-
-        var buffer = new char[GetArraySizeRequiredToEncode(count)];
-        var numBase64Chars = Base64UrlEncode(input, offset, buffer, outputOffset: 0, count: count, omitPadding);
-
-        return new string(buffer, startIndex: 0, length: numBase64Chars);
-#endif
     }
 
     /// <summary>
@@ -192,41 +178,7 @@ internal static class WebEncoders
             throw new ArgumentException("invalid", nameof(count));
         }
 
-#if NET8_0_OR_GREATER
         return Base64UrlEncode(input.AsSpan(offset, count), output.AsSpan(outputOffset), omitPadding);
-#else
-        // Special-case empty input.
-        if (count == 0)
-        {
-            return 0;
-        }
-
-        // Use base64url encoding with no padding characters. See RFC 4648, Sec. 5.
-
-        // Start with default Base64 encoding.
-        var numBase64Chars = Convert.ToBase64CharArray(input, offset, count, output, outputOffset);
-
-        // Fix up '+' -> '-' and '/' -> '_'. Drop padding characters.
-        for (var i = outputOffset; i - outputOffset < numBase64Chars; i++)
-        {
-            var ch = output[i];
-            if (ch == '+')
-            {
-                output[i] = '-';
-            }
-            else if (ch == '/')
-            {
-                output[i] = '_';
-            }
-            else if (omitPadding && ch == '=')
-            {
-                // We've reached a padding character; truncate the remainder.
-                return i - outputOffset;
-            }
-        }
-
-        return numBase64Chars;
-#endif
     }
 
     /// <summary>
@@ -243,7 +195,6 @@ internal static class WebEncoders
         return checked(numWholeOrPartialInputBlocks * 4);
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// Encodes <paramref name="input"/> using base64url encoding.
     /// </summary>
@@ -309,7 +260,6 @@ internal static class WebEncoders
 
         return charsWritten;
     }
-#endif
 
     private static int GetNumBase64PaddingCharsInString(string str)
     {

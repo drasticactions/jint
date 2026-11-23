@@ -3,7 +3,6 @@ using Jint.Native;
 using Jint.Native.Json;
 using Jint.Runtime.Modules;
 
-
 #nullable enable
 
 namespace Jint.Tests.PublicInterface;
@@ -187,17 +186,13 @@ public class ModuleLoaderTests
     {
         private readonly ConcurrentDictionary<Uri, ParsedModule> _parsedModules = new();
         private readonly ModuleStore _store;
-        #if NETCOREAPP1_0_OR_GREATER
         private readonly Func<Uri, ResolvedSpecifier, ParsedModule> _moduleParser;
-        #endif
         private int _modulesParsed;
 
         public CachedModuleLoader(ModuleStore store)
         {
             _store = store;
-            #if NETCOREAPP1_0_OR_GREATER
             _moduleParser = GetParsedModule;
-            #endif
         }
 
         public int ModulesParsed => _modulesParsed;
@@ -210,11 +205,7 @@ public class ModuleLoaderTests
         public ModuleRecord LoadModule(Engine engine, ResolvedSpecifier resolved)
         {
             resolved.Uri.Should().NotBeNull();
-            #if NETCOREAPP1_0_OR_GREATER
             var parsedModule = _parsedModules.GetOrAdd(resolved.Uri, _moduleParser, resolved);
-            #else
-            var parsedModule = _parsedModules.GetOrAdd(resolved.Uri, _ => GetParsedModule(resolved.Uri, resolved));
-            #endif
             return parsedModule.ToModule(engine);
         }
 

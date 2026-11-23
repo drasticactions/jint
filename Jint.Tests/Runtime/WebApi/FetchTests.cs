@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 #pragma warning disable JINT0002 // the fetch observer is a preview surface
@@ -842,4 +841,3 @@ public class FetchTests
         return handler;
     }
 }
-#endif

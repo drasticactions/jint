@@ -26,7 +26,6 @@ internal sealed class DelegateWrapper : Function
     // once per construction plus once per *call*.
     private readonly DelegateMetadata _metadata;
 
-#if NET8_0_OR_GREATER
     // Strongly-typed invocation lane; null when the runtime cannot compile one, in which case the
     // reflection-based DynamicInvoke path is kept.
     private readonly CompiledDelegateInvoker.Invoker? _invoker;
@@ -36,7 +35,6 @@ internal sealed class DelegateWrapper : Function
     // and only when _invoker is too.
     private readonly CompiledDelegateInvoker.Invoker1? _invoker1;
     private readonly CompiledDelegateInvoker.Invoker2? _invoker2;
-#endif
 
     public DelegateWrapper(
         Engine engine, Delegate d)
@@ -46,7 +44,6 @@ internal sealed class DelegateWrapper : Function
         _prototype = engine.Realm.Intrinsics.Function.PrototypeObject;
         _metadata = DelegateMetadata.For(d.Method);
 
-#if NET8_0_OR_GREATER
         var compiled = CompiledDelegateInvoker.For(d.GetType());
         if (ThunkBindsTheTargetSignature(in compiled, d.Method))
         {
@@ -54,10 +51,8 @@ internal sealed class DelegateWrapper : Function
             _invoker1 = compiled.Invoke1;
             _invoker2 = compiled.Invoke2;
         }
-#endif
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// Whether the thunk built for the delegate <em>type</em> may be used to run this delegate's target
     /// method — that is, whether the signature it binds is the one the argument list is built to.
@@ -103,7 +98,6 @@ internal sealed class DelegateWrapper : Function
 
         return true;
     }
-#endif
 
     protected internal override JsValue Call(JsValue thisObject, JsCallArguments arguments)
     {
@@ -170,19 +164,16 @@ internal sealed class DelegateWrapper : Function
         var converted0 = Convert(in parameter0, arg0, converter, valueCoercionType);
         if (count == 1)
         {
-#if NET8_0_OR_GREATER
             var invoker1 = _invoker1;
             if (invoker1 is not null && DelegateMetadata.CanBind(in parameter0, converted0))
             {
                 return InvokeInRegisters(invoker1, converted0);
             }
-#endif
             return Invoke([converted0]);
         }
 
         ref var parameter1 = ref Unsafe.Add(ref parameter0, 1);
         var converted1 = Convert(in parameter1, arg1, converter, valueCoercionType);
-#if NET8_0_OR_GREATER
         var invoker2 = _invoker2;
         if (invoker2 is not null
             && DelegateMetadata.CanBind(in parameter0, converted0)
@@ -190,7 +181,6 @@ internal sealed class DelegateWrapper : Function
         {
             return InvokeInRegisters(invoker2, converted0, converted1);
         }
-#endif
         return Invoke([converted0, converted1]);
     }
 
@@ -302,30 +292,20 @@ internal sealed class DelegateWrapper : Function
     private JsValue Invoke(object?[] parameters)
     {
         object? result;
-#if NET8_0_OR_GREATER
         // The compiled thunk emits an unbox/castclass per argument, which - unlike the reflection
         // binder - coerces nothing, so it may only run for an exactly-typed argument list.
         var invoker = _invoker;
         var viaCompiledLane = invoker is not null && _metadata.CanBind(parameters);
-#endif
         try
         {
             using var suspension = Engine.SuspendHostCallForCallbacks(
                 _metadata.MayReceiveHostCallback && DefaultTypeConverter.ContainsHostCallback(parameters));
-#if NET8_0_OR_GREATER
             result = viaCompiledLane ? invoker!(_d, parameters) : _d.DynamicInvoke(parameters);
-#else
-            result = _d.DynamicInvoke(parameters);
-#endif
         }
-#if NET8_0_OR_GREATER
         // The compiled lane calls the delegate directly, so a host exception arrives unwrapped; the
         // DynamicInvoke lane keeps its historical filter so only target exceptions (which it wraps)
         // are intercepted and a binder failure still surfaces as-is.
         catch (Exception exception) when (viaCompiledLane || exception is TargetInvocationException)
-#else
-        catch (TargetInvocationException exception)
-#endif
         {
             ThrowHostCallFailure(exception);
             throw;
@@ -334,7 +314,6 @@ internal sealed class DelegateWrapper : Function
         return CompleteHostCall(result);
     }
 
-#if NET8_0_OR_GREATER
     private JsValue InvokeInRegisters(CompiledDelegateInvoker.Invoker1 invoker, object? argument0)
     {
         object? result;
@@ -371,7 +350,6 @@ internal sealed class DelegateWrapper : Function
 
         return CompleteHostCall(result);
     }
-#endif
 
     /// <summary>
     /// A throwing host call never reaches the post-invoke boundary check, so it is re-checked here: a loop
@@ -405,7 +383,6 @@ internal sealed class DelegateWrapper : Function
         {
             return true;
         }
-#if !NETFRAMEWORK && !NETSTANDARD2_0
         if (obj is ValueTask)
         {
             return true;
@@ -419,9 +396,6 @@ internal sealed class DelegateWrapper : Function
         }
 
         return type.GetGenericTypeDefinition() == typeof(ValueTask<>);
-#else
-        return false;
-#endif
     }
 }
 
@@ -463,16 +437,6 @@ internal sealed class DelegateMetadata
     {
         var parameterInfos = method.GetParameters();
 
-#if NETFRAMEWORK
-        if (parameterInfos.Length > 0 && parameterInfos[0].ParameterType == typeof(System.Runtime.CompilerServices.Closure))
-        {
-            var reducedLength = parameterInfos.Length - 1;
-            var reducedParameterInfos = new ParameterInfo[reducedLength];
-            Array.Copy(parameterInfos, 1, reducedParameterInfos, 0, reducedLength);
-            parameterInfos = reducedParameterInfos;
-        }
-#endif
-
         ParameterMetadata[] parameters = parameterInfos.Length == 0 ? [] : new ParameterMetadata[parameterInfos.Length];
         var hasParamsArray = false;
         var mayReceiveHostCallback = false;
@@ -513,7 +477,6 @@ internal sealed class DelegateMetadata
 
     internal bool ParamsElementIsJsValue { get; }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// Whether <paramref name="parameters"/> may be handed to a strongly-typed invoker, whose emitted
     /// unbox/castclass per argument is stricter than the reflection binder: the binder accepts any box
@@ -562,5 +525,4 @@ internal sealed class DelegateMetadata
 
         return !parameter.IsValueType && parameter.ParameterType.IsInstanceOfType(value);
     }
-#endif
 }

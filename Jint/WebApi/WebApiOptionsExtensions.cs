@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Runtime;
 using Jint.WebApi;
 
@@ -6,7 +5,7 @@ using Jint.WebApi;
 namespace Jint;
 
 /// <summary>
-/// Enables the opt-in WHATWG web platform APIs. Requires .NET 8 or higher.
+/// Enables the opt-in WHATWG web platform APIs.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -525,4 +524,3 @@ public static class WebApiOptionsExtensions
         return options;
     }
 }
-#endif

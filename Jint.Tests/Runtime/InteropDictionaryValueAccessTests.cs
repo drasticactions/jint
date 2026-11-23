@@ -221,8 +221,6 @@ public class InteropDictionaryValueAccessTests
 
     #region 5. the compiled reader itself
 
-#if NET8_0_OR_GREATER
-
     [Test]
     public void CompiledReaderIsBuiltForAVisibleDictionary()
     {
@@ -347,8 +345,6 @@ public class InteropDictionaryValueAccessTests
         Jint.Runtime.Interop.Reflection.CompiledKeyedAccessor
             .GetValueSetter(typeof(StructIndexer).GetProperty("Item")!.GetSetMethod()).Should().BeNull();
     }
-
-#endif
 
     #endregion
 

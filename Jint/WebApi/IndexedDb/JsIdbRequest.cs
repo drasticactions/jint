@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Runtime;
 using Jint.WebApi.Events;
@@ -62,4 +61,3 @@ internal sealed class JsIdbOpenDbRequest(Engine engine, Realm realm)
 {
     internal JsIdbDatabase? Database;
 }
-#endif

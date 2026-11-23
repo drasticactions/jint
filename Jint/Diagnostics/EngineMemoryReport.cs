@@ -131,8 +131,8 @@ public sealed record EngineMemoryReport
     /// callback's closure — whatever that closure captured.
     /// </summary>
     /// <remarks>
-    /// Always zero where the timer globals do not exist: on target frameworks below .NET 8, which carry no
-    /// web APIs at all, and on any engine that did not opt into <c>WebApiFeatures.Timers</c>. An interval is
+    /// Always zero where the timer globals do not exist: on any engine that did not opt into
+    /// <c>WebApiFeatures.Timers</c>. An interval is
     /// one timer however many times it has already fired.
     /// </remarks>
     public int PendingTimerCount { get; }

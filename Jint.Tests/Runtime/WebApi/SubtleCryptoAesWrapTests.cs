@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -1084,4 +1083,3 @@ public class SubtleCryptoAesWrapTests
                 "TypeError,TypeError,NotSupportedError,TypeError,TypeError,NotSupportedError");
     }
 }
-#endif

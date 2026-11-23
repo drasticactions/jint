@@ -1,6 +1,3 @@
-#if !NET8_0_OR_GREATER && !NETFRAMEWORK
-using System.Runtime.InteropServices;
-#endif
 
 namespace Jint.NodeCompat;
 
@@ -23,30 +20,14 @@ internal static class NodePlatform
     /// <summary>
     /// The running platform as one of Node's platform strings.
     /// </summary>
-    /// <remarks>
-    /// Not an API gap but a genuine three-way, and the same one <c>DefaultTimeZoneProvider</c> answers:
-    /// <see cref="OperatingSystem"/>'s predicates arrived in .NET 5, netstandard has to ask the runtime, and
-    /// <c>net472</c> only ever runs on Windows.
-    /// </remarks>
     internal static string Default()
     {
-#if NET8_0_OR_GREATER
         if (OperatingSystem.IsWindows())
         {
             return Windows;
         }
 
         return OperatingSystem.IsMacOS() ? MacOs : Linux;
-#elif NETFRAMEWORK
-        return Windows;
-#else
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            return Windows;
-        }
-
-        return RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? MacOs : Linux;
-#endif
     }
 
     /// <summary>

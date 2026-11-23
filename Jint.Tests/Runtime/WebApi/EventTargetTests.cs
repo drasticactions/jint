@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -605,4 +604,3 @@ public class EventTargetTests
         scope.CurrentEvent.Should().Be(JsValue.Undefined);
     }
 }
-#endif

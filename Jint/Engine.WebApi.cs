@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Jint.Native.Promise;
@@ -92,8 +91,7 @@ public partial class Engine
     /// path that consults it starts with this field being null, so an engine that has no timers pays one
     /// predictable null check per event-loop drain and nothing else. The pump reaches it through
     /// <c>Engine.TryPromoteDueTimerJob</c> and <c>Engine.TimeUntilNextPumpScheduledWork</c>
-    /// (<c>Jint/Engine.Pump.cs</c>), which are declared on every target framework so that neither the event
-    /// loop nor the wait loops need a conditional-compilation directive of their own. It is created by
+    /// (<c>Jint/Engine.Pump.cs</c>), so that neither the event loop nor the wait loops depend on the web APIs. It is created by
     /// <c>WebApiRegistration.Apply</c> for the features that keep state in it — the timers and the events, the
     /// latter for the time origin <c>Event.timeStamp</c> is measured against and for the queue
     /// <c>AbortSignal.timeout()</c> schedules on — or, for a feature enabled through
@@ -1545,4 +1543,3 @@ internal sealed class WebApiRealmState
     internal GlobalEventTarget? GlobalEventTarget { get; set; }
     internal PropertyDescriptor? InstalledSelf { get; set; }
 }
-#endif

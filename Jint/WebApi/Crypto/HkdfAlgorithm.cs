@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Security.Cryptography;
 using Jint.Runtime;
 
@@ -207,4 +206,3 @@ internal static class HkdfAlgorithm
         }
     }
 }
-#endif

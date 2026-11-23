@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -277,4 +276,3 @@ public class WebApiConsoleRecordTests
         engine.Invoking(e => e.Execute("console.groupEnd(); console.log('x')")).Should().NotThrow();
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Function;
 using Jint.Native.Iterator;
@@ -263,4 +262,3 @@ internal sealed partial class ReadableStreamConstructor : Constructor
             onRejected: null);
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Net;
@@ -216,4 +215,3 @@ public class WebApiMultipartTests
             .UnwrapIfPromise(TransportSignalCeiling).AsString().Should().Be("TypeError");
     });
 }
-#endif

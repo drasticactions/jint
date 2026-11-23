@@ -229,15 +229,6 @@ internal sealed partial class StringPrototype : StringInstance
         if (string.Equals("lt", culture.Name, StringComparison.OrdinalIgnoreCase))
         {
             s = StringInlHelper.LithuanianStringProcessor(s);
-#if NETFRAMEWORK
-            // .NET Framework's culture-aware ToUpper does not map GREEK LETTER YOT (U+03F3) or
-            // LATIN SMALL LETTER J WITH CROSSED-TAIL (U+029D) to their capitals, so patch the two up.
-            // Still true on the net472 floor: removing this block fails 36 of the
-            // StringTests.LithuanianToLocaleUpperCase cases on that leg.
-            return new JsString(ToUpperCaseWithSpecialCasing(s, culture)
-                .Replace('ϳ', 'Ϳ')
-                .Replace('ʝ', 'Ʝ'));
-#endif
         }
 
         return new JsString(ToUpperCaseWithSpecialCasing(s, culture));

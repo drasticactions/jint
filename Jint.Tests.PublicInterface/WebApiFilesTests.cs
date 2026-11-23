@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint;
 using Jint.Native;
 
@@ -157,4 +156,3 @@ public class WebApiFilesTests
         second.Evaluate("b instanceof Blob").AsBoolean().Should().BeTrue();
     }
 }
-#endif

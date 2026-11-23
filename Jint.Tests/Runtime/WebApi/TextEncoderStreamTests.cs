@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -272,4 +271,3 @@ public class TextEncoderStreamTests
             .Evaluate("typeof TextEncoderStream").AsString().Should().Be("undefined");
     }
 }
-#endif

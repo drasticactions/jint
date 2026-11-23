@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using System.Text;
 using Jint.WebApi.Fetch;
@@ -361,4 +360,3 @@ internal sealed class EventStreamParser
         }
     }
 }
-#endif

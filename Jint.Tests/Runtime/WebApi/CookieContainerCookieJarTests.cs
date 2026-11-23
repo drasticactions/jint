@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 using Jint.WebApi.Fetch;
 
@@ -54,4 +53,3 @@ public sealed class CookieContainerCookieJarTests
         jar.GetScriptCookies(url).Count.Should().Be(visible ? 1 : 0);
     }
 }
-#endif

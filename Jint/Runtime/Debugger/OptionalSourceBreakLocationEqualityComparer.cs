@@ -33,8 +33,6 @@ internal sealed class OptionalSourceBreakLocationEqualityComparer : IEqualityCom
         {
             return 0;
         }
-        // Hand-rolled rather than HashCode.Combine: it is netstandard2.1+, so net472 and netstandard2.0
-        // lack it and no shim exists. See ModuleRequest.GetHashCode for the same reasoning.
         unchecked
         {
             int hash = 17;

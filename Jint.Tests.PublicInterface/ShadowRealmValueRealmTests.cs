@@ -156,7 +156,6 @@ public class ShadowRealmValueRealmTests
         shadowRealm.Evaluate("Object.getPrototypeOf(handle[Symbol.dispose]) === Function.prototype").Should().BeTrue();
     }
 
-#if !NETFRAMEWORK
     [Test]
     public void TheAsyncDisposeMemberOfAHostObjectBelongsToTheRealmItIsRegisteredOn()
     {
@@ -168,7 +167,6 @@ public class ShadowRealmValueRealmTests
         shadowRealm.Evaluate("handle[Symbol.asyncDispose] instanceof Function").Should().BeTrue();
         shadowRealm.Evaluate("Object.getPrototypeOf(handle[Symbol.asyncDispose]) === Function.prototype").Should().BeTrue();
     }
-#endif
 
     [Test]
     public void TheToJsonMemberOfAHostObjectBelongsToTheRealmItIsRegisteredOn()
@@ -241,12 +239,10 @@ public class ShadowRealmValueRealmTests
         public void Dispose() => Disposed = true;
     }
 
-#if !NETFRAMEWORK
     public sealed class AsyncHandle : IAsyncDisposable
     {
         public ValueTask DisposeAsync() => default;
     }
-#endif
 
     public sealed class Payload
     {

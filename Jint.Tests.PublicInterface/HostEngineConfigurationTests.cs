@@ -3,13 +3,11 @@
 using System.Globalization;
 using Jint.Constraints;
 using Jint.Runtime.Modules;
-#if NET8_0_OR_GREATER
 using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Jint.WebApi;
-#endif
 
 namespace Jint.Tests.PublicInterface;
 
@@ -203,7 +201,6 @@ public class HostEngineConfigurationTests
         engine.Constraints.Find<MaxStatementsConstraint>().Should().NotBeNull();
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// The shape of #3331, read back rather than inferred: a live web-API configuration lands on the engine
     /// that asked for it, and the sibling sharing the defaults is untouched.
@@ -231,7 +228,6 @@ public class HostEngineConfigurationTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
             => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
     }
-#endif
 
     private sealed class NoopConstraint : Constraint
     {

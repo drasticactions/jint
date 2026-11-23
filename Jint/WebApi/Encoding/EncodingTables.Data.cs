@@ -17,7 +17,6 @@
 //     3-Clause License instead" - which is what the tables below are. The full text is vendored as
 //     tools/whatwg-encoding/whatwg-encoding-LICENSE.txt.
 // </auto-generated>
-#if NET8_0_OR_GREATER
 using Jint.Runtime;
 
 namespace Jint.WebApi.Encoding;
@@ -1105,4 +1104,3 @@ internal enum SingleByteIndex
     /// <summary>index-x-mac-cyrillic.txt</summary>
     XMacCyrillic,
 }
-#endif

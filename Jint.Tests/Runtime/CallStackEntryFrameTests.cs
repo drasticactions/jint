@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -274,4 +273,3 @@ public class CallStackEntryFrameTests
 
     private JsValue? _reported;
 }
-#endif

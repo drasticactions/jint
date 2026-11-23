@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint;
 using Jint.Native;
 
@@ -156,4 +155,3 @@ public class WebApiInterfaceObjectTests
         engine.Evaluate(instance + " === " + instance).AsBoolean().Should().BeTrue();
     }
 }
-#endif

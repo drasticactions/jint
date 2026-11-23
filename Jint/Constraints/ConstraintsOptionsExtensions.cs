@@ -118,8 +118,7 @@ public static class ConstraintsOptionsExtensions
             // TimeProvider assigned after this call reaches the constraint exactly as it did when this
             // closure captured the group. What changes is the case a capture answered wrongly: a factory
             // replayed onto a DIFFERENT Options instance, which is what a worker is
-            // (sebastienros/jint#3481). Nothing here is conditionally compiled any more, because there is
-            // no longer a .NET 8 type in the expression.
+            // (sebastienros/jint#3481).
             options.AddConstraint(() => new TimeConstraint(timeoutInterval));
         }
         return options;

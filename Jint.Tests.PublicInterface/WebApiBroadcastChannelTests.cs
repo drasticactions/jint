@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Threading;
@@ -416,4 +415,3 @@ public class WebApiBroadcastChannelTests
     /// </summary>
     private static int ReceivedCount(Engine engine) => (int) engine.GetValue("received").Get("length").AsNumber();
 }
-#endif

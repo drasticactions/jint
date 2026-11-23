@@ -311,7 +311,6 @@ public class HostAsyncEntryCancellationTests
         engine.Evaluate("typeof leftover").Should().Be("undefined");
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// The settlement wait can be woken by the cancel itself while a turn that would settle the promise is
     /// already due. The cancel must win: the timer here is due on the engine's clock before the token is
@@ -357,7 +356,6 @@ public class HostAsyncEntryCancellationTests
 
         internal void Advance(int milliseconds) => Interlocked.Add(ref _timestamp, milliseconds * TimeSpan.TicksPerMillisecond);
     }
-#endif
 
     private static ClrFunction Cancel(Engine engine, CancellationTokenSource source)
         => new(engine, "cancel", (_, _) =>

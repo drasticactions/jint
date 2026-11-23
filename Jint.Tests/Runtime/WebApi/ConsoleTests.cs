@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.WebApi;
@@ -828,4 +827,3 @@ public class ConsoleTests
         sink.Messages.Should().Equal("default: 1", "default: 1");
     }
 }
-#endif

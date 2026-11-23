@@ -2,9 +2,7 @@
 
 using System.Collections.Generic;
 using System.Reflection;
-#if NET8_0_OR_GREATER
 using System.Runtime.Loader;
-#endif
 using Jint.Native;
 using Jint.Native.Object;
 using Jint.Runtime;
@@ -128,7 +126,7 @@ public class HostContractVerificationTests
             => [new JsString("honest"), new JsString("lied")];
     }
 
-#if NET8_0_OR_GREATER && !DEBUG
+#if !DEBUG
     [Test]
     public void TheSwitchTurnsVerificationOnInAReleaseBuild()
     {

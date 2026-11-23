@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using Jint.Extensions;
 using Jint.Native;
@@ -577,4 +576,3 @@ internal sealed class JsonWebKeyData
 
     private static string Describe(string? value) => value is null ? "absent" : "'" + value + "'";
 }
-#endif

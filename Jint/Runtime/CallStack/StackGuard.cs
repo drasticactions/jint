@@ -113,11 +113,6 @@ internal sealed class StackGuard
     /// it *consumes* stack per level. Measured on a 1.5 MB stack, a <c>JavaScriptException</c> unwinds
     /// 1153 interpreter frames where a rethrown CLR exception manages 158.
     /// </para>
-    /// <para>
-    /// On <c>net472</c>/<c>netstandard2.0</c> the probe is the throwing form wrapped in a try/catch (see
-    /// <c>RuntimeHelpersPolyfills</c>), i.e. one exception on the failing probe only. That is once per
-    /// stack exhaustion, immediately before an exception is thrown anyway.
-    /// </para>
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void EnsureStackHeadroom()
@@ -267,8 +262,7 @@ internal sealed class StackGuard
         try
         {
             // ValueTuple rather than Tuple, so the state box is one allocation of a struct rather than a
-            // reference type. Every target framework carries it: net472 has it in mscorlib (it arrived in
-            // .NET Framework 4.7), and the netstandard targets get it from the reference assemblies.
+            // reference type.
             return RunOnEmptyStackCore(static s =>
             {
                 var t = ((Engine, Engine.StackGuardHandoff, Func<T1, TR>, T1)) s;

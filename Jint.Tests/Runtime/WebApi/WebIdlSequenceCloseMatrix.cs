@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 namespace Jint.Tests.Runtime.WebApi;
@@ -247,4 +246,3 @@ internal static class WebIdlSequenceCloseMatrix
         }
     }
 }
-#endif

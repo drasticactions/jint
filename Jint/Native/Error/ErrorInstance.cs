@@ -50,10 +50,9 @@ internal interface IErrorData;
 /// <c>AbortError: x</c> into <c>Error</c>. Answering from the slot is what the accessor itself does.
 /// </para>
 /// <para>
-/// An interface rather than a type test, because the type is in <c>Jint/WebApi/</c> and gated to
-/// <c>net8.0</c> while the reader is not: a <c>#if</c> in a shared reader is exactly what
-/// <c>Jint/Extensions/AGENTS.md</c> argues against. It is also what makes the answer un-spoofable — a script
-/// cannot construct an implementation, so nothing script installs can be mistaken for a slot.
+/// An interface rather than a type test, because the type is in <c>Jint/WebApi/</c> and the reader should not
+/// depend on it. It is also what makes the answer un-spoofable — a script cannot construct an implementation,
+/// so nothing script installs can be mistaken for a slot.
 /// </para>
 /// </remarks>
 internal interface IErrorTextSlots

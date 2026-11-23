@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint;
 using Jint.Native;
 
@@ -149,4 +148,3 @@ public class WebApiStructuredCloneTests
         engine.Evaluate("Array.from(new Uint8Array(clone)).join(',')").AsString().Should().Be("7,8,9");
     }
 }
-#endif

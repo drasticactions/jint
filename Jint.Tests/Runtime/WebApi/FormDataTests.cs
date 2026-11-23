@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -345,4 +344,3 @@ public class FormDataTests
         engine.Evaluate("t.configurable").AsBoolean().Should().BeTrue("the class string is configurable");
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
@@ -992,4 +991,3 @@ internal static class MultipartFormData
         return value.Slice(0, end);
     }
 }
-#endif

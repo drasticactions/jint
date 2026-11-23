@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 
 namespace Jint.WebApi.Locks;
@@ -83,4 +82,3 @@ internal readonly record struct LockInfo(string Name, LockMode Mode, string Clie
 /// </summary>
 [StructLayout(LayoutKind.Auto)]
 internal readonly record struct LockStateSnapshot(IReadOnlyList<LockInfo> Held, IReadOnlyList<LockInfo> Pending);
-#endif

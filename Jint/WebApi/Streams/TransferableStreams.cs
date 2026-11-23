@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Runtime;
 using Jint.WebApi.Messaging;
 using Jint.WebApi.StructuredClone;
@@ -181,4 +180,3 @@ internal static class TransferableStreams
         return stream;
     }
 }
-#endif

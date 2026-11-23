@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Net;
@@ -363,4 +362,3 @@ public class HeadersGuardTests
         reader.ReadToEnd().Should().Be("ok,ok,ok");
     }
 }
-#endif

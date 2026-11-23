@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Text;
@@ -355,4 +354,3 @@ public class UrlCorpusTests
         return JsonDocument.Parse(stream);
     }
 }
-#endif

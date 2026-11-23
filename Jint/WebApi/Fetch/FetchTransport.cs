@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
@@ -757,7 +756,6 @@ internal static class FetchTransport
                         throw new FetchFailureException(FetchFailureKind.Network, "HTTP caching is disabled.");
                     response = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
                 }
-
             }
             catch (Exception ex) when (ex is not OperationCanceledException and not FetchFailureException)
             {
@@ -1663,4 +1661,3 @@ internal static class FetchTransport
         }
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -254,4 +253,3 @@ public class QueuingStrategyTests
             .Error.Get("name").AsString().Should().Be("TypeError");
     }
 }
-#endif

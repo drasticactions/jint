@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 namespace Jint.WebApi;
 
 /// <summary>
@@ -51,4 +50,3 @@ internal static class QuotaExceededAmounts
         }
     }
 }
-#endif

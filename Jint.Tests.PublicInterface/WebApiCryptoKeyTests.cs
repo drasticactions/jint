@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Security.Cryptography;
@@ -289,4 +288,3 @@ public class WebApiCryptoKeyTests
         engine.Evaluate("typeof CryptoKey").AsString().Should().Be("function");
     }
 }
-#endif

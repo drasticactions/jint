@@ -12,9 +12,8 @@ namespace Jint.Tests.Runtime;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Nothing here is gated on <c>NET8_0_OR_GREATER</c>: the wait is core-engine surface on every target
-/// framework and knows nothing about which web APIs are enabled. The one source of scheduled work that only
-/// exists on .NET 8 and later — a due timer — has its own file, <c>WebApi.PumpWaitTests</c>.
+/// The wait is core-engine surface and knows nothing about which web APIs are enabled. The one source of
+/// scheduled work that the web APIs add — a due timer — has its own file, <c>WebApi.PumpWaitTests</c>.
 /// </para>
 /// <para>
 /// Every wait here is released by a thread the test owns, so the wall-clock numbers are ceilings and margins

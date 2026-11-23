@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -261,4 +260,3 @@ public class ReadableStreamTeeTests
         Log(engine).Should().Be("teed:0,one:chunk1:pulls=2");
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Text.Json;
@@ -363,4 +362,3 @@ public class WebApiRegistrationTests
         built.Should().Be(1);
     }
 }
-#endif

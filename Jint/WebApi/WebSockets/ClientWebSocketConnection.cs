@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Buffers;
 using System.Net.WebSockets;
 using System.Threading;
@@ -219,4 +218,3 @@ internal sealed class ClientWebSocketConnectionFactory : IWebSocketConnectionFac
     public IWebSocketConnection Create(Uri url, IReadOnlyList<string> protocols, long maxMessageBytes, string? userAgent)
         => new ClientWebSocketConnection(url, protocols, maxMessageBytes, userAgent, _collectHandshake);
 }
-#endif

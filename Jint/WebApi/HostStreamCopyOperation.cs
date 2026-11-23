@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Runtime;
 
@@ -6,7 +5,7 @@ namespace Jint.WebApi;
 
 /// <summary>
 /// A copy of a script's <c>ReadableStream</c> into a host <see cref="Stream"/> in progress, handed back by
-/// <c>Engine.WebApi.StartReadableStreamCopy</c>. Requires .NET 8 or higher.
+/// <c>Engine.WebApi.StartReadableStreamCopy</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -200,4 +199,3 @@ public sealed class HostStreamCopyOperation
     /// </summary>
     internal void Advance(long bytes) => _bytesWritten += bytes;
 }
-#endif

@@ -66,10 +66,6 @@ frameworks sequentially while other project groups remain parallel. Keep fixture
 isolation in the shared convention and existing `NonParallelizable` attributes;
 CommonScripts and generated Test262 cases already opt into finer-grained parallelism.
 
-The Windows `net472` executables target x64, matching the previous VSTest host's
-4 MB stack reserve. An AnyCPU executable reserves only 1 MB even when it runs as x64,
-which makes recursive scripts fail earlier. No engine recursion limit is relaxed.
-
 ## A wall-clock number is either the assertion or a wedge ceiling — never both
 
 `TestBudgets.WedgeCeiling` (two minutes) is the budget for a wait released from *outside* the engine: a
@@ -135,9 +131,7 @@ repository-wide, so the annotation you add has to be right rather than approxima
 
 ## Two things about the project shape
 
-- **The target frameworks are `net8.0;net10.0`, plus `net472` on Windows.** A test written against a modern
-  BCL API still has to compile on `net472`; the polyfill discipline that answers that is
-  [`Jint/Extensions/AGENTS.md`](../Jint/Extensions/AGENTS.md), and it applies to test code too.
+- **The target framework is `net10.0`**, like Jint's.
 - **The dependency on `Jint.Tests.Browser` is one way.** This assembly grants it `InternalsVisibleTo` so the
   browser lane runs the web-platform-tests on *this* project's corpus — one corpus, one pin, one exclusion
   vocabulary. Nothing here may reference `Jint.Browser`.

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.CompilerServices;
 using System.Text;
 using SystemEncoding = System.Text.Encoding;
@@ -252,4 +251,3 @@ internal static class PercentEncoding
         return false;
     }
 }
-#endif

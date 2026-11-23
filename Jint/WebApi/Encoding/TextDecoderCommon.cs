@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Object;
 using Jint.Runtime;
@@ -217,4 +216,3 @@ internal sealed class TextDecoderCommon
         return decoded.Length == 0 ? JsString.Empty : JsString.Create(decoded.ToString());
     }
 }
-#endif

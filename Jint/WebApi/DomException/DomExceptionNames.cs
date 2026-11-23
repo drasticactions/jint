@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 namespace Jint.WebApi.DomException;
 
 /// <summary>
@@ -86,4 +85,3 @@ internal static class DomExceptionNames
         _ => 0,
     };
 }
-#endif

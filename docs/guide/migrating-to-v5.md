@@ -851,8 +851,7 @@ while (running)
 }
 ```
 
-**The web-platform bridge is `engine.WebApi`**, and, like everything else under `Jint.WebApi`, the whole
-facet exists only on `net8.0` and later. Two members are renamed as well as moved, because
+**The web-platform bridge is `engine.WebApi`**. Two members are renamed as well as moved, because
 `engine.WebApi.WebApiFeatures` and `engine.WebApi.EnableWebApis` stutter — and `EnableWebApis` was a second
 spelling of `options.UseWebApis` under a different verb and a different return type.
 
@@ -2855,7 +2854,7 @@ with no code for the typed factory's instantiation gives — Native AOT over a v
 
 `Engine.DrainEventLoopUntil` — what `UnwrapIfPromise` blocks in, and what a synchronous `Modules.Import`
 waits in — used to arm its deadline from `DateTime.UtcNow`. It now arms it from a monotonic timestamp, read
-through `Options.Constraints.TimeProvider` on `net8.0` and later and from `Stopwatch` everywhere else. Three
+through `Options.Constraints.TimeProvider`, or from `Stopwatch` when none is set. Three
 consequences, none of which changes a signature:
 
 - **A system-clock step no longer moves a promise budget.** An NTP correction forwards used to cut a
@@ -8824,7 +8823,7 @@ none of it changes an engine that does not.
 | `LazyJsString` — one base class for a host string whose text is expensive to produce | `class Field : LazyJsString { public Field(int len) : base(len) {} protected override string Materialize() => … }` | [Advanced hosting](advanced-hosting.md) |
 | A synchronous, bounded callback in a host-created realm | `engine.Advanced.WithRealm(realm, action)` | [§5.33](#5-33-a-host-can-run-a-bounded-callback-in-one-of-its-realms-3917) |
 | Web Locks — `navigator.locks`, in a lock space several engines can share | in `UseWebApis()` already; `options.UseWebLocks(manager)` names the shared space | [§5.37](#5-37-several-engines-can-share-one-lock-space-navigator-locks) |
-| IndexedDB databases, transactions, indexes and cursors (.NET 8+) | `WebApiFeatures.IndexedDb` (`1 << 27`), opt-in; automatic in `Jint.Browser` with `BrowserOptions.MaxIndexedDbBytes` (50 MiB per origin) | [IndexedDB](web-apis/indexeddb.md) |
+| IndexedDB databases, transactions, indexes and cursors | `WebApiFeatures.IndexedDb` (`1 << 27`), opt-in; automatic in `Jint.Browser` with `BrowserOptions.MaxIndexedDbBytes` (50 MiB per origin) | [IndexedDB](web-apis/indexeddb.md) |
 | Buffer-view construction mode | `value.IsLengthTrackingArrayBufferView()` | [§5.38](#5-38-reading-a-buffer-view-s-length-tracking-mode) |
 
 The `LazyJsString` row is the only one that replaces an existing spelling rather than adding a capability, so it is
@@ -8862,15 +8861,12 @@ MyApp.JsAccessibleRegistration.RegisterAll();
 ```
 
 `RegisterAll()` is generated into your assembly's root namespace, one per assembly, and is idempotent.
-**Registration is explicit on purpose.** The generator does not use `[ModuleInitializer]`: that attribute
-does not exist on `net472` or `netstandard2.0` without a polyfill you have no other reason to carry, and a
-registration that happens because an assembly loaded is one you can neither see in a stack trace nor turn
-off in a test.
+**Registration is explicit on purpose.** The generator does not use `[ModuleInitializer]`: a registration
+that happens because an assembly loaded is one you can neither see in a stack trace nor turn off in a test.
 
 **What it claims.** Two things, both narrow. The annotated members need no metadata a trimmer could remove,
-and reading, writing or invoking one runs no reflection — on every target framework, including the ones
-where Jint's run-time compiled lanes decline outright (`net472`, `netstandard2.0`, and anything without
-dynamic code). **It is not an AOT claim**; section 6 is still the whole story there, and this changes
+and reading, writing or invoking one runs no reflection — including where Jint's run-time compiled lanes
+decline outright (anything without dynamic code). **It is not an AOT claim**; section 6 is still the whole story there, and this changes
 nothing in it.
 
 **What it does not change.** Everything else. A generated member goes through the same property descriptor,
@@ -8922,8 +8918,8 @@ do.
 
 **Nothing to install.** The generator ships inside the `Jint` package, under `analyzers/dotnet/cs`, so the
 `PackageReference` you already have is the whole setup — annotate a type and `RegisterAll()` appears in your
-assembly's root namespace. It needs a compiler at least as new as the **.NET 8 SDK**; on anything older the
-compiler declines to load the analyzer (`CS9057`) and your call to `RegisterAll()` then fails to compile,
+assembly's root namespace. It needs a compiler at least as new as the **.NET 8 SDK** (Jint itself needs the .NET 10 SDK); on anything
+older the compiler declines to load the analyzer (`CS9057`) and your call to `RegisterAll()` then fails to compile,
 which is at least a failure you can see. It does nothing to a project that annotates nothing, and
 `<PackageReference Include="Jint" ExcludeAssets="analyzers" />` keeps it out of your build entirely.
 
@@ -9638,7 +9634,7 @@ Four new packages ship beside `Jint`, and nothing about them reaches an engine t
 `Jint.Browser` adds the native `Jint.HtmlParser` DOM, a page runtime and the page-level protocol domains on top of it;
 `Jint.Browser.Mcp` is a Model Context Protocol server over that, for an agent rather than a client; and
 `Jint.Browser.Tool` is the `jint-browser` command line over both, installed rather than referenced. All four
-are `net8.0` and later.
+are `net10.0`.
 
 **There is nothing to migrate.** They are additive, they are separate packages, and they are outside the
 engine's compatibility contract in the ordinary way — a package a project does not reference cannot break it.
@@ -10098,7 +10094,7 @@ continue serving a trusted cycle.
 ### 5.40 Plain-engine IndexedDB storage has a configurable quota
 
 `Options.WebApi.IndexedDb` and `Options.IndexedDbOptions.MaxBytes` expose the private store's retained-data
-quota on .NET 8 or later. IndexedDB remains opt-in. Its private store now defaults to 50 MiB across all
+quota. IndexedDB remains opt-in. Its private store now defaults to 50 MiB across all
 of the engine's databases, rather than unlimited storage. Configure `MaxBytes` before first use, including
 through the live-enable callback; zero refuses database creation, and `long.MaxValue` restores the practical
 unlimited-storage behavior. Negative values are rejected.
@@ -10253,9 +10249,7 @@ is exactly why the messages above point at them. Nothing carries `[RequiresDynam
 says, and warning an AOT host away from an API that works would be worse than not warning at all.
 [§6.6](#6-6-what-handing-jint-a-type-preserves-3396) says what that one shared annotation now covers.
 
-The attributes are on the `net8.0` and `net10.0` assets. The downlevel targets carry the same
-annotations as internal polyfills, so they are invisible to a consumer - which costs nothing, since
-Native AOT does not exist there either.
+The attributes are on the `net10.0` asset.
 
 ### 6.4 What you owe your own project
 

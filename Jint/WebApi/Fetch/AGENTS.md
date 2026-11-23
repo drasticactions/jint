@@ -2,7 +2,7 @@
 
 > **Read this when:** You are touching `Jint/WebApi/Fetch/` — `fetch`, `Request`/`Response`/`Headers`, the transport, redirects, cookies, or `FetchObserver`.
 >
-> This is one of the co-located instruction files indexed from the repository-root [`AGENTS.md`](../../../AGENTS.md). Read that first, then [`Jint/WebApi/AGENTS.md`](../AGENTS.md) for the four subtree conventions every web API follows. Nothing below is repeated in either.
+> This is one of the co-located instruction files indexed from the repository-root [`AGENTS.md`](../../../AGENTS.md). Read that first, then [`Jint/WebApi/AGENTS.md`](../AGENTS.md) for the subtree conventions every web API follows. Nothing below is repeated in either.
 
 ### Fetch as a browsing position
 

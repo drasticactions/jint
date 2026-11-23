@@ -75,14 +75,8 @@ public class TypedArrayWithShrinkTests
             """).Should().Be($"9,{missing},{missing} calls=1 source=1");
     }
 
-    /// <summary>
-    /// Float16 needs <c>System.Half</c>, which the net472 build lacks, so these rows run where it exists.
-    /// </summary>
-    private static readonly bool SupportsHalf = Type.GetType("System.Half") is not null;
-
     [TestCase("index")]
     [TestCase("value")]
-    [IgnoreUnless(nameof(SupportsHalf), "Float16Array needs System.Half, which this target framework lacks")]
     public void AFloat16ArrayThatShrinksConvertsTheMissingElementsToNaN(string coerced)
     {
         var call = coerced == "index"

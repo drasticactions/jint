@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint;
 using Jint.WebApi;
 
@@ -160,4 +159,3 @@ public class WebApiFileReaderTests
         engine.Evaluate("reader.result").AsString().Should().Be("€");
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 
 namespace Jint.WebApi.Fetch;
 
@@ -186,4 +185,3 @@ internal sealed partial class HttpResponseCache
         _directory = null;
     }
 }
-#endif

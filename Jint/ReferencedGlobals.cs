@@ -1,7 +1,5 @@
 using System.Collections;
-#if NET8_0_OR_GREATER
 using System.Collections.Frozen;
-#endif
 using Jint.Runtime;
 
 namespace Jint;
@@ -76,20 +74,12 @@ namespace Jint;
 public sealed class ReferencedGlobals : IReadOnlyCollection<string>
 {
     private readonly string[] _names;
-#if NET8_0_OR_GREATER
     private readonly FrozenSet<string> _set;
-#else
-    private readonly HashSet<string> _set;
-#endif
 
     internal ReferencedGlobals(string[] sortedNames, bool hasDirectEvalCall)
     {
         _names = sortedNames;
-#if NET8_0_OR_GREATER
         _set = sortedNames.ToFrozenSet(StringComparer.Ordinal);
-#else
-        _set = new HashSet<string>(sortedNames, StringComparer.Ordinal);
-#endif
         HasDirectEvalCall = hasDirectEvalCall;
     }
 

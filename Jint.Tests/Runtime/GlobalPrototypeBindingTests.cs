@@ -232,7 +232,6 @@ public class GlobalPrototypeBindingTests
         engine.Evaluate("typeof nope").AsString().Should().Be("undefined");
     }
 
-#if NET
     [Test]
     public void RepeatedWritesToAShadowedGlobalStoreInPlace()
     {
@@ -292,7 +291,6 @@ public class GlobalPrototypeBindingTests
         // legitimately allocates, and none of the 64 the validate-and-apply path adds per write.
         perWrite.Should().BeLessThan(130, $"writing a global created by an unresolvable assignment allocated {perWrite} bytes per write");
     }
-#endif
 
     [Test]
     public void ProtoAssignmentAtGlobalScopeStillRunsTheInheritedSetter()
@@ -332,7 +330,6 @@ public class GlobalPrototypeBindingTests
         engine.Evaluate("eval('ev')").AsNumber().Should().Be(9);
     }
 
-#if NET
     // Asking the global's prototype chain about a name needs the name as a JsValue, but the two entry
     // points below hand the global environment record a Key. Rebuilding a JsString from it cost one
     // 32-byte object per operation, and forever: neither shape here ever gains an own property that
@@ -409,5 +406,4 @@ public class GlobalPrototypeBindingTests
         // the 200 bytes the extra name cost.
         bytes.Should().BeLessThan(184, $"destructuring into an inherited accessor allocated {bytes} bytes per assignment");
     }
-#endif
 }

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Linq;
 using Jint.Native;
 using Jint.Native.Array;
@@ -342,4 +341,3 @@ internal sealed class JsIdbObjectStore : ObjectInstance
         return Transaction.Queue(source, () => cursor.Move(1, null, null), request);
     }
 }
-#endif

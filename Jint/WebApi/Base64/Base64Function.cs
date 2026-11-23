@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics.CodeAnalysis;
 using Jint.Native;
 using Jint.Native.Function;
@@ -107,4 +106,3 @@ internal sealed class Base64Function : Native.Function.Function
         Throw.JavaScriptException(_engine, error, _engine.LastSyntaxLocation);
     }
 }
-#endif

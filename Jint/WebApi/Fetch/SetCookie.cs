@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Globalization;
 
 namespace Jint.WebApi.Fetch;
@@ -414,4 +413,3 @@ internal static class SetCookieParser
         return int.TryParse(token.AsSpan(0, digits), NumberStyles.None, CultureInfo.InvariantCulture, out value);
     }
 }
-#endif

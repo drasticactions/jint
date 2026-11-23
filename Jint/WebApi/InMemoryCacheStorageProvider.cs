@@ -1,11 +1,10 @@
-#if NET8_0_OR_GREATER
 using System.Threading;
 
 namespace Jint.WebApi;
 
 /// <summary>
 /// The <see cref="CacheStorageProvider"/> an engine uses when the host names none: the caches live in this
-/// object's own memory and die with it. Requires .NET 8 or higher.
+/// object's own memory and die with it.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -150,4 +149,3 @@ public sealed class InMemoryCacheStorageProvider : CacheStorageProvider
         }
     }
 }
-#endif

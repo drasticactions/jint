@@ -60,7 +60,6 @@ public partial class Engine
         return constraints;
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// Points every <see cref="TimeConstraint"/> this engine built at the engine's own clock.
     /// </summary>
@@ -89,7 +88,6 @@ public partial class Engine
             }
         }
     }
-#endif
 
     /// <summary>
     /// Splits the registered constraints by required check frequency, which each constraint declares for

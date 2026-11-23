@@ -27,10 +27,9 @@ internal static class ProfileFrames
     private static readonly Assembly JintAssembly = typeof(Engine).GetTypeInfo().Assembly;
 
     /// <summary>
-    /// Identity comparison for the interning maps both profilers keep. Hand-written because
-    /// <c>ReferenceEqualityComparer</c> is .NET 5+ and Jint still targets net472 and netstandard2.0, and
-    /// because the keys — a <see cref="JintFunctionDefinition"/> or a <see cref="Function"/> — must not be
-    /// compared by any <c>Equals</c> override they may have.
+    /// Identity comparison for the interning maps both profilers keep: the keys — a
+    /// <see cref="JintFunctionDefinition"/> or a <see cref="Function"/> — must not be compared by any
+    /// <c>Equals</c> override they may have.
     /// </summary>
     internal static readonly IEqualityComparer<object> FunctionIdentity = new IdentityComparer();
 

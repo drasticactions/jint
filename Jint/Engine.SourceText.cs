@@ -25,8 +25,7 @@ public partial class Engine
     internal static void RecordSourceText(Program program, string sourceText)
     {
         // Add rather than AddOrUpdate: the key is the program this very parse just produced, so nothing else
-        // can hold it yet, let alone have recorded it. AddOrUpdate is also absent from the netstandard2.0
-        // asset, which would make this the one line in the file needing an #if.
+        // can hold it yet, let alone have recorded it.
         _retainedSourceTexts.Add(program, sourceText);
     }
 

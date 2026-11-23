@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -504,4 +503,3 @@ public class TransformStreamTests
         Log(engine).Should().Be("start,sync-end,transform:a,out:a,written");
     }
 }
-#endif

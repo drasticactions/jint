@@ -1,10 +1,9 @@
-#if NET8_0_OR_GREATER
 using Jint.Runtime;
 
 namespace Jint.WebApi;
 
 /// <summary>
-/// Where the engine's <c>console</c> object sends what a script logged. Requires .NET 8 or higher.
+/// Where the engine's <c>console</c> object sends what a script logged.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -133,8 +132,7 @@ public abstract class ConsoleSink
 }
 
 /// <summary>
-/// The severity a console method implies, mirroring the Console Standard's log levels. Requires .NET 8 or
-/// higher.
+/// The severity a console method implies, mirroring the Console Standard's log levels.
 /// </summary>
 public enum ConsoleLogLevel
 {
@@ -154,4 +152,3 @@ public enum ConsoleLogLevel
     /// <summary><c>console.error</c>, <c>console.assert</c> on a failed assertion, and <c>console.trace</c>.</summary>
     Error,
 }
-#endif

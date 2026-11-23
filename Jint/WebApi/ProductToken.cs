@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Globalization;
 
 namespace Jint.WebApi;
@@ -48,4 +47,3 @@ internal static class ProductToken
             $"{version.Major}.{version.Minor}.{build}");
     }
 }
-#endif

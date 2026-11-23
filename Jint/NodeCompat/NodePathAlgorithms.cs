@@ -28,8 +28,7 @@ internal readonly record struct ParsedPath(string Root, string Dir, string Base,
 /// <para>
 /// Everything here is string arithmetic over the strings the caller supplies. Nothing reads the file system,
 /// and nothing consults the real working directory — <c>resolve</c> and <c>relative</c> take one as an
-/// argument, which is what keeps the whole module answerable without the host process leaking into it. It is
-/// also why this compiles for every target framework Jint has: it depends on nothing but <see cref="string"/>.
+/// argument, which is what keeps the whole module answerable without the host process leaking into it.
 /// </para>
 /// <para>
 /// The algorithms follow Node's own implementation rather than only its prose, because the prose does not

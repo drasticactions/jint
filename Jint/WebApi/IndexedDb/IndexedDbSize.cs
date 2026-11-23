@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.WebApi.StructuredClone;
 
 namespace Jint.WebApi.IndexedDb;
@@ -85,4 +84,3 @@ internal static class IndexedDbSize
         }
     }
 }
-#endif

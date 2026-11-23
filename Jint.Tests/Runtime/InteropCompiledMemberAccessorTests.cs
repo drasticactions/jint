@@ -1117,8 +1117,6 @@ public class InteropCompiledMemberAccessorTests
 
     #region 10. static members
 
-#if NET8_0_OR_GREATER
-
     public static class StaticLaneHost
     {
         public static int Number { get; set; }
@@ -1192,8 +1190,6 @@ public class InteropCompiledMemberAccessorTests
         Jint.Runtime.Interop.Reflection.CompiledMemberAccessor.GetJsValueGetter(readOnly).Should().NotBeNull();
         Jint.Runtime.Interop.Reflection.CompiledMemberAccessor.GetJsValueSetter(readOnly).Should().BeNull();
     }
-
-#endif
 
     #endregion
 }

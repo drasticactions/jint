@@ -175,7 +175,6 @@ internal sealed class JintCallExpression : JintExpression
 
     protected override object EvaluateInternal(EvaluationContext context)
     {
-
         if (!context.Engine._stackGuard.TryEnterOnCurrentStack())
         {
             return context.Engine._stackGuard.RunOnEmptyStack(EvaluateInternal, context);
@@ -963,7 +962,6 @@ internal sealed class JintCallExpression : JintExpression
         }
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// Stack storage for the argument span a variadic built-in receives. It exists only because a
     /// <see cref="ReadOnlySpan{T}"/> needs contiguous memory and <see cref="JsValue"/> is a managed
@@ -975,7 +973,6 @@ internal sealed class JintCallExpression : JintExpression
     {
         private JsValue _element0;
     }
-#endif
 
     /// <summary>
     /// The <see cref="FastCallShape.Variadic"/> lane: same dispatch as <see cref="FastCall"/>, but the
@@ -992,31 +989,10 @@ internal sealed class JintCallExpression : JintExpression
     {
         var count = _argCount;
 
-#if NET8_0_OR_GREATER
         TwoArguments buffer = default;
         buffer[0] = arg0;
         buffer[1] = arg1;
         return InvokeVariadic(engine, target, shape, thisObject, arg0, arg1, ((ReadOnlySpan<JsValue>) buffer).Slice(0, count));
-#else
-        var rented = engine._jsValueArrayPool.RentArray(count);
-        if (count >= 1)
-        {
-            rented[0] = arg0;
-        }
-        if (count >= 2)
-        {
-            rented[1] = arg1;
-        }
-
-        try
-        {
-            return InvokeVariadic(engine, target, shape, thisObject, arg0, arg1, new ReadOnlySpan<JsValue>(rented, 0, count));
-        }
-        finally
-        {
-            engine._jsValueArrayPool.ReturnArray(rented);
-        }
-#endif
     }
 
     /// <summary>
@@ -1263,7 +1239,6 @@ internal sealed class JintCallExpression : JintExpression
         var superConstructor = activeFunction.GetPrototypeOf();
         return superConstructor;
     }
-
 }
 
 internal sealed class TailCallMarker

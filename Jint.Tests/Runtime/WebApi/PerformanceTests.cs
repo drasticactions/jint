@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -297,4 +296,3 @@ public class PerformanceTests
             .AsString().Should().Be("undefined");
     }
 }
-#endif

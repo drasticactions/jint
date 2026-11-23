@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Security.Cryptography;
 using Jint.Native;
 using Jint.Runtime;
@@ -339,4 +338,3 @@ internal static class HmacAlgorithm
         return CryptographicOperations.FixedTimeEquals(mac, signature);
     }
 }
-#endif

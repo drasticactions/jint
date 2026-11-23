@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -358,4 +357,3 @@ internal sealed class FetchRequestBodyStream : ReadRequest
         }
     }
 }
-#endif

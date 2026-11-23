@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -149,4 +148,3 @@ public class BlobUrlTests
         LiveUrlCount(engine).Should().Be(0, "the URLs belonged to the cycle the restore ended");
     }
 }
-#endif

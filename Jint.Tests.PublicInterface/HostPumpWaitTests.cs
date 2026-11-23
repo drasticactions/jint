@@ -11,10 +11,9 @@ namespace Jint.Tests.PublicInterface;
 /// <see cref="HostScheduledWorkTests"/>, which covers the <em>when to pump</em> question this one parks on.
 /// </summary>
 /// <remarks>
-/// Deliberately <b>not</b> gated on <c>NET8_0_OR_GREATER</c>: the wait is all-target-framework
-/// <c>Tasks</c> surface, and everything it is pointed at here — an event-loop job produced by settling a
-/// host-registered promise from another thread — is core engine machinery. The .NET 8 sources it also serves
-/// (a due timer) are covered in <c>Jint.Tests</c>.
+/// The wait is core <c>Tasks</c> surface, and everything it is pointed at here — an event-loop job produced by
+/// settling a host-registered promise from another thread — is core engine machinery. The web-API source it
+/// also serves (a due timer) is covered in <c>Jint.Tests</c>.
 /// </remarks>
 public class HostPumpWaitTests
 {

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Array;
 using Jint.Runtime;
@@ -331,4 +330,3 @@ internal sealed class JsPerformance : JsEventTarget
         return 0;
     }
 }
-#endif

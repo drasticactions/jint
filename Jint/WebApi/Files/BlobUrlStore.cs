@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.WebApi.Url.Parsing;
 
 namespace Jint.WebApi.Files;
@@ -88,4 +87,3 @@ internal sealed class BlobUrlStore
     /// <summary>How many URLs are live, for a host that wants to see whether a script is revoking.</summary>
     internal int Count => _entries.Count;
 }
-#endif

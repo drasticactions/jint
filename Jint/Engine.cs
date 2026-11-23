@@ -1621,14 +1621,12 @@ public sealed partial class Engine : IDisposable
     // Array.Empty and exists so that an internal reader added later fails safe instead of dereferencing null.
     internal readonly Constraint[] _constraints = [];
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// The clock the engine's own bounded <em>waits</em> measure against — <c>Options.Constraints.TimeProvider</c>
     /// put through <see cref="ConstraintClock.Resolve"/>, so <see langword="null"/> means
     /// <see cref="Stopwatch"/>, which is what every engine that named no clock carries.
     /// </summary>
     private readonly TimeProvider? _waitClock;
-#endif
 
     // _constraints partitioned once at construction (the set is fixed for the engine's lifetime):
     // exact constraints must run before every statement, amortized ones every N statements.
@@ -1989,22 +1987,18 @@ public sealed partial class Engine : IDisposable
 
         TakeInteropConversionState();
 
-#if NET8_0_OR_GREATER
         // Resolved once, here, rather than at each wait: Resolve is what rejects a clock that cannot measure
         // anything, and a named error at engine construction beats a promise budget that expires the instant
         // it is armed. Reading it costs nothing on an engine that named no clock — the fold hands back null.
         _waitClock = ConstraintClock.Resolve(Options.Constraints.TimeProvider);
-#endif
 
         _constraints = BuildConstraints(Options.Constraints);
-#if NET8_0_OR_GREATER
         // The same resolved provider the blocking promise drain reads, handed to the execution timeout, so
         // one engine cannot run its two time budgets against two clocks. It has to happen here rather than
         // in the factory that built the constraint: a factory is replayed onto a worker's own Options
         // (WorkerRequest.CreateDefaultOptions), and a closure over the configuring group then measured the
         // worker's timeout on its PARENT's clock (sebastienros/jint#3481).
         BindConstraintClocks(_constraints, _waitClock);
-#endif
         var partitionedConstraints = PartitionConstraints(_constraints);
         _exactConstraints = partitionedConstraints.Exact;
         _amortizedConstraints = partitionedConstraints.Amortized;
@@ -3543,15 +3537,11 @@ public sealed partial class Engine : IDisposable
     /// </summary>
     private bool ReportPromiseRejectionToWebApi(JsPromise promise, PromiseRejectionOperation operation)
     {
-#if NET8_0_OR_GREATER
         // Additively, and strictly after the host event: a host that wired both channels must see the
         // pre-existing one behave exactly as it always did, which it cannot if a sink can run first. Null on
         // every engine whose host set no diagnostics sink, which is one predictable null test on a path that
         // only runs when a rejection had no handler.
         return _webApi?.ReportPromiseRejection(promise.Realm, promise, operation) ?? true;
-#else
-        return true;
-#endif
     }
 
     /// <summary>
@@ -3658,11 +3648,6 @@ public sealed partial class Engine : IDisposable
     internal bool DrainEventLoopUntilSettled(JsPromise promise, TimeSpan timeout, System.Threading.CancellationToken cancellationToken = default)
         => DrainEventLoopUntil(static state => ((JsPromise) state).State != PromiseState.Pending, promise, promise.CompletedEvent, timeout, cancellationToken);
 
-    // CA1822: on the target frameworks without TimeProvider these two read no instance state. They stay
-    // instance members on every one of them so that the wait loop can call them unconditionally and keep
-    // conditional compilation out of it - the rule Engine.Pump.cs states once for the same reason.
-#pragma warning disable CA1822
-
     /// <summary>
     /// A reading of the clock <see cref="DrainEventLoopUntil"/> bounds itself by. Declared on every target
     /// framework with the conditional compilation inside, the way every pump hook is, so the wait loop needs
@@ -3671,11 +3656,7 @@ public sealed partial class Engine : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal long GetWaitTimestamp()
     {
-#if NET8_0_OR_GREATER
         return _waitClock is null ? Stopwatch.GetTimestamp() : _waitClock.GetTimestamp();
-#else
-        return Stopwatch.GetTimestamp();
-#endif
     }
 
     /// <summary>
@@ -3685,15 +3666,10 @@ public sealed partial class Engine : IDisposable
     {
         get
         {
-#if NET8_0_OR_GREATER
             return ConstraintClock.FrequencyOf(_waitClock);
-#else
-            return Stopwatch.Frequency;
-#endif
         }
     }
 
-#pragma warning restore CA1822
 
     /// <summary>
     /// The general form of <see cref="DrainEventLoopUntilSettled"/>: drives the event loop until
@@ -4833,9 +4809,6 @@ public sealed partial class Engine : IDisposable
     internal void RestoreLastSyntaxElement(in SourceLocation location)
     {
         ref var target = ref _lastSyntaxLocation;
-        // MA0168 (net472/netstandard2.0 only): the older Unsafe.AsRef(in T) overload flags this intentional
-        // in-place write of the location's readonly fields.
-#pragma warning disable MA0168
         Unsafe.AsRef(in target.Start) = location.Start;
         Unsafe.AsRef(in target.End) = location.End;
         var source = location.SourceFile;
@@ -4843,7 +4816,6 @@ public sealed partial class Engine : IDisposable
         {
             Unsafe.AsRef(in target.SourceFile) = source;
         }
-#pragma warning restore MA0168
     }
 
     /// <summary>
@@ -4854,9 +4826,7 @@ public sealed partial class Engine : IDisposable
     private static SourceLocation NoSyntaxElement()
     {
         var location = default(SourceLocation);
-#pragma warning disable MA0168
         Unsafe.AsRef(in location.Start.Line) = NoSyntaxElementLine;
-#pragma warning restore MA0168
         return location;
     }
 
@@ -6077,7 +6047,6 @@ public sealed partial class Engine : IDisposable
         _secondaryObjectRealms = null;
         _thrownObjectStacks = null;
 
-#if NET8_0_OR_GREATER
         // A host CancellationToken bridged to an AbortSignal holds a registration that reaches this engine, and
         // the token may well outlive it — an application-lifetime token would otherwise keep every engine it
         // was ever handed to reachable. The same call ends every worker connection this engine is a party to,
@@ -6085,22 +6054,13 @@ public sealed partial class Engine : IDisposable
         // bottom of this method, once the engine has finished letting go of everything else.
         var endedWorkers = _webApi?.Dispose();
         _secondaryWebApiRealms?.Clear();
-#endif
 
         if (_objectWrapperCache is not null)
         {
-#if SUPPORTS_WEAK_TABLE_CLEAR
             _objectWrapperCache.Clear();
-#else
-            // we can expect that reflection is OK as we've been generating object wrappers already
-            var clearMethod = _objectWrapperCache.GetType().GetMethod("Clear", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            clearMethod?.Invoke(_objectWrapperCache, []);
-#endif
         }
 
-#if NET8_0_OR_GREATER
         WebApiEngineState.NotifyWorkerHosts(endedWorkers);
-#endif
     }
 
     [DebuggerDisplay("Engine")]

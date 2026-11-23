@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Globalization;
 using System.Text;
 using Jint.Diagnostics;
@@ -1108,4 +1107,3 @@ internal static class ConsoleFormatter
         builder.Append('\'');
     }
 }
-#endif

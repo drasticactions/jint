@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -1269,4 +1268,3 @@ public class StructuredCloneTests
         fileReceiver.Evaluate("revived.size").AsNumber().Should().Be(1);
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Object;
 using Jint.Runtime;
@@ -49,4 +48,3 @@ internal abstract class JsGenericTransformStream : ObjectInstance
     /// </summary>
     private protected void Enqueue(JsValue chunk) => TransformStreamOperations.Enqueue(Transform, chunk);
 }
-#endif

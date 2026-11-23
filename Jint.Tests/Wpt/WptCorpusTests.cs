@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 namespace Jint.Tests.Wpt;
@@ -100,4 +99,3 @@ public class WptCorpusTests
     public void AnExclusionMatchesExactlyWhatItsPatternSays(string pattern, string testName, bool expected)
         => WptExclusion.MatchesPattern(pattern, testName).Should().Be(expected);
 }
-#endif

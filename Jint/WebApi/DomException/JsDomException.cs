@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Error;
 using Jint.Native.Object;
@@ -79,4 +78,3 @@ internal class JsDomException : ErrorInstance, IErrorData, IErrorTextSlots
     /// <inheritdoc cref="IErrorTextSlots.ErrorNameSlot" />
     JsString? IErrorTextSlots.ErrorMessageSlot => Message;
 }
-#endif

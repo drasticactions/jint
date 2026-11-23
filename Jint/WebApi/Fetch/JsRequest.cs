@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.WebApi.Abort;
 using Jint.WebApi.Url.Parsing;
 
@@ -125,4 +124,3 @@ internal sealed class JsRequest : FetchBodyObject
     /// </summary>
     internal const string DuplexHalf = "half";
 }
-#endif

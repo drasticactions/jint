@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Runtime;
 
@@ -283,4 +282,3 @@ public sealed class HostIndexedDbTests
         result.UnwrapIfPromise().AsNumber().Should().Be(42);
     }
 }
-#endif

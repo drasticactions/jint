@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.IO;
 using System.IO.Compression;
 
@@ -173,4 +172,3 @@ internal sealed class CompressionCodec : IDisposable
         _output.Dispose();
     }
 }
-#endif

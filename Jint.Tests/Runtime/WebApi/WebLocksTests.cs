@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -552,4 +551,3 @@ public class WebLocksTests
             liveWorkerCount: 0,
             terminationToken: default);
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Runtime;
 
@@ -50,4 +49,3 @@ internal sealed class JsReadableStreamBYOBReader : JsReadableStreamReader
     /// <summary>https://streams.spec.whatwg.org/#readablestreambyobreader-readintorequests</summary>
     internal Queue<ReadIntoRequest> ReadIntoRequests { get; } = new();
 }
-#endif

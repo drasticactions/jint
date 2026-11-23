@@ -297,7 +297,6 @@ public class SlotLocationCacheTests
         result.Should().Be(50 * 11 + 50 * 1001 + 50 * 11);
     }
 
-#if NET
     [Test]
     public void SlotLanesSurviveRepeatedPreparedEvaluations()
     {
@@ -326,5 +325,4 @@ public class SlotLocationCacheTests
 
         perEvaluation.Should().BeLessThan(150_000, $"expected slot lanes to stay live across re-evaluations; allocated {perEvaluation} bytes in one evaluation");
     }
-#endif
 }

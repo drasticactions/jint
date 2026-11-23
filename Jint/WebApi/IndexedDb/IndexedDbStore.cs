@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Linq;
 using System.Collections.Immutable;
 using System.Threading;
@@ -356,4 +355,3 @@ internal readonly record struct IndexEntry(IndexedDbKey Key, IndexedDbKey Primar
         return order == 0 ? PrimaryKey.CompareTo(other.PrimaryKey) : order;
     }
 }
-#endif

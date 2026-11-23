@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Net.Http;
@@ -537,4 +536,3 @@ public class FetchEventTests
             .Message.Should().Contain("addEventListener('fetch'");
     }
 }
-#endif

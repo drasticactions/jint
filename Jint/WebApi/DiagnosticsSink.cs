@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Promise;
 using Jint.Runtime;
@@ -7,8 +6,7 @@ namespace Jint.WebApi;
 
 /// <summary>
 /// Where the engine reports the script errors nobody caught: what <c>reportError</c> was handed, a promise
-/// rejected with no handler, and an exception that escaped a callback the engine itself invoked. Requires
-/// .NET 8 or higher.
+/// rejected with no handler, and an exception that escaped a callback the engine itself invoked.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -92,7 +90,7 @@ public abstract class DiagnosticsSink
 }
 
 /// <summary>
-/// One report delivered to a <see cref="DiagnosticsSink"/>. Requires .NET 8 or higher.
+/// One report delivered to a <see cref="DiagnosticsSink"/>.
 /// </summary>
 /// <remarks>
 /// The instance is handed to the sink and forgotten by the engine; it is the <see cref="JsValue"/>s on it that
@@ -221,7 +219,7 @@ public sealed class DiagnosticEvent
 }
 
 /// <summary>
-/// What a <see cref="DiagnosticEvent"/> reports. Requires .NET 8 or higher.
+/// What a <see cref="DiagnosticEvent"/> reports.
 /// </summary>
 /// <remarks>
 /// Further members may be added as the web-API surface grows, so a sink should treat an unrecognized kind as
@@ -278,7 +276,6 @@ public enum DiagnosticEventKind
 
 /// <summary>
 /// Which engine-invoked callback a <see cref="DiagnosticEventKind.UncaughtCallbackError"/> escaped from.
-/// Requires .NET 8 or higher.
 /// </summary>
 public enum DiagnosticCallbackSource
 {
@@ -326,4 +323,3 @@ public enum DiagnosticCallbackSource
     /// </summary>
     PerformanceObserver,
 }
-#endif

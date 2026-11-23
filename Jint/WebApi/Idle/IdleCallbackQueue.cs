@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Constraints;
 using Jint.Native;
 using Jint.Runtime;
@@ -433,4 +432,3 @@ internal sealed class IdleCallbackEntry
     /// <summary>The timer id of the <c>timeout</c> option, or zero when none was given.</summary>
     internal int TimeoutTimerId { get; set; }
 }
-#endif

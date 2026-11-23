@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Object;
 using Jint.Runtime;
@@ -54,4 +53,3 @@ internal sealed partial class IdbTransactionPrototype : Prototype
     [JsAccessor("onerror", AccessorKind.Set, Flags = PropertyFlag.Configurable | PropertyFlag.Enumerable)]
     private JsValue OnErrorSet(JsValue thisObject, JsValue handler) { EventHandlerAttributes.Set(Brand(thisObject), "error", handler); return Undefined; }
 }
-#endif

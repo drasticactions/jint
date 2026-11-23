@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Threading;
 using System.Threading.Tasks;
 using Jint.Native;
@@ -326,4 +325,3 @@ internal abstract class HostStreamBridge
         return new JavaScriptException(Realm.Intrinsics.TypeError, message, failure).Error;
     }
 }
-#endif

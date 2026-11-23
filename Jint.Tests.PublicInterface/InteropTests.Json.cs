@@ -34,7 +34,6 @@ public partial class InteropTests
         engine.Evaluate($"JSON.stringify(expando)").AsString().Should().Be("{\"Values\":1}");
     }
 
-
     [Test]
     public void EngineShouldStringifyAnJObjectArrayWithValuesCorrectly()
     {
@@ -114,11 +113,7 @@ public partial class InteropTests
 
         var e = new Engine();
         e.SetValue("TimeSpan", typeof(TimeSpan));
-#if NETFRAMEWORK
-        e.Evaluate("JSON.stringify(TimeSpan.FromSeconds(3))").AsString().Should().Be("""{"Ticks":30000000,"Days":0,"Hours":0,"Milliseconds":0,"Minutes":0,"Seconds":3,"TotalDays":0.00003472222222222222,"TotalHours":0.0008333333333333333,"TotalMilliseconds":3000,"TotalMinutes":0.05,"TotalSeconds":3}""");
-#else
         e.Evaluate("JSON.stringify(TimeSpan.FromSeconds(3))").AsString().Should().Be("""{"Ticks":30000000,"Days":0,"Hours":0,"Milliseconds":0,"Microseconds":0,"Nanoseconds":0,"Minutes":0,"Seconds":3,"TotalDays":0.00003472222222222222,"TotalHours":0.0008333333333333334,"TotalMilliseconds":3000,"TotalMicroseconds":3000000,"TotalNanoseconds":3000000000,"TotalMinutes":0.05,"TotalSeconds":3}""");
-#endif
 
         e.SetValue("TestObject", testObject);
         e.Evaluate("JSON.stringify(TestObject)").AsString().Should().Be("""{"Foo":"bar","FooBar":{"Foo":123.45,"Foobar":"2022-07-16T00:00:00.000Z"}}""");
@@ -321,5 +316,4 @@ public partial class InteropTests
             return new { customName = Name, customValue = Value };
         }
     }
-
 }

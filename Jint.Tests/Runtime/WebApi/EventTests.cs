@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -668,4 +667,3 @@ public class EventTests
         engine.Evaluate("Object.getPrototypeOf(CustomEvent) === Event").AsBoolean().Should().BeTrue();
     }
 }
-#endif

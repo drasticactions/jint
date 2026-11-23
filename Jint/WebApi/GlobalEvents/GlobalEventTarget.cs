@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Runtime;
 using Jint.WebApi.Events;
@@ -183,4 +182,3 @@ internal static class GlobalEventNames
     internal static readonly JsString UnhandledRejection = new(UnhandledRejectionName);
     internal static readonly JsString RejectionHandled = new(RejectionHandledName);
 }
-#endif

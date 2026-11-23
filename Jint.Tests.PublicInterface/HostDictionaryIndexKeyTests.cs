@@ -11,8 +11,7 @@ namespace Jint.Tests.PublicInterface;
 /// <summary>
 /// An index-shaped key on a wrapped string-keyed dictionary whose list contract holds its entries is one more of
 /// its keys (#4501). Newtonsoft's <c>JObject</c> is the reported case; System.Text.Json's <c>JsonObject</c> from
-/// System.Text.Json 9 on (the package this suite references on <c>net472</c>, the runtime's own on <c>net10.0</c>,
-/// so not on <c>net8.0</c>) and <c>OrderedDictionary&lt;string, TValue&gt;</c> have the same shape.
+/// System.Text.Json 9 on (the runtime's own on <c>net10.0</c>) and <c>OrderedDictionary&lt;string, TValue&gt;</c> have the same shape.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -46,9 +45,7 @@ public class HostDictionaryIndexKeyTests
         get
         {
             var shapes = new List<string> { "JObject", "JsonObject", "ExplicitValueList" };
-#if NET9_0_OR_GREATER
             shapes.Add("OrderedDictionary");
-#endif
             return shapes;
         }
     }
@@ -319,39 +316,10 @@ public class HostDictionaryIndexKeyTests
         var engine = new Engine(options =>
         {
             options.Interop.AllowWrite = allowWrite;
-#if NETFRAMEWORK
-            // Jint converts a JsonValue to a primitive on .NET 8 and later only
-            options.AddObjectConverter(JsonValueConverter.Instance);
-#endif
         });
         engine.SetValue("x", target);
         return (engine, read);
     }
-
-#if NETFRAMEWORK
-    private sealed class JsonValueConverter : Jint.Runtime.Interop.ObjectConverter
-    {
-        public static readonly JsonValueConverter Instance = new();
-
-        public override bool TryConvert(Engine engine, object value, out Jint.Native.JsValue result)
-        {
-            if (value is JsonValue jsonValue && jsonValue.TryGetValue<int>(out var number))
-            {
-                result = Jint.Native.JsNumber.Create(number);
-                return true;
-            }
-
-            if (value is JsonValue doubleValue && doubleValue.TryGetValue<double>(out var real))
-            {
-                result = Jint.Native.JsNumber.Create(real);
-                return true;
-            }
-
-            result = Jint.Native.JsValue.Undefined;
-            return false;
-        }
-    }
-#endif
 
     private static (object Target, Func<string> Read) CreateTarget(string shape, (string Key, int Value)[] entries)
     {
@@ -388,7 +356,6 @@ public class HostDictionaryIndexKeyTests
                 IEnumerable<KeyValuePair<string, int>> pairs = target;
                 return (target, () => Join(pairs.Select(p => (p.Key, (double) p.Value))));
             }
-#if NET9_0_OR_GREATER
             case "OrderedDictionary":
             {
                 var target = new OrderedDictionary<string, int>(StringComparer.Ordinal);
@@ -399,7 +366,6 @@ public class HostDictionaryIndexKeyTests
 
                 return (target, () => Join(target.Select(p => (p.Key, (double) p.Value))));
             }
-#endif
             case "Dictionary":
             {
                 var target = new Dictionary<string, int>(StringComparer.Ordinal);

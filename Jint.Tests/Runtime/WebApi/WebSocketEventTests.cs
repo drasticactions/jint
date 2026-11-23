@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -133,4 +132,3 @@ public class WebSocketEventTests
         result.AsString().Should().Be("1000:true|hi");
     }
 }
-#endif

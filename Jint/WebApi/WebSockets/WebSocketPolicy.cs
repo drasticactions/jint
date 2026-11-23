@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.WebApi.Url.Parsing;
 
 namespace Jint.WebApi.WebSockets;
@@ -72,4 +71,3 @@ internal static class WebSocketPolicy
         return false;
     }
 }
-#endif

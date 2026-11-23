@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint;
 using Jint.Native;
 
@@ -228,4 +227,3 @@ public class WebApiEventTests
         engine.Evaluate("new AbortController().signal.aborted").AsBoolean().Should().BeFalse();
     }
 }
-#endif

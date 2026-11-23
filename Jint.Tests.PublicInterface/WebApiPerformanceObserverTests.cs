@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint;
 using Jint.WebApi;
 
@@ -153,4 +152,3 @@ public class WebApiPerformanceObserverTests
         engine.Evaluate("calls").AsNumber().Should().Be(0);
     }
 }
-#endif

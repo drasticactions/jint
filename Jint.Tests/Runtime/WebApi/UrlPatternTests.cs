@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Text.RegularExpressions;
@@ -438,4 +437,3 @@ public class UrlPatternTests
         timeout.MatchTimeout.Should().Be(TimeSpan.FromMilliseconds(50));
     }
 }
-#endif

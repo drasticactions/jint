@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 namespace Jint.Tests.Runtime.NodeCompat;
@@ -179,4 +178,3 @@ public class QueryStringTests
         engine.Modules.Import("main").Get("ok").AsBoolean().Should().BeTrue();
     }
 }
-#endif

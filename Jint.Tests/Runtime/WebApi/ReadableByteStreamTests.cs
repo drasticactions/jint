@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -973,4 +972,3 @@ public class ReadableByteStreamTests
         "new Blob(['xy']).stream()",
     ];
 }
-#endif

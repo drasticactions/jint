@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Linq;
 using Jint.Native;
 using Jint.Native.Array;
@@ -239,4 +238,3 @@ internal static class IndexedDbKeyConverter
     private readonly record struct KeyFrame(JsArray Source, List<IndexedDbKey> Items, uint Length);
     private readonly record struct ValueFrame(IndexedDbKey[] Keys, JsValue[] Values, int Index);
 }
-#endif

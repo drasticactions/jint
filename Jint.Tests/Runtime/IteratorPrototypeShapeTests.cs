@@ -238,7 +238,6 @@ public class IteratorPrototypeShapeTests
         Run(new Engine(), $"concreteShape(() => {iterator})").Should().Be(expected);
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// The WebIDL iterator prototypes of <c>Headers</c>, <c>FormData</c> and <c>URLSearchParams</c> keep theirs too, which
     /// WebIDL makes enumerable.
@@ -251,7 +250,6 @@ public class IteratorPrototypeShapeTests
         var engine = new Engine(options => options.UseWebApis(WebApiFeatures.Fetch | WebApiFeatures.Files | WebApiFeatures.Url));
         Run(engine, $"concreteShape(() => {iterator})").Should().Be(expected);
     }
-#endif
 
     /// <summary>
     /// A segment iterator of every granularity inherits %IntlSegmentIteratorPrototype%: not %ArrayIteratorPrototype%, a

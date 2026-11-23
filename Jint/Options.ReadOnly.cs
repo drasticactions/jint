@@ -98,9 +98,7 @@ public sealed partial class Options
         SetReadOnly(_temporal, value);
         SetReadOnly(_json, value);
         SetReadOnly(_profiling, value);
-#if NET8_0_OR_GREATER
         SetReadOnly(_webApi, value);
-#endif
     }
 
     private static void SetReadOnly(IOptionsGroup? group, bool value) => group?.SetReadOnly(value);
@@ -290,7 +288,6 @@ public sealed partial class Options
         }
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// The group <c>Engine.WebApi.Enable</c> is running a host's configuration callback against on
     /// this thread, which is the one sanctioned write to an engine's own options after construction.
@@ -578,7 +575,6 @@ public sealed partial class Options
             }
         }
     }
-#endif
 }
 
 /// <summary>

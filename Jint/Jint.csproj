@@ -67,8 +67,6 @@
 
     <IsAotCompatible>true</IsAotCompatible>
 
-    <DefineConstants>$(DefineConstants);SUPPORTS_WEAK_TABLE_ADD_OR_UPDATE;SUPPORTS_WEAK_TABLE_CLEAR;SUPPORTS_ASYNC_DISPOSE;SUPPORTS_HALF;SUPPORTS_UTF8_TRANSCODE</DefineConstants>
-
   </PropertyGroup>
 
   <ItemGroup>

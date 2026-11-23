@@ -110,14 +110,11 @@ internal sealed class JintCallStack
 
         ref var slot = ref stack._array[stack._size++];
         Debug.Assert(slot.Function is null && slot.Expression is null && slot.CallingExecutionContext.LexicalEnvironment is null && slot.CallingExecutionContext.ScriptOrModule is null);
-        // MA0168 (net472/netstandard2.0 only): see ExecutionContextStack.ReplaceTopStrict.
-#pragma warning disable MA0168
         Unsafe.AsRef(in slot.Function) = function;
         if (expression is not null)
         {
             Unsafe.AsRef(in slot.Expression) = expression;
         }
-#pragma warning restore MA0168
 
         _profiler?.RecordEnter(function);
         return _statistics is null ? -1 : CountPush(in slot);

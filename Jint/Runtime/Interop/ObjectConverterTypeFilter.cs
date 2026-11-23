@@ -39,8 +39,7 @@ internal sealed class ObjectConverterTypeFilter
     /// <summary>
     /// Memoized <see cref="ConcurrentDictionary{TKey,TValue}.GetOrAdd(TKey, Func{TKey, TValue})"/> factory.
     /// It cannot be <c>static</c> — the answer depends on <see cref="_declaredTypes"/>, which lives on this
-    /// instance — and the state-carrying <c>GetOrAdd</c> overload that would let it be does not exist on
-    /// every target framework, so the delegate is built once per filter instead of once per miss.
+    /// instance — so the delegate is built once per filter instead of once per miss.
     /// </summary>
     private Func<Type, bool>? _computeClaims;
 

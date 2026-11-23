@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using Jint.Constraints;
 using Jint.Native;
@@ -596,4 +595,3 @@ internal readonly record struct SchedulingState(
     JsAbortSignal? AbortSource,
     JsTaskSignal? PrioritySource,
     SchedulerTaskPriority FixedPriority);
-#endif

@@ -42,15 +42,12 @@ internal sealed class MethodDescriptor
             ParameterFlags[i] = ComputeParameterFlags(Parameters[i].ParameterType);
         }
 
-#if NET8_0_OR_GREATER
         if (ParameterDefaultValuesCount > 0)
         {
             _parameterDefaultValues = ResolveDefaultValues(Parameters);
         }
-#endif
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// The value the reflection binder would substitute for each elided optional argument, resolved once so
     /// <see cref="Invoke(object, Span{object})"/> can supply it itself and keep the fast invoker, and so
@@ -108,7 +105,6 @@ internal sealed class MethodDescriptor
 
         return declared;
     }
-#endif
 
     public MethodBase Method { get; }
     public ParameterInfo[] Parameters { get; }
@@ -173,7 +169,6 @@ internal sealed class MethodDescriptor
         return flags;
     }
 
-#if NET8_0_OR_GREATER
     // Process-wide L2 caches for the invoker machinery, keyed by the reflected member.
     //
     // MethodDescriptor instances live on the ReflectionAccessor that TypeResolver.GetAccessor caches,
@@ -348,7 +343,6 @@ internal sealed class MethodDescriptor
         _compiledInvoker = built;
         return built;
     }
-#endif
 
     /// <summary>
     /// Invokes the method using a cached fast invoker when available. Target exceptions are
@@ -356,19 +350,9 @@ internal sealed class MethodDescriptor
     /// </summary>
     public object? Invoke(object? instance, object?[] parameters)
     {
-#if NET8_0_OR_GREATER
         return Invoke(instance, parameters.AsSpan());
-#else
-        return Method switch
-        {
-            MethodInfo m => m.Invoke(instance, parameters),
-            ConstructorInfo c => c.Invoke(parameters),
-            _ => throw new NotSupportedException("Method is unknown type"),
-        };
-#endif
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// Invokes the method using a cached fast invoker; the span may be a slice of a pooled,
     /// oversized buffer. Target exceptions are normalized to <see cref="TargetInvocationException"/>.
@@ -459,7 +443,6 @@ internal sealed class MethodDescriptor
 
         return true;
     }
-#endif
 
     public static MethodDescriptor[] Build<T>(List<T> source) where T : MethodBase
     {

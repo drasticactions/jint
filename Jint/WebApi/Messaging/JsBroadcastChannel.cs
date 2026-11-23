@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Runtime;
 using Jint.WebApi.DomException;
@@ -171,4 +170,3 @@ internal sealed class JsBroadcastChannel : JsEventTarget
         Throw.JavaScriptException(_engine, exception, in location);
     }
 }
-#endif

@@ -135,7 +135,6 @@ public class JsString : JsValue, IEquatable<JsString>, IEquatable<string>
             _intToStringJsValue[i] = new JsString(TypeConverter.ToString(i));
         }
 
-
         _stringCache = new ConcurrentDictionary<string, JsString>(StringComparer.Ordinal);
         Empty = new JsString("", InternalTypes.String);
         NullString = CachedCreate("null");
@@ -471,7 +470,6 @@ public class JsString : JsValue, IEquatable<JsString>, IEquatable<string>
 
         return new JsString(TypeConverter.ToString(value));
     }
-
 
     public virtual char this[int index] => _value[index];
 
@@ -823,15 +821,8 @@ public class JsString : JsValue, IEquatable<JsString>, IEquatable<string>
             }
             else
             {
-                // Same split as RopeString.Flatten: downlevel lacks string.Create's callback type, so it fills
-                // an array and copies it into the string.
-#if NETFRAMEWORK || NETSTANDARD2_0
-                var buffer = new char[_length];
-                CopyTo(buffer);
-                value = new string(buffer);
-#else
+                // As in RopeString.Flatten: the characters are written into the string as it is allocated.
                 value = string.Create(_length, this, static (span, self) => self.CopyTo(span));
-#endif
             }
 
             _value = value;
@@ -1348,21 +1339,9 @@ public class JsString : JsValue, IEquatable<JsString>, IEquatable<string>
         [MethodImpl(MethodImplOptions.NoInlining)]
         private string Flatten()
         {
-            // Not routed through a polyfill, unlike the rest of the assembly's downlevel gaps: what
-            // net472 and netstandard2.0 lack is not string.Create but System.Buffers.SpanAction<T, TArg>,
-            // its callback type, and a "polyfill" that declared a delegate of its own would be inventing
-            // API rather than backfilling it. The downlevel form fills an array and copies it into the
-            // string, which is the extra copy those targets already pay everywhere a string is built
-            // from parts; the modern form writes the characters into the string as it is allocated, and
-            // that single copy is what keeps a flattened concatenation no more expensive than the
-            // string.Concat it replaced.
-#if NETFRAMEWORK || NETSTANDARD2_0
-            var buffer = new char[_length];
-            CopyInto(buffer);
-            var value = new string(buffer);
-#else
+            // string.Create writes the characters into the string as it is allocated, and that single copy
+            // is what keeps a flattened concatenation no more expensive than the string.Concat it replaced.
             var value = string.Create(_length, this, static (span, rope) => rope.CopyInto(span));
-#endif
 
             // The first read of a node can happen on two threads at once, and without any host sharing a
             // result: a literal-plus-literal folded at preparation is one node on a Prepared<Script>, which

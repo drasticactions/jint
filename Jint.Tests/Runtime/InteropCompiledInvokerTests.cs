@@ -196,8 +196,6 @@ public class InteropCompiledInvokerTests
         engine.Evaluate("host.WithDecimalOptional(1, 2)").AsNumber().Should().Be(3);
     }
 
-#if NET8_0_OR_GREATER
-
     [Test]
     public void CompiledInvokerIsBuiltForAMethodWithAnOptionalParameter()
     {
@@ -222,8 +220,6 @@ public class InteropCompiledInvokerTests
 
         descriptor.GetCompiledInvoker().Should().BeNull();
     }
-
-#endif
 
     [Test]
     public void CustomObjectConverterStillSeesReturnValue()
@@ -386,7 +382,6 @@ public class InteropCompiledInvokerTests
         }
     }
 
-#if NET8_0_OR_GREATER
     [Test]
     public void ReturnTypeVisibilityPredicateMatchesFromObjectWithTypeShortCircuits()
     {
@@ -413,7 +408,6 @@ public class InteropCompiledInvokerTests
         // a constructor descriptor has no return type
         Invisible(null).Should().BeFalse();
     }
-#endif
 
     [Test]
     public void CustomTypeConverterStillIntercepts()

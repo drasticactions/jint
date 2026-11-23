@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Collections.Concurrent;
@@ -477,10 +476,9 @@ internal static class WptCensus
             types.Append("-name *").Append(extension);
         }
 
-        // A line of the block that begins with '#' would be read as a preprocessor directive rather than as a
-        // shell comment: this whole file sits inside `#if NET8_0_OR_GREATER`, and the lexer scans a *disabled*
-        // region for directives, where "# every extension" is CS1024. So the recipe's two comments open with an
-        // interpolation.
+        // The recipe's two shell comments open with an interpolation rather than a literal '#', so that no
+        // line of the block can ever be read as a preprocessor directive (in a disabled region, the lexer scans
+        // for directives, where "# every extension" is CS1024).
         const string Comment = "#";
 
         // One trailing newline, because the block is compared with the README's own lines and each of those
@@ -985,4 +983,3 @@ internal static class WptCensus
         }
     }
 }
-#endif

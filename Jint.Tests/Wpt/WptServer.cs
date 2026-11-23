@@ -1,5 +1,4 @@
-﻿#if NET8_0_OR_GREATER
-#nullable enable
+﻿#nullable enable
 
 using System.Collections.Concurrent;
 using System.Globalization;
@@ -1404,4 +1403,3 @@ internal readonly record struct WptServerResponse(
     string StatusText,
     IReadOnlyList<(string Name, string Value)> Headers,
     byte[] Body);
-#endif

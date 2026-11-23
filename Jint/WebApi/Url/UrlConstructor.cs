@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Function;
 using Jint.Native.Object;
@@ -170,4 +169,3 @@ internal sealed partial class UrlConstructor : Constructor
     internal static string InvalidUrlMessage(string input, string? baseHref)
         => baseHref is null ? $"Invalid URL: {input}" : $"Invalid URL: {input} (against base {baseHref})";
 }
-#endif

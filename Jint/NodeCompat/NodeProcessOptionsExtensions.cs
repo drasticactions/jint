@@ -28,9 +28,8 @@ public static class NodeProcessOptionsExtensions
     /// exactly as the host left it, whichever order the two calls were made in.
     /// </para>
     /// <para>
-    /// Unlike <c>Options.WebApi</c>, this needs no particular target framework: it compiles for every one
-    /// Jint targets. It is Node compatibility rather than a web standard, which is also why it is not a
-    /// <c>WebApiFeatures</c> flag.
+    /// It is Node compatibility rather than a web standard, which is why it is not a <c>WebApiFeatures</c>
+    /// flag.
     /// </para>
     /// <para>
     /// Calling this twice is harmless — the second install finds the name taken and does nothing — but the

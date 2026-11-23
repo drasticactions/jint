@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.ArrayBuffer;
 using Jint.Native.Json;
@@ -859,4 +858,3 @@ internal sealed class JsXmlHttpRequest : JsXmlHttpRequestEventTarget
         Throw.JavaScriptException(_engine, exception, in location);
     }
 }
-#endif

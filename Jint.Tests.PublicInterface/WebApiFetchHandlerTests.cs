@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Diagnostics;
@@ -1204,4 +1203,3 @@ public class WebApiFetchHandlerTests
         engine.Evaluate("typeof fetch").AsString().Should().Be("undefined");
     }
 }
-#endif

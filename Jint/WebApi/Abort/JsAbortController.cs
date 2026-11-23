@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native.Object;
 
 namespace Jint.WebApi.Abort;
@@ -23,4 +22,3 @@ internal sealed class JsAbortController : ObjectInstance
     /// <summary>https://dom.spec.whatwg.org/#abortcontroller-signal.</summary>
     internal JsAbortSignal Signal { get; }
 }
-#endif

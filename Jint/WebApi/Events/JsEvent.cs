@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using Jint.Native;
 using Jint.Native.Object;
@@ -372,4 +371,3 @@ internal sealed class JsCustomEvent : JsEvent
 /// <param name="Composed">The composed flag, which only a shadow tree could observe.</param>
 [StructLayout(LayoutKind.Auto)]
 internal readonly record struct EventInit(bool Bubbles, bool Cancelable, bool Composed);
-#endif

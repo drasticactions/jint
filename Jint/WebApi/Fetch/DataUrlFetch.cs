@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics.CodeAnalysis;
 using Jint.WebApi.Url.Parsing;
 
@@ -78,4 +77,3 @@ internal static class DataUrlFetch
         return true;
     }
 }
-#endif

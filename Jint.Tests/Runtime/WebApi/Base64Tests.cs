@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -190,4 +189,3 @@ public class Base64Tests
         Assert.Throws<JavaScriptException>(() => engine.Evaluate("new btoa('a')"));
     }
 }
-#endif

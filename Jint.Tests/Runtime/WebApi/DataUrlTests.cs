@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Text;
@@ -158,4 +157,3 @@ public class DataUrlTests
         return true;
     }
 }
-#endif

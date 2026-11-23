@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Security.Cryptography;
 
 namespace Jint.WebApi.Crypto;
@@ -48,4 +47,3 @@ internal static class AesCiphers
     internal static bool IsCipherFailure(Exception exception)
         => exception is CryptographicException or ArgumentException or PlatformNotSupportedException;
 }
-#endif

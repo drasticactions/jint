@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Globalization;
 using System.Runtime.InteropServices;
 using Jint.Runtime;
@@ -394,4 +393,3 @@ internal static class UrlPatternTokenizer
         }
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -1032,4 +1031,3 @@ public class SchedulerTests
         done.Should().BeTrue("the host's own pump is what runs it");
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Threading;
@@ -239,4 +238,3 @@ internal sealed class WptWorkerProvider : WorkerProvider
         }
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -120,4 +119,3 @@ internal sealed class CacheCaptureContent : HttpContent
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }
-#endif

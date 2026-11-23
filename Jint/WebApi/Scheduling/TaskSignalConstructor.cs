@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Object;
 using Jint.Runtime;
@@ -112,4 +111,3 @@ internal sealed partial class TaskSignalConstructor : Constructor
         return (TaskPriorityNames.Parse(_realm, priority, "Failed to execute 'any' on 'TaskSignal'"), null);
     }
 }
-#endif

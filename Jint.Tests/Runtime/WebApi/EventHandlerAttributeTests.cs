@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 namespace Jint.Tests.Runtime.WebApi;
@@ -100,4 +99,3 @@ public class EventHandlerAttributeTests
 
     private static string Log(Engine engine) => engine.Evaluate("log.join('|')").AsString();
 }
-#endif

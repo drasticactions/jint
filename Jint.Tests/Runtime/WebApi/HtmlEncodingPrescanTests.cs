@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.WebApi.Encoding;
@@ -158,4 +157,3 @@ public class HtmlEncodingPrescanTests
     private static string? Prescan(byte[] bytes)
         => HtmlEncodingPrescan.TryPrescan(bytes, out var encoding) ? encoding.LowercasedName : null;
 }
-#endif

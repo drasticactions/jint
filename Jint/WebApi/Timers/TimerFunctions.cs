@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Runtime;
 using Jint.Runtime.Descriptors;
@@ -225,4 +224,3 @@ internal sealed class TimerFunctions
         }
     }
 }
-#endif

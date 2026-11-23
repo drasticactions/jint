@@ -22,13 +22,8 @@ namespace Jint.Tests.PublicInterface;
 /// <remarks>
 /// <para>
 /// The baselines are generated from the built assemblies in <c>artifacts/bin/Jint/</c>, read through a
-/// <see cref="MetadataLoadContext"/>, rather than from the <c>Jint</c> this test process loaded. That is the
-/// whole point: Jint ships five target frameworks whose public surfaces genuinely differ — everything under
-/// <c>Jint/WebApi/</c> is behind <c>#if NET8_0_OR_GREATER</c>, and <c>SUPPORTS_HALF</c> and its siblings add
-/// members downlevel targets do not have — while a test project can only ever <em>load</em> two of them
-/// (<c>net10.0</c>, and <c>net472</c> on Windows). A single newest-target-framework
-/// baseline would hide exactly what a downlevel consumer needs to know, and <c>netstandard2.0</c> and
-/// <c>netstandard2.1</c> — which no test project can execute at all — would never be covered.
+/// <see cref="MetadataLoadContext"/>, rather than from the <c>Jint</c> this test process loaded, so that the
+/// baseline is of exactly what ships, one per target framework <c>Jint.csproj</c> declares.
 /// </para>
 /// <para>
 /// It composes because <c>PublicApiGenerator</c> reads the assembly with Mono.Cecil from

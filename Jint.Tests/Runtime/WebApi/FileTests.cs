@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -201,4 +200,3 @@ public class FileTests
         engine.Evaluate("new MyFile(['ab'], 'n') instanceof Blob").AsBoolean().Should().BeTrue();
     }
 }
-#endif

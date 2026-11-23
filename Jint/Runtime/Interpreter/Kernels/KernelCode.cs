@@ -49,11 +49,7 @@ internal sealed class KernelCode
     {
         get
         {
-#if NET
             return RuntimeFeature.IsDynamicCodeSupported && RuntimeFeature.IsDynamicCodeCompiled;
-#else
-            return false;
-#endif
         }
     }
 
@@ -74,7 +70,6 @@ internal sealed class KernelCode
     /// <summary>The loop's code, or null where code cannot be compiled.</summary>
     internal static KernelCode? TryCompile(KernelForStatement loop)
     {
-#if NET
         // The guard stated here, beside the call, so that the trimming and AOT analyses fold it.
         if (!RuntimeFeature.IsDynamicCodeSupported || !RuntimeFeature.IsDynamicCodeCompiled)
         {
@@ -90,9 +85,6 @@ internal sealed class KernelCode
             // No dynamic code after all, or a member compiled code calls was trimmed away: the kernel stays a tree.
             return null;
         }
-#else
-        return null;
-#endif
     }
 }
 
@@ -149,7 +141,6 @@ internal static class KernelIntrinsics
         return None;
     }
 
-#if NET
     /// <summary>The .NET method that computes function <paramref name="kind"/> of a double.</summary>
     internal static System.Reflection.MethodInfo Method(int kind) => typeof(System.Math).GetMethod(kind switch
     {
@@ -158,7 +149,6 @@ internal static class KernelIntrinsics
         Ceil => nameof(System.Math.Ceiling),
         _ => nameof(System.Math.Sqrt),
     }, [typeof(double)])!;
-#endif
 }
 
 /// <summary>
@@ -712,11 +702,8 @@ internal static class KernelCodeRuntime
                             BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(offset + index * 4), (int) ToInteger(value));
                             return true;
                         case TypedArrayElementType.Float32:
-                            {
-                                var single = (float) value;
-                                BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(offset + index * 4), Unsafe.As<float, int>(ref single));
-                                return true;
-                            }
+                            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(offset + index * 4), BitConverter.SingleToInt32Bits((float) value));
+                            return true;
 
                         case TypedArrayElementType.Float64:
                             BinaryPrimitives.WriteInt64LittleEndian(data.AsSpan(offset + index * 8), BitConverter.DoubleToInt64Bits(value));

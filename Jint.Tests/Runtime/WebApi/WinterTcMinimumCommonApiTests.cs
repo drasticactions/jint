@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 namespace Jint.Tests.Runtime.WebApi;
@@ -242,4 +241,3 @@ public class WinterTcMinimumCommonApiTests
         return joined.Length == 0 ? [] : joined.Split(' ');
     }
 }
-#endif

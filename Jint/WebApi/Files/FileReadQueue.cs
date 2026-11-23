@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Runtime;
 
 namespace Jint.WebApi.Files;
@@ -120,4 +119,3 @@ internal sealed class FileReadQueue(Engine engine)
         }
     }
 }
-#endif

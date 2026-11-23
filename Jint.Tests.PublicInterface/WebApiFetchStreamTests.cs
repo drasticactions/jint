@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Net;
@@ -255,4 +254,3 @@ public class WebApiFetchStreamTests
             })()").UnwrapIfPromise(TransportSignalCeiling).AsString().Should().Be("ABCD");
     });
 }
-#endif

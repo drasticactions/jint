@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Security.Cryptography;
 
 namespace Jint.WebApi.Crypto;
@@ -152,4 +151,3 @@ internal static class AesCbcAlgorithm
         return iv;
     }
 }
-#endif

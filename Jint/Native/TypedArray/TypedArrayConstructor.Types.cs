@@ -120,7 +120,6 @@ public sealed class Float16ArrayConstructor : TypedArrayConstructor
     {
     }
 
-#if SUPPORTS_HALF
     public JsTypedArray Construct(ReadOnlySpan<Half> values)
     {
         var array = (JsTypedArray) base.Construct([values.Length], this);
@@ -130,7 +129,6 @@ public sealed class Float16ArrayConstructor : TypedArrayConstructor
         }
         return array;
     }
-#endif
 }
 
 public sealed class Float32ArrayConstructor : TypedArrayConstructor

@@ -488,10 +488,8 @@ public class NumberTests
     }
 
     // The following tests cover Number.prototype's exact-value formatting and its ThisNumberValue
-    // step. They run on net472 as well as net10.0, which is the point of several of them: the BCL
-    // "F" format specifier carries only 15 significant digits on .NET Framework and refuses a
-    // precision above 99 there, so routing toFixed through it produced a different string per target
-    // framework.
+    // step. The BCL "F" format specifier is not the spec's algorithm (on .NET Framework it carried
+    // only 15 significant digits and refused a precision above 99), so toFixed does not route through it.
 
     // The double nearest 3.141592653589793 is exactly 3.14159265358979311599796346854418516159057617187500.
     [TestCase("(3.141592653589793).toFixed(50)", "3.14159265358979311599796346854418516159057617187500")]

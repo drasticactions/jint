@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.WebApi.Fetch;
@@ -148,4 +147,3 @@ public class SetCookieParserTests
         cookie.Name.Should().Be("a");
     }
 }
-#endif

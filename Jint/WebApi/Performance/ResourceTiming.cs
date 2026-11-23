@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Runtime;
 using Jint.WebApi.Fetch;
 
@@ -33,4 +32,3 @@ internal static class ResourceTiming
         realm.Intrinsics.PerformanceObject.QueuePerformanceEntry(entry);
     }
 }
-#endif

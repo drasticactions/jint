@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint;
 using Jint.Native;
 
@@ -176,4 +175,3 @@ public class WebApiSubtleCryptoTests
         engine.Evaluate("typeof crypto.subtle").AsString().Should().Be("object");
     }
 }
-#endif

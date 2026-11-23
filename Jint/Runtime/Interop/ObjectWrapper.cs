@@ -138,7 +138,6 @@ public class ObjectWrapper : ObjectInstance, IObjectWrapper, IEquatable<ObjectWr
             }, 0), PropertyFlag.NonEnumerable));
         }
 
-#if SUPPORTS_ASYNC_DISPOSE
         if (_typeDescriptor.IsAsyncDisposable)
         {
             SetProperty(GlobalSymbolRegistry.AsyncDispose, new PropertyDescriptor(new ClrFunction(engine, realm, "asyncDispose", (thisObject, _) =>
@@ -151,7 +150,6 @@ public class ObjectWrapper : ObjectInstance, IObjectWrapper, IEquatable<ObjectWr
                 return Undefined;
             }, 0), PropertyFlag.NonEnumerable));
         }
-#endif
 
         if (_typeDescriptor.ToJsonMethod is not null)
         {

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -193,4 +192,3 @@ public class UrlEncodedBodyTests
             """).UnwrapIfPromise().AsString().Should().Be("""[["a","1"],["b","2"]]""");
     }
 }
-#endif

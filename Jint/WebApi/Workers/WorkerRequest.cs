@@ -1,11 +1,10 @@
-#if NET8_0_OR_GREATER
 using System.Threading;
 
 namespace Jint.WebApi;
 
 /// <summary>
 /// One <c>new Worker(...)</c> call, as the host sees it: what is being asked for, what it would cost, and the
-/// pre-wired <see cref="Options"/> a provider should usually start from. Requires .NET 8 or higher.
+/// pre-wired <see cref="Options"/> a provider should usually start from.
 /// </summary>
 /// <remarks>
 /// Created by the engine and handed to <see cref="WorkerProvider.CreateWorkerEngine"/> on the parent's thread,
@@ -270,7 +269,7 @@ public sealed class WorkerRequest
 }
 
 /// <summary>
-/// The kind of script a worker runs. Requires .NET 8 or higher.
+/// The kind of script a worker runs.
 /// </summary>
 public enum WorkerType
 {
@@ -285,4 +284,3 @@ public enum WorkerType
     /// <summary>A classic global script, supported by the Browser worker provider.</summary>
     Classic,
 }
-#endif

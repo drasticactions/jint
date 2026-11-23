@@ -147,12 +147,6 @@ public class StringAppendInPlaceTests
 
     private static double? AllocatedBytesPerAppend(string script)
     {
-        if (!GCPolyfills.AllocatedBytesForCurrentThreadIsSupported)
-        {
-            // true on every runtime this suite executes on; see StringConcatenationTests
-            return null;
-        }
-
         var engine = new Engine();
         var prepared = Engine.PrepareScript(script);
 
@@ -164,9 +158,9 @@ public class StringAppendInPlaceTests
         {
             engine.SetValue("n", iterations);
             GC.Collect();
-            GCPolyfills.TryGetAllocatedBytesForCurrentThread(out var before);
+            var before = GC.GetAllocatedBytesForCurrentThread();
             engine.Evaluate(prepared);
-            GCPolyfills.TryGetAllocatedBytesForCurrentThread(out var after);
+            var after = GC.GetAllocatedBytesForCurrentThread();
             return after - before;
         }
 

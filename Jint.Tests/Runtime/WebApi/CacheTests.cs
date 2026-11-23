@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Net;
@@ -836,4 +835,3 @@ public class CacheTests
             """)).AsString().Should().Be("TypeError");
     }
 }
-#endif

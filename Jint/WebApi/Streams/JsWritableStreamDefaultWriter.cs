@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Object;
 using Jint.Native.Promise;
@@ -47,4 +46,3 @@ internal sealed class JsWritableStreamDefaultWriter : ObjectInstance
     /// <summary>The promise the <c>ready</c> getter answers with.</summary>
     internal JsPromise ReadyPromise => StreamPromises.PromiseOf(ReadyCapability);
 }
-#endif

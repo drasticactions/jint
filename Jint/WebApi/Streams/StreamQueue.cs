@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using Jint.Native;
 using Jint.Runtime;
@@ -93,4 +92,3 @@ internal sealed class StreamQueue
     [StructLayout(LayoutKind.Auto)]
     private readonly record struct ValueWithSize(JsValue Value, double Size);
 }
-#endif

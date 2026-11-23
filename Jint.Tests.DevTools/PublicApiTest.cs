@@ -19,8 +19,7 @@ namespace Jint.Tests.DevTools;
 /// </para>
 /// <para>
 /// One baseline, not one per target framework, because the package has no conditional compilation:
-/// <see cref="NoSourceFileIsGatedByTargetFramework"/> is what keeps that true rather than assumed. Jint's
-/// own suite needs five because everything under <c>Jint/WebApi/</c> is behind <c>#if NET8_0_OR_GREATER</c>.
+/// <see cref="NoSourceFileIsGatedByTargetFramework"/> is what keeps that true rather than assumed.
 /// </para>
 /// </remarks>
 public class PublicApiTest
@@ -92,8 +91,8 @@ public class PublicApiTest
         Assert.That(
             gated.Count == 0,
             $"""
-            {gated.Count} source line(s) in Jint.DevTools compile conditionally, so its net8.0 and net10.0
-            assets no longer necessarily have the same public surface and one baseline no longer covers both.
+            {gated.Count} source line(s) in Jint.DevTools compile conditionally, so one public API baseline no longer
+            necessarily covers every build of it.
 
             {string.Join(Environment.NewLine, gated)}
 

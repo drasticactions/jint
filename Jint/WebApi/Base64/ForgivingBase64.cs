@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics.CodeAnalysis;
 
 namespace Jint.WebApi.Base64;
@@ -164,4 +163,3 @@ internal static class ForgivingBase64
     /// </summary>
     private static bool IsAsciiWhitespace(char c) => c is '\t' or '\n' or '\f' or '\r' or ' ';
 }
-#endif

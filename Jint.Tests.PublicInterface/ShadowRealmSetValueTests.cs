@@ -45,14 +45,9 @@ public class ShadowRealmSetValueTests
         // and the mirror is of something, rather than of two empty sets
         engine.Should().HaveCount(10);
 
-#if NET8_0_OR_GREATER
-        // Only where the attributes are real BCL types: PolySharp's downlevel stand-ins reach neither the
-        // emitted metadata nor the public API baselines, which is why net472 and the two netstandard
-        // baselines show none of this.
         engine.Should().ContainSingle(x => x.Contains("[RequiresUnreferencedCode", StringComparison.Ordinal));
         // the open paren matters: the [RequiresUnreferencedCode] message names the attribute too
         engine.Count(x => x.Contains("[DynamicallyAccessedMembers(", StringComparison.Ordinal)).Should().Be(3);
-#endif
     }
 
     [Test]
@@ -199,18 +194,12 @@ public class ShadowRealmSetValueTests
 
     private static string DescribeNullability(ParameterInfo parameter)
     {
-#if NET8_0_OR_GREATER
         return new NullabilityInfoContext().Create(parameter).WriteState == NullabilityState.Nullable ? "?" : "";
-#else
-        _ = parameter;
-        return "";
-#endif
     }
 
     /// <summary>
-    /// Read by name rather than by type: on the downlevel targets both Jint and this test project get their
-    /// own internal PolySharp copy of these attributes, so <c>GetCustomAttribute&lt;T&gt;</c> would look for
-    /// the wrong one and quietly find nothing on either side of the comparison.
+    /// Read by name rather than by type, so that a compiler-synthesized copy of an attribute is described the
+    /// same as the BCL's.
     /// </summary>
     private static string DescribeAnnotations(object[] attributes)
     {

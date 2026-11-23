@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Threading;
 using Jint.Native;
 using Jint.Native.Error;
@@ -570,4 +569,3 @@ internal sealed class WorkerStartupException : Exception
     {
     }
 }
-#endif

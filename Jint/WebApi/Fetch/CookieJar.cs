@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 namespace Jint.WebApi.Fetch;
 
 /// <summary>
@@ -59,4 +58,3 @@ public abstract class CookieJar
     /// </remarks>
     public abstract void StoreResponseCookies(Uri url, IReadOnlyList<string> setCookieHeaders);
 }
-#endif

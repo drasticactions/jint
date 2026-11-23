@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Buffers;
 using Jint.Native;
 using Jint.Native.Function;
@@ -243,4 +242,3 @@ internal sealed partial class ResponseConstructor : Constructor
         };
     }
 }
-#endif

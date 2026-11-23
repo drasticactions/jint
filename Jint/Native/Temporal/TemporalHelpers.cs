@@ -3444,28 +3444,7 @@ internal static class TemporalHelpers
     // that discrepancy under the BCL's name is the kind of near-miss that goes unnoticed. Kept local.
     private static int GetBigIntegerBitLength(BigInteger abs)
     {
-#if NET8_0_OR_GREATER
         return (int) abs.GetBitLength();
-#else
-        // Convert to byte array (little-endian, unsigned)
-        var bytes = abs.ToByteArray();
-        var length = bytes.Length;
-        // Skip trailing zero bytes (sign extension)
-        while (length > 0 && bytes[length - 1] == 0)
-            length--;
-        if (length == 0)
-            return 0;
-        // Count bits in the most significant byte
-        var msb = bytes[length - 1];
-        var bits = (length - 1) * 8;
-        while (msb > 0)
-        {
-            bits++;
-            msb >>= 1;
-        }
-
-        return bits;
-#endif
     }
 
     /// <summary>
@@ -4518,7 +4497,6 @@ internal static class TemporalHelpers
         int? Second,
         string? TimeZone,
         int? Year);
-
 
     /// <summary>
     /// PrepareCalendarFieldsForRelativeTo ( calendar, fields )
@@ -6107,7 +6085,6 @@ internal static class TemporalHelpers
         var minutes = parts.Length > 1 ? int.Parse(parts[1], CultureInfo.InvariantCulture) : 0;
         return sign * (hours * 60 + minutes);
     }
-
 
     /// <summary>
     /// GetUnsignedRoundingMode ( roundingMode, sign )

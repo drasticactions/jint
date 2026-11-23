@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Net;
@@ -502,4 +501,3 @@ public class WebApiCacheTests
         provider.Calls.Should().NotContain("open:v3");
     }
 }
-#endif

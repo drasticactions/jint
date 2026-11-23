@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -249,4 +248,3 @@ public class DomExceptionTests
         engine.Evaluate("Error.isError(new AggregateError([]))").AsBoolean().Should().BeTrue();
     }
 }
-#endif

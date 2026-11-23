@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Object;
 using Jint.Runtime;
@@ -94,4 +93,3 @@ internal sealed class ErrorEventConstructor : Constructor
         return value is null || value.IsUndefined() ? null : value;
     }
 }
-#endif

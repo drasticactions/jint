@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -800,4 +799,3 @@ public class HostStreamBridgeTests
             .UnwrapIfPromise().AsString().Should().Be("ok");
     }
 }
-#endif

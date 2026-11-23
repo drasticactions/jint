@@ -171,8 +171,7 @@ internal sealed class JintTaggedTemplateExpression : JintExpression
         }
         else
         {
-            // Rebuilt after the previous object was collected; reusing the slot spares a Remove/Add pair,
-            // which matters because ConditionalWeakTable.AddOrUpdate is absent from netstandard2.0.
+            // Rebuilt after the previous object was collected; reusing the slot spares a Remove/Add pair.
             slot.SetTarget(template);
         }
 

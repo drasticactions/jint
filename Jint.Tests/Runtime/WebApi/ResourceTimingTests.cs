@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 using System.Net;
 using System.Net.Http;
@@ -195,4 +194,3 @@ public sealed class ResourceTimingTests
         }
     }
 }
-#endif

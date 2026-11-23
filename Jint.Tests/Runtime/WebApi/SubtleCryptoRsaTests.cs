@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -1250,4 +1249,3 @@ public class SubtleCryptoRsaTests
     private const string Rs256PaddedQi =
         "ACGHewxzoa1r8ZMD0LETNrToK423K377UCYqXfg5XMclbrjPbEC3YI1ZNqMtuhdBJqUnBi6tjKMF-34Xf0CUN8ncuXGO2CAYvO8PdyCixHX52ybaDjy1FtCE6yUXjoKNXKvUm7MWGsAYH6f4IegOetN5NvmUMFStCSkh7ixZLkN1";
 }
-#endif

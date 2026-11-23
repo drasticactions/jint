@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
@@ -316,4 +315,3 @@ internal sealed class HostWritableStreamSink : HostStreamBridge
         }
     }
 }
-#endif

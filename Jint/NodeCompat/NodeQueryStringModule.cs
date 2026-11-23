@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 using Jint.Native;
 using Jint.Native.Array;
@@ -416,4 +415,3 @@ internal static class NodeQueryStringModule
 
     private static string Coerce(JsValue value) => TypeConverter.ToString(value);
 }
-#endif

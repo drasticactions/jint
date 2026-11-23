@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Runtime.CompilerServices;
@@ -494,7 +493,6 @@ public class LegacyEncodingTests
                     {
                         failures.Add($"{label}: expected {expected}, got {actual}");
                     }
-
                 }
             }
         }
@@ -610,4 +608,3 @@ public class LegacyEncodingTests
 
     #endregion
 }
-#endif

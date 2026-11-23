@@ -147,64 +147,6 @@ public class PublicApiDocumentationTest
     }
 
     /// <summary>
-    /// No target framework is documented less than the newest one, which is what makes running the gate on
-    /// that one alone enough.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Documentation is not conditional the way the surface is, so the natural assumption is that one target
-    /// framework's <c>Jint.xml</c> stands for all five. It does not follow on its own: a doc comment inside
-    /// <c>#if NET8_0_OR_GREATER</c> — or on the only part of a <c>partial</c> type that is gated — is absent
-    /// from a downlevel consumer's IntelliSense while the gate above sees it. This test found exactly two.
-    /// </para>
-    /// <para>
-    /// It also pins the wider claim the single-target gate rests on: every downlevel surface is a
-    /// <em>subset</em> of the newest one, so nothing is measured on a target framework nobody looked at.
-    /// </para>
-    /// </remarks>
-    [Test]
-    public void NoTargetFrameworkIsDocumentedLessThanTheNewest()
-    {
-        var newest = ShippedJintBuildOutput.NewestTargetFramework;
-        var newestDocumented = XmlDocumentationFile.DeclarationsWithASummary(Documentation(newest));
-        var newestSurface = Surface(newest).Where(d => d.NeedsSummary).Select(d => d.Id).ToHashSet(StringComparer.Ordinal);
-
-        var report = new StringBuilder();
-        foreach (var targetFramework in ShippedJintBuildOutput.TargetFrameworks)
-        {
-            if (targetFramework == newest)
-            {
-                continue;
-            }
-
-            var documented = XmlDocumentationFile.DeclarationsWithASummary(Documentation(targetFramework));
-            var surface = Surface(targetFramework).Where(d => d.NeedsSummary).Select(d => d.Id).ToList();
-
-            var absent = surface.Where(id => !newestSurface.Contains(id)).ToList();
-            var lessDocumented = surface
-                .Where(id => newestSurface.Contains(id) && newestDocumented.Contains(id) && !documented.Contains(id))
-                .ToList();
-
-            Section(report, absent, $"in the {targetFramework} surface but not in the {newest} one", $"""
-                The gate runs on {newest} because every other shipped surface is a subset of it. These are not,
-                so either they are new downlevel-only API — which needs its own gate — or the enumerator is
-                wrong.
-                """);
-
-            Section(report, lessDocumented, $"documented on {newest} but not on {targetFramework}", $"""
-                The comment is behind a preprocessor directive, or on the only part of a partial declaration
-                that is. Move it to a part every target framework compiles, so the consumers that resolve the
-                {targetFramework} asset see it too.
-                """);
-        }
-
-        if (report.Length > 0)
-        {
-            Assert.Fail(report.ToString());
-        }
-    }
-
-    /// <summary>
     /// No documentation comment nests a <c>&lt;para&gt;</c> inside another one.
     /// </summary>
     /// <remarks>

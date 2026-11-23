@@ -231,13 +231,11 @@ public abstract partial class JsValue : IEquatable<JsValue>
     private static readonly ConcurrentDictionary<Type, PropertyInfo?> _taskResultPropertyCache = new();
     private static readonly ConcurrentDictionary<Type, MethodInfo?> _valueTaskAsTaskMethodCache = new();
 
-#if !NETFRAMEWORK && !NETSTANDARD2_0
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicMethods, typeof(ValueTask<>))]
     [UnconditionalSuppressMessage("Trimming", "IL2070:UnrecognizedReflectionPattern",
         Justification = "The lookup is reached only for a ValueTask<T> - every other awaitable shape is " +
                         "handled above it - and AsTask is declared on ValueTask<>, whose public methods the " +
                         "DynamicDependency preserves for every instantiation.")]
-#endif
     internal static JsValue ConvertAwaitableToPromise(Engine engine, object obj)
     {
         if (obj is Task task)
@@ -245,7 +243,6 @@ public abstract partial class JsValue : IEquatable<JsValue>
             return ConvertTaskToPromise(engine, task);
         }
 
-#if !NETFRAMEWORK && !NETSTANDARD2_0
         if (obj is ValueTask valueTask)
         {
             return ConvertTaskToPromise(engine, valueTask.AsTask());
@@ -258,7 +255,6 @@ public abstract partial class JsValue : IEquatable<JsValue>
         {
             return ConvertTaskToPromise(engine, (Task) asTask.Invoke(obj, parameters: null)!);
         }
-#endif
 
         return FromObject(engine, JsValue.Undefined);
     }

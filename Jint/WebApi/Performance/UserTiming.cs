@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using Jint.Native;
 using Jint.Native.Object;
@@ -206,4 +205,3 @@ internal static class UserTiming
         return state;
     }
 }
-#endif

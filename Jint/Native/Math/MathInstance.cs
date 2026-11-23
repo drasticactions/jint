@@ -245,7 +245,6 @@ internal sealed partial class MathInstance : BuiltinShapeObject
             }
         }
 
-
         // If y<0 and y is finite and x is +∞, the result is −0.
         // If y<0 and y is finite and x is −∞, the result is an implementation-dependent approximation to −π.
         if (y < 0 && !double.IsInfinity(y))
@@ -324,13 +323,6 @@ internal sealed partial class MathInstance : BuiltinShapeObject
         {
             return JsNumber.DoubleNegativeInfinity;
         }
-
-#if NETFRAMEWORK
-        if (x < 0 && x > -1)
-        {
-            return JsNumber.NegativeZero;
-        }
-#endif
 
         return System.Math.Ceiling(x);
     }
@@ -721,7 +713,6 @@ internal sealed partial class MathInstance : BuiltinShapeObject
             }
         }
 
-
         if (NumberInstance.IsNegativeZero(x))
         {
             if (y > 0)
@@ -806,7 +797,6 @@ internal sealed partial class MathInstance : BuiltinShapeObject
     [JsFunction(Length = 1, Name = "f16round", FastCall = true)]
     private static JsValue F16Round(JsValue thisObject, [ToNumber] double n)
     {
-#if SUPPORTS_HALF
         if (double.IsNaN(n))
         {
             return JsNumber.DoubleNaN;
@@ -818,10 +808,6 @@ internal sealed partial class MathInstance : BuiltinShapeObject
         }
 
         return (double) (Half) n;
-#else
-        Throw.NotImplementedException("Float16/Half type is not supported in this build");
-        return default;
-#endif
     }
 
     [JsFunction(FastCall = true, Leaf = true)]
@@ -1076,7 +1062,6 @@ internal sealed partial class MathInstance : BuiltinShapeObject
                     }
                 }
             }
-
         }
         catch
         {

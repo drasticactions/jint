@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Threading;
 
 namespace Jint.WebApi.Workers;
@@ -96,4 +95,3 @@ internal sealed class WorkerRegistry
         }
     }
 }
-#endif

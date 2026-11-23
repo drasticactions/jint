@@ -1,8 +1,3 @@
-// CA1822: on the target frameworks without web-API timers, TryPromoteDueTimerJob below touches no instance
-// state. It stays an instance method on every one of them so that the event loop can call it unconditionally
-// and keep conditional compilation out of the pump.
-#pragma warning disable CA1822
-
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
@@ -16,12 +11,11 @@ using Jint.Runtime;
 namespace Jint;
 
 // What the event-loop pump asks the engine about work the engine schedules for *itself*: a pending
-// Atomics.waitAsync timeout on every target framework, and a due web-API timer on net8.0 and later. Both are
+// Atomics.waitAsync timeout, and a due web-API timer. Both are
 // invisible to EventLoop.Enqueue until they come due — nothing enqueues them and so nothing wakes a waiting
 // thread for them — which is why the pump has to look, and why the two idle waits bound themselves by
-// TimeUntilNextPumpScheduledWork. Declaring every hook here on every target framework, with the conditional
-// compilation inside the bodies, is what keeps #if out of EventLoop.RunAvailableContinuations,
-// Engine.DrainEventLoopUntil and Engine.AwaitPromiseSettlementAsync entirely.
+// TimeUntilNextPumpScheduledWork. Declaring every hook here keeps EventLoop.RunAvailableContinuations,
+// Engine.DrainEventLoopUntil and Engine.AwaitPromiseSettlementAsync free of what the web APIs schedule.
 //
 // The host-facing half of the same subject lives here too: TimeUntilNextScheduledWork answers *when* to pump,
 // and WaitForScheduledWork parks the calling thread until that answer is "now" — the piece a host driving one
@@ -186,25 +180,15 @@ public partial class Engine
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal bool TryPromoteDueTimerJob(bool includeIdleCallbacks = true)
     {
-#if NET8_0_OR_GREATER
         if (IsRetired) return false;
         var webApi = _webApi;
         return webApi is not null && webApi.TryPromoteDeferredWork(includeIdleCallbacks);
-#else
-        // Timers are the one web API that needs engine infrastructure, and every line of them is net8.0 and
-        // later; downlevel there is nothing to promote and the JIT folds this call away to nothing.
-        return false;
-#endif
     }
 
     internal bool TryRunIdleCallback()
     {
-#if NET8_0_OR_GREATER
         if (IsRetired) return false;
         return _webApi?.IdleCallbacks is { } idle && idle.TryRunIdleCallback();
-#else
-        return false;
-#endif
     }
 
     /// <summary>
@@ -216,31 +200,24 @@ public partial class Engine
 
     /// <summary>
     /// Registered web-API timers that have not fired and have not been cleared, for
-    /// <see cref="DiagnosticOperations.GetMemoryReport(int)"/>. Zero on every target framework below .NET 8,
-    /// which has no timers to register, and on any engine that did not enable them.
+    /// <see cref="DiagnosticOperations.GetMemoryReport(int)"/>. Zero on any engine that did not enable them.
     /// </summary>
     internal int PendingTimerCount
     {
         get
         {
-#if NET8_0_OR_GREATER
             return _webApi?.PendingTimerCount ?? 0;
-#else
-            return 0;
-#endif
         }
     }
 
     /// <summary>
     /// Whether the pump has something to run the instant it is called, without consulting any clock: a job is
-    /// queued, or — on net8.0 and later — an idle callback is waiting for the queue to drain, which it does the
+    /// queued, or an idle callback is waiting for the queue to drain, which it does the
     /// moment a pump starts.
     /// </summary>
     /// <remarks>
     /// The one home for that composition, so that <see cref="TaskOperations.TimeUntilNextScheduledWork"/>
-    /// and <see cref="WaitForScheduledWork"/> can never disagree about what "work is available now" means. Like
-    /// every other hook in this file it is declared on every target framework with the conditional compilation
-    /// inside its body.
+    /// and <see cref="WaitForScheduledWork"/> can never disagree about what "work is available now" means.
     /// </remarks>
     internal bool HasImmediatePumpWork()
     {
@@ -250,16 +227,12 @@ public partial class Engine
             return true;
         }
 
-#if NET8_0_OR_GREATER
         return _webApi is { HasPendingIdleWork: true };
-#else
-        return false;
-#endif
     }
 
     /// <summary>
     /// How long the engine may idle before work it scheduled for itself needs the pump: the earlier of the
-    /// next <c>Atomics.waitAsync</c> deadline and — on net8.0 and later — the next due web-API timer.
+    /// next <c>Atomics.waitAsync</c> deadline and the next due web-API timer.
     /// <see langword="null"/> when neither pends; zero or negative means something is due right now.
     /// </summary>
     internal TimeSpan? TimeUntilNextPumpScheduledWork()
@@ -267,13 +240,11 @@ public partial class Engine
         if (IsRetired) return null;
         var untilWaiter = _atomicsWaiterDeadlines?.TimeUntilNextDeadline();
 
-#if NET8_0_OR_GREATER
         var untilTimer = _webApi?.TimeUntilNextDueTimer();
         if (untilTimer is { } timer && (untilWaiter is not { } waiter || timer < waiter))
         {
             return timer;
         }
-#endif
 
         return untilWaiter;
     }
@@ -281,7 +252,7 @@ public partial class Engine
     /// <summary>
     /// Whether <see cref="Runtime.EventLoop.RunAvailableContinuations"/> would provably do nothing right now: no
     /// queued job and no separate task lane, no <c>Atomics.waitAsync</c> deadline to settle, no rejection to
-    /// report and — on net8.0 and later — no web-API state that could promote a timer or an idle callback.
+    /// report and no web-API state that could promote a timer or an idle callback.
     /// </summary>
     /// <remarks>
     /// <see cref="RunAvailableContinuations"/> skips its host-call claim on this answer, so it must cover every
@@ -295,11 +266,7 @@ public partial class Engine
             return false;
         }
 
-#if NET8_0_OR_GREATER
         return _webApi is null;
-#else
-        return true;
-#endif
     }
 
     /// <summary>
@@ -772,7 +739,7 @@ public partial class Engine
         /// what it cannot do is make the pump you would call next do anything.
         /// </para>
         /// <para>
-        /// Available on <b>every</b> target framework and unaffected by which web APIs are enabled.
+        /// Unaffected by which web APIs are enabled.
         /// </para>
         /// </remarks>
         /// <param name="timeout">

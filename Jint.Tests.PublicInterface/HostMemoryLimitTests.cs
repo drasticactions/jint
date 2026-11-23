@@ -5,10 +5,7 @@ using Jint.Native;
 using Jint.Native.Promise;
 using Jint.Runtime;
 using Jint.Runtime.Modules;
-#if NET8_0_OR_GREATER
 using Jint.WebApi;
-#endif
-
 
 namespace Jint.Tests.PublicInterface;
 
@@ -261,7 +258,6 @@ public class HostMemoryLimitTests
             .Should().ThrowExactly<MemoryLimitExceededException>();
     }
 
-#if NET8_0_OR_GREATER
     [Test]
     public void TimerCallbackRetainsItsRegistrationBudget()
     {
@@ -380,7 +376,6 @@ public class HostMemoryLimitTests
         Invoking(() => engine.Execute("allocate(); scheduler.postTask(() => allocate());"))
             .Should().ThrowExactly<MemoryLimitExceededException>();
     }
-#endif
 
     [Test]
     public void AsyncModuleBuildAndEvaluationRetainTheLoadBudgetAcrossAThreadHop()
@@ -841,7 +836,6 @@ public class HostMemoryLimitTests
         engine.Evaluate("survived").AsNumber().Should().Be(1);
     }
 
-#if NET8_0_OR_GREATER
     [Test]
     public void AnAllocationFailureDiscardsTheTimersTheFailedOperationScheduled()
     {
@@ -863,7 +857,6 @@ public class HostMemoryLimitTests
         Invoking(engine.Tasks.ProcessTasks).Should().NotThrow();
         fired.Should().BeFalse();
     }
-#endif
 
     [Test]
     public async Task SharedOptionsCreateIsolatedMemoryAccountingPerEngine()
@@ -1019,7 +1012,6 @@ public class HostMemoryLimitTests
         }
     }
 
-#if NET8_0_OR_GREATER
     private sealed class ManualClock : TimeProvider
     {
         private long _timestamp;
@@ -1031,5 +1023,4 @@ public class HostMemoryLimitTests
         internal void Advance(int milliseconds)
             => _timestamp += milliseconds * TimeSpan.TicksPerMillisecond;
     }
-#endif
 }

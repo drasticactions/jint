@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Net;
@@ -545,4 +544,3 @@ public class WebApiEventSourceTests
         engine.Execute("es.close();");
     }
 }
-#endif

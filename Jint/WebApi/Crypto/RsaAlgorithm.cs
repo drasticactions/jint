@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Numerics;
 using System.Security.Cryptography;
 using Jint.Native;
@@ -1041,4 +1040,3 @@ internal static class RsaAlgorithm
         return start == 0 ? value : value[start..];
     }
 }
-#endif

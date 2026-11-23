@@ -4,7 +4,7 @@
 > lane a host with a real node tree gets, or `AbortSignal`.
 >
 > This is the recipe half of a trap stated in [`../AGENTS.md`](../AGENTS.md#web-apis) beside it, which
-> carries the four subtree conventions, the whole-file `net8.0` gate, WebIDL's property attributes, the
+> carries the subtree conventions, WebIDL's property attributes, the
 > timer queue this file's timeout signals ride, and the diagnostics sink a throwing listener needs. Read
 > that first — nothing here is repeated there, and the repository-root
 > [`AGENTS.md`](../../../AGENTS.md) carries the build and test commands and the branch to target.

@@ -150,7 +150,6 @@ public class HostOptionsReadOnlyTests
             { "Options.Profiling.MaxEvents", static o => o.Profiling.MaxEvents = 8 },
         };
 
-#if NET8_0_OR_GREATER
         data.Add("Options.WebApi.Features", static o => o.WebApi.Features = WebApiFeatures.Console);
         data.Add("Options.WebApi.Console.Sink", static o => o.WebApi.Console.Sink = Jint.WebApi.ConsoleSink.Null);
         data.Add("Options.WebApi.Timers.MaxActiveTimers", static o => o.WebApi.Timers.MaxActiveTimers = 8);
@@ -160,7 +159,6 @@ public class HostOptionsReadOnlyTests
         data.Add("Options.WebApi.Cache.Provider", static o => o.WebApi.Cache.Provider = null);
         data.Add("Options.WebApi.Messaging.Broker", static o => o.WebApi.Messaging.Broker = null);
         data.Add("Options.WebApi.Workers.MaxWorkers", static o => o.WebApi.Workers.MaxWorkers = 8);
-#endif
 
         return data;
     }
@@ -232,11 +230,9 @@ public class HostOptionsReadOnlyTests
             { "UseNodeProcess", static o => o.UseNodeProcess() },
         };
 
-#if NET8_0_OR_GREATER
         data.Add("WebApi.Fetch.AllowedSchemes.Add", static o => o.WebApi.Fetch.AllowedSchemes.Add("ftp"));
         data.Add("WebApi.Fetch.AllowedSchemes.Clear", static o => o.WebApi.Fetch.AllowedSchemes.Clear());
         data.Add("UseWebApis", static o => o.UseWebApis());
-#endif
 
         return data;
     }
@@ -314,7 +310,6 @@ public class HostOptionsReadOnlyTests
         second.Evaluate("typeof importNamespace").AsString().Should().Be("undefined");
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// <c>Engine.WebApi.Enable</c> is the one door that writes to a frozen <see cref="Options"/>, and
     /// the suspension it opens is scoped to the group it is configuring — not to web-API groups at large, and
@@ -408,7 +403,6 @@ public class HostOptionsReadOnlyTests
         // And the host's own instance was not written to at all.
         options.WebApi.Fetch.AllowedSchemes.Should().NotContain("ftp");
     }
-#endif
 
     /// <summary>
     /// A configuration callback runs while the engine is being built, which is before the freeze — otherwise

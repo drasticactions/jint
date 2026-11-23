@@ -1,4 +1,3 @@
-#if NET
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
@@ -2651,4 +2650,3 @@ internal sealed class KernelEmitter
     private static MethodInfo Getter([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.NonPublicProperties)] Type type, string name)
         => type.GetProperty(name, AnyMember)?.GetMethod ?? throw new MissingMethodException(type.Name, name);
 }
-#endif

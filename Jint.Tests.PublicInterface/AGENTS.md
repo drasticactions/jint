@@ -68,40 +68,25 @@ stays.
 
 Four things about how it is wired are worth knowing before touching it:
 
-- **Five baselines, because the surface genuinely differs.** Everything under `Jint/WebApi/` is behind
-  `#if NET8_0_OR_GREATER`, and `SUPPORTS_HALF` and its siblings add members downlevel targets lack, so the
-  diff for a new member tells you *which consumers reach it*. As it stands the five collapse into two distinct
-  surfaces — `net472` = `netstandard2.0` = `netstandard2.1`, and `net8.0` = `net10.0` — and keeping them as
-  five separate files is what makes a future divergence inside either group show up as a diff instead of as
-  nothing.
-- **They are generated from `artifacts/bin/Jint/`, not from the loaded assembly.** A test project can only
-  ever *load* two of the five, so `netstandard2.0`, `netstandard2.1` and `net8.0` are read out of the build
-  output through a `MetadataLoadContext` — which composes with `PublicApiGenerator` because it reads the file
-  with Mono.Cecil from `Assembly.Location` and never reflects over it. The `BuildJintForEveryShippedTargetFramework`
-  target in the `.csproj` builds the outer, cross-targeting Jint project so all five are present and current
-  whenever this suite builds; if one is missing or the tree is left over from a different build, the test says
-  so and names `dotnet build -c Release Jint/Jint.csproj` rather than passing on stale output.
-- **An attribute whose type is `internal` in that assembly is not rendered.** `PublicApiGenerator` skips it,
-  so `[Experimental("JINT0001")]` — Jint's marker on its declared non-contracts — shows up only in the
-  `net8.0` and `net10.0` baselines. Downlevel it is PolySharp's polyfill, which this repository deliberately
-  generates `internal`. The diagnostic itself still fires for a downlevel consumer (the `net472` leg of this
-  very project proves it, against Jint's `net472` asset); only the snapshot is silent. Do not "fix" that by
-  making the polyfills public — that would put a type whose members vary by target framework into the surface
-  these files exist to pin.
+- **One baseline per target framework `Jint.csproj` declares** — `net10.0` alone — so the diff for a new member
+  shows exactly what consumers reach.
+- **It is generated from `artifacts/bin/Jint/`, not from the loaded assembly**, through a `MetadataLoadContext` —
+  which composes with `PublicApiGenerator` because it reads the file with Mono.Cecil from `Assembly.Location` and
+  never reflects over it. The `BuildJintForEveryShippedTargetFramework` target in the `.csproj` builds the outer
+  Jint project so the assembly is present and current whenever this suite builds; if it is missing or the tree is
+  left over from a different build, the test says so and names `dotnet build -c Release Jint/Jint.csproj` rather
+  than passing on stale output.
+- **An attribute whose type is `internal` in that assembly is not rendered.** `PublicApiGenerator` skips it.
 - **The rows come from `Jint.csproj`'s own `<TargetFrameworks>`.** Adding a target framework adds a failing row
   that wants a baseline, rather than silently shipping an unsnapshotted surface. The test itself runs on
   **exactly one** leg, selected by the `RunsPublicApiBaselines` property in the `.csproj` — which also
   defines the `PUBLIC_API_BASELINES` symbol the file is wrapped in and gates the build target, so the three
-  cannot drift apart. Two reasons, and only the first is obvious. `net472` is excluded because
-  `PublicApiGenerator` formats through CodeDom and nothing promises .NET Framework's lays the same metadata
-  out identically, so that leg would be verifying the host rather than Jint. Every *other* leg is excluded
-  because the snapshot is of five files on disk: which runtime reads them changes nothing, so a second leg
-  is redundancy — but it is a second process reading `artifacts/bin/Jint/` while the other leg's build is
-  still writing it, and a second `Jint.dll` beside a test binary that the outer Jint build never refreshes.
-  A stale copy trips `TheSnapshottedAssembliesAreTheOnesThisTestRunWasBuiltFrom`; a torn read faults inside
-  `MetadataLoadContext`, where the runner cannot attribute it to a test, so the run dies part-way through
-  and still reports what it managed. If a future change wants the
-  baselines on a different runtime, move the property — do not add a second leg.
+  cannot drift apart. A second leg would be redundancy — but it is a second process reading `artifacts/bin/Jint/`
+  while the other leg's build is still writing it, and a second `Jint.dll` beside a test binary that the outer
+  Jint build never refreshes. A stale copy trips `TheSnapshottedAssembliesAreTheOnesThisTestRunWasBuiltFrom`; a
+  torn read faults inside `MetadataLoadContext`, where the runner cannot attribute it to a test, so the run dies
+  part-way through and still reports what it managed. If a future change wants the baselines on a different
+  runtime, move the property — do not add a second leg.
 
 ### The documentation gate
 
@@ -122,12 +107,10 @@ Three things about it are worth knowing before a failure here sends you looking.
   regenerated, which is deliberate — an allowlist that silently absorbs its own progress stops being a count
   of what is left. `JINT_PUBLIC_API_DOCS=update` rewrites it; nothing else may edit it, and a line is never
   added by hand. A new public declaration ships documented.
-- **It runs on one target framework and proves that is enough.** `NoTargetFrameworkIsDocumentedLessThanTheNewest`
-  checks the other four are subsets *and* that nothing documented on the newest is undocumented on them, which
-  is the failure a single-target gate would otherwise miss: a doc comment inside `#if NET8_0_OR_GREATER`, or on
-  the only part of a `partial` type that is gated, is invisible to a `netstandard` consumer. It found two.
+- **It runs on the target framework Jint ships**, net10.0. Were a second one added, the gate would have to check
+  that a doc comment is not behind a preprocessor directive that hides it from the other.
 
-All four checks together cost about a second, so they are not gated on an environment variable the way
+All three checks together cost about a second, so they are not gated on an environment variable the way
 `JINT_WPT_CENSUS` is — every leg that runs this suite runs them.
 
 ### What counts as a public contract

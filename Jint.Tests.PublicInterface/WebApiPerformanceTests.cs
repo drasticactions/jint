@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint;
 using Jint.Native;
 
@@ -234,4 +233,3 @@ public class WebApiPerformanceTests
         second.Evaluate("performance.timeOrigin").AsNumber().Should().Be(3000);
     }
 }
-#endif

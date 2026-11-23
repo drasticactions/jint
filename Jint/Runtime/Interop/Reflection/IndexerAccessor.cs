@@ -235,7 +235,6 @@ internal sealed class IndexerAccessor : ReflectionAccessor
         Type[] paramTypeArray)
     {
         // check for known incompatible types
-#if NET8_0_OR_GREATER
         if (typeof(System.Text.Json.Nodes.JsonNode).IsAssignableFrom(targetType)
             && (targetType != typeof(System.Text.Json.Nodes.JsonArray) || paramType != typeof(int))
             && (targetType != typeof(System.Text.Json.Nodes.JsonObject) || paramType != typeof(string)))
@@ -244,7 +243,6 @@ internal sealed class IndexerAccessor : ReflectionAccessor
             // we cannot access this[int] with anything else than JsonArray, otherwise itw will throw
             return null;
         }
-#endif
 
         object? key = null;
         // int key is quite common case
@@ -279,7 +277,6 @@ internal sealed class IndexerAccessor : ReflectionAccessor
         // the key type doesn't work for this indexer
         return null;
     }
-
 
     public override bool Readable => Indexer.CanRead;
 

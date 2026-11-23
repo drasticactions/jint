@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.TypedArray;
 using Jint.Runtime;
@@ -136,4 +135,3 @@ internal static class ByteStreams
         return stream;
     }
 }
-#endif

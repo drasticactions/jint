@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native.Object;
 using Jint.Runtime;
 
@@ -30,4 +29,3 @@ internal sealed class JsPerformanceObserverEntryList : ObjectInstance
     /// <summary>https://w3c.github.io/performance-timeline/#dfn-entry-list.</summary>
     internal List<JsPerformanceEntry> Entries { get; }
 }
-#endif

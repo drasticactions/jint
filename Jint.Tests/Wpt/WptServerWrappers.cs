@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Text;
@@ -298,4 +297,3 @@ internal static class WptServerWrappers
         builder.Append(replacement);
     }
 }
-#endif

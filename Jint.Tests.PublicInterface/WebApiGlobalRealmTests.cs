@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 
 namespace Jint.Tests.PublicInterface;
@@ -91,4 +90,3 @@ public sealed class WebApiGlobalRealmTests
     private static Engine CreateEngine()
         => new(options => options.UseWebApis(WebApiFeatures.Fetch | WebApiFeatures.Events | WebApiFeatures.GlobalEvents));
 }
-#endif

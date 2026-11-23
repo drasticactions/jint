@@ -227,7 +227,6 @@ public class TaskDrainDeferralTests
         settled.Should().BeTrue();
     }
 
-#if NET8_0_OR_GREATER
     private sealed class FrozenClock : TimeProvider
     {
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
@@ -264,7 +263,6 @@ public class TaskDrainDeferralTests
 
         budget.Depth.Should().Be(0);
     }
-#endif
 
     [TestCase(false)]
     [TestCase(true)]

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Object;
 using Jint.Runtime;
@@ -50,4 +49,3 @@ internal sealed partial class SharedWorkerGlobalScopePrototype : Prototype
         CreateSymbols_Generated();
     }
 }
-#endif

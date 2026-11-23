@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint;
 using Jint.Native;
 
@@ -213,4 +212,3 @@ public class WebApiTransformStreamTests
         firstBytes.AsNumber().Should().BeGreaterThan(0);
     }
 }
-#endif

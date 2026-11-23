@@ -9,9 +9,8 @@ namespace Jint.Tests.PublicInterface;
 /// needs before it decides whether to call <see cref="Engine.TaskOperations.ProcessTasks"/>.
 ///
 /// <para>
-/// This file is deliberately <b>not</b> gated on <c>NET8_0_OR_GREATER</c>: the property is part of the
-/// all-target-framework <c>Tasks</c> surface, and the source it reports on every target framework is a core
-/// one — the deadline of an <c>Atomics.waitAsync</c>, whose settle is produced by a background delay rather
+/// The property is part of the core <c>Tasks</c> surface, and the source it reports without any web API is a
+/// core one — the deadline of an <c>Atomics.waitAsync</c>, whose settle is produced by a background delay rather
 /// than by anything the engine does, so nothing else can tell a host when to pump for it. The web-API sources
 /// (timers, delayed scheduler tasks, idle callbacks) are covered by
 /// <c>WebApiSchedulingSurfaceTests</c>, which is gated because they only exist on .NET 8 and later.

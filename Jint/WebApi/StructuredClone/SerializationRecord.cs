@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
@@ -550,4 +549,3 @@ internal sealed class SerializedFile : SerializedBlob
     /// <summary>The <c>[[LastModified]]</c>, in milliseconds since the Unix epoch.</summary>
     internal long LastModified { get; init; }
 }
-#endif

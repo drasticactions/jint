@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
@@ -622,4 +621,3 @@ internal sealed partial class ConsoleInstance : BuiltinShapeObject
         return elapsed.TotalMilliseconds.ToString("0.###", CultureInfo.InvariantCulture) + "ms";
     }
 }
-#endif

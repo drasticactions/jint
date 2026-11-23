@@ -150,12 +150,6 @@ public class StringConcatenationTests
     [Test]
     public void AShortChainDoesNotPayForTheDeferredRepresentation()
     {
-        if (!GCPolyfills.AllocatedBytesForCurrentThreadIsSupported)
-        {
-            // see AccumulatingWithPlusIsNoLongerQuadratic for why this reports rather than fails
-            return;
-        }
-
         var perEvaluation = AllocatedBytesPerChainEvaluation("y + '-' + m + '-' + d + ' ' + y + ':' + m + ':' + d", 20_000);
 
         perEvaluation.Should().BeLessThan(ShortChainAllocationCeiling);
@@ -365,14 +359,6 @@ public class StringConcatenationTests
     [TestCase("s = chunk + chunk + chunk + chunk + s")]
     public void AccumulatingWithPlusIsNoLongerQuadratic(string body)
     {
-        if (!GCPolyfills.AllocatedBytesForCurrentThreadIsSupported)
-        {
-            // true on every runtime this suite executes on (.NET Framework 4.6+, .NET Core 2.0+); the
-            // guard is here so a trimmed or exotic host running the suite reports no result rather than
-            // a failure it cannot act on
-            return;
-        }
-
         var small = AllocatedBytesAccumulating(body, 4_000);
         var large = AllocatedBytesAccumulating(body, 8_000);
 
@@ -393,9 +379,9 @@ public class StringConcatenationTests
 
         engine.SetValue("n", iterations);
         GC.Collect();
-        GCPolyfills.TryGetAllocatedBytesForCurrentThread(out var before);
+        var before = GC.GetAllocatedBytesForCurrentThread();
         engine.Evaluate(script);
-        GCPolyfills.TryGetAllocatedBytesForCurrentThread(out var after);
+        var after = GC.GetAllocatedBytesForCurrentThread();
 
         return after - before;
     }
@@ -421,9 +407,9 @@ public class StringConcatenationTests
 
         engine.SetValue("n", iterations);
         GC.Collect();
-        GCPolyfills.TryGetAllocatedBytesForCurrentThread(out var before);
+        var before = GC.GetAllocatedBytesForCurrentThread();
         engine.Evaluate(script);
-        GCPolyfills.TryGetAllocatedBytesForCurrentThread(out var after);
+        var after = GC.GetAllocatedBytesForCurrentThread();
 
         return (after - before) / iterations;
     }

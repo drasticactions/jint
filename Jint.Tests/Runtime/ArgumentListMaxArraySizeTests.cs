@@ -206,20 +206,14 @@ public class ArgumentListMaxArraySizeTests
         var engine = EngineWith(Limit);
         engine.Execute("var reads = 0; var o = { length: 1000000, get 0() { reads++; return 0; } };");
 
-#if NET
         var before = GC.GetAllocatedBytesForCurrentThread();
-#endif
         var thrown = Caught.Exception(() => engine.Evaluate(expression));
-#if NET
         var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-#endif
 
         thrown.Should().BeOfType<MemoryLimitExceededException>();
         engine.Evaluate("reads").AsNumber().Should().Be(0);
-#if NET
         // The list would be 8 MB; the refusal allocates its message and stack trace.
         allocated.Should().BeLessThan(1_000_000);
-#endif
     }
 
     private const string ReadOrderSetup = """

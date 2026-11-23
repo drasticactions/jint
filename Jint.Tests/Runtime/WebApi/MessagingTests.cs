@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -1219,4 +1218,3 @@ public class MessagingTests
             .Should().Be("TypeError");
     }
 }
-#endif

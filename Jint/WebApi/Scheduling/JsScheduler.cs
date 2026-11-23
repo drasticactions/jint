@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native.Object;
 using Jint.Runtime;
 using Jint.WebApi.Timers;
@@ -57,4 +56,3 @@ internal sealed class JsScheduler : ObjectInstance
         };
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint;
 using Jint.Native;
 using Jint.WebApi;
@@ -225,4 +224,3 @@ public class WebApiTests
             .AsBoolean().Should().BeTrue();
     }
 }
-#endif

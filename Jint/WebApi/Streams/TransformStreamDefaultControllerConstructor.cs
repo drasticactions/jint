@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Function;
 using Jint.Native.Object;
@@ -39,4 +38,3 @@ internal sealed class TransformStreamDefaultControllerConstructor : Constructor
         return null!;
     }
 }
-#endif

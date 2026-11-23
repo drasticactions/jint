@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -357,4 +356,3 @@ public class CryptoTests
         WebEngine().Evaluate("new ShadowRealm().evaluate('typeof crypto')").AsString().Should().Be("undefined");
     }
 }
-#endif

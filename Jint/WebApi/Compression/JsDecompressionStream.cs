@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.IO;
 using Jint.Native;
 using Jint.Runtime;
@@ -93,4 +92,3 @@ internal sealed class JsDecompressionStream : JsGenericTransformStream, IDisposa
         _ => "deflate-raw",
     };
 }
-#endif

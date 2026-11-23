@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 namespace Jint.WebApi.Fetch;
 
 /// <summary>
@@ -66,4 +65,3 @@ internal sealed class JsResponse : FetchBodyObject
     /// <summary>https://fetch.spec.whatwg.org/#ok-status</summary>
     internal bool Ok => Status is >= 200 and <= 299;
 }
-#endif

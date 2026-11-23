@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.IO;
@@ -233,4 +232,3 @@ public sealed class WebIdlSequenceCloseTests
         }
     }
 }
-#endif

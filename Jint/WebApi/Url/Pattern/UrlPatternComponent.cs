@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Object;
 using Jint.Native.RegExp;
@@ -182,4 +181,3 @@ internal static class UrlPatternResultLayouts
         .Add("hash")
         .Build();
 }
-#endif

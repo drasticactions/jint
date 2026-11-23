@@ -1,9 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Linq;
 using System.Numerics;
-#if !NET8_0_OR_GREATER && !NETFRAMEWORK
-using System.Runtime.InteropServices;
-#endif
 
 namespace Jint.Native.Temporal;
 
@@ -38,15 +35,7 @@ public class DefaultTimeZoneProvider : ITimeZoneProvider
 {
     private static bool IsWindowsPlatform()
     {
-        // Not an API gap but a genuine three-way: OperatingSystem arrived in .NET 5, netstandard has
-        // to ask the runtime, and net472 only ever runs on Windows.
-#if NET8_0_OR_GREATER
         return OperatingSystem.IsWindows();
-#elif NETFRAMEWORK
-        return true;
-#else
-        return RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-#endif
     }
 
     private static readonly BigInteger NanosecondsPerTick = 100;
@@ -689,7 +678,6 @@ public class DefaultTimeZoneProvider : ITimeZoneProvider
             return CanonicalizeTimeZone(timeZoneId);
         }
 
-#if NET8_0_OR_GREATER
         // Use .NET's IANA→Windows mapping to find the primary identifier
         // Both "Asia/Calcutta" and "Asia/Kolkata" map to "India Standard Time"
         // Then convert back to get the primary IANA name
@@ -700,7 +688,6 @@ public class DefaultTimeZoneProvider : ITimeZoneProvider
                 return primaryId;
             }
         }
-#endif
 
         // Fallback: resolve and return canonicalized form
         return CanonicalizeTimeZone(timeZoneId);
@@ -787,21 +774,18 @@ public class DefaultTimeZoneProvider : ITimeZoneProvider
             return mapped;
         }
 
-#if NET8_0_OR_GREATER
         // Case-insensitive fallback over the system's zones, answered from a dictionary built once rather
         // than by re-scanning every zone the machine has on each unresolved identifier.
         if (SystemTimeZonesByIdIgnoreCase.Value.TryGetValue(id, out var systemTz))
         {
             return systemTz;
         }
-#endif
 
         // A missing Link name resolves to its target; four legacy POSIX IDs have documented US-zone
         // approximations for systems that do not install tzdata-legacy.
         return Intl.Data.TimeZoneData.TryGetFallbackTarget(id, out var zone) ? CreateTimeZone(zone) : null;
     }
 
-#if NET8_0_OR_GREATER
     // Built once from the same TimeZoneInfo.GetSystemTimeZones() the linear scan used to walk, in the same
     // order, so first-wins here is the first match that scan returned.
     private static readonly Lazy<Dictionary<string, TimeZoneInfo>> SystemTimeZonesByIdIgnoreCase = new(static () =>
@@ -815,7 +799,6 @@ public class DefaultTimeZoneProvider : ITimeZoneProvider
 
         return map;
     });
-#endif
 
     /// <summary>
     /// Parses an offset string like "+01:00" or "-05:30" to a TimeSpan.
@@ -953,7 +936,6 @@ public class DefaultTimeZoneProvider : ITimeZoneProvider
             dict[key] = key;
         }
 
-#if NET8_0_OR_GREATER
         // Also add system timezone IDs (from .NET 6 onwards these include IANA IDs)
         foreach (var tz in TimeZoneInfo.GetSystemTimeZones())
         {
@@ -962,7 +944,6 @@ public class DefaultTimeZoneProvider : ITimeZoneProvider
                 dict[tz.Id] = tz.Id;
             }
         }
-#endif
 
         return dict;
     }

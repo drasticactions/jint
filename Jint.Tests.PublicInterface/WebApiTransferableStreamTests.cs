@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Threading;
@@ -514,4 +513,3 @@ public class WebApiTransferableStreamTests
         host.Evaluate("log.join(',')").AsString().Should().Be("source cancelled: TypeError");
     }
 }
-#endif

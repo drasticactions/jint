@@ -817,7 +817,6 @@ public sealed class JsonSerializer
 
         json.Append('"');
 
-#if NET8_0_OR_GREATER
         fixed (char* ptr = value)
         {
             int remainingLength = value.Length;
@@ -849,12 +848,6 @@ public sealed class JsonSerializer
                 }
             }
         }
-#else
-        for (var i = 0; i < value.Length; i++)
-        {
-            AppendJsonStringCharacter(value, ref i, ref json);
-        }
-#endif
         json.Append('"');
     }
 
@@ -918,14 +911,8 @@ public sealed class JsonSerializer
             default:
                 if (char.IsSurrogatePair(value, index))
                 {
-#if NET8_0_OR_GREATER
                     json.Append(value.AsSpan(index, 2));
                     index++;
-#else
-                    json.Append(c);
-                    index++;
-                    json.Append(value[index]);
-#endif
                 }
                 else if (c < 0x20 || char.IsSurrogate(c))
                 {

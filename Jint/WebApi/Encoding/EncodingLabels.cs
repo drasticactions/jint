@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 
 namespace Jint.WebApi.Encoding;
@@ -178,4 +177,3 @@ internal enum EncodingKind
 /// </param>
 [StructLayout(LayoutKind.Auto)]
 internal readonly record struct EncodingEntry(string Name, string LowercasedName, EncodingKind Kind, SingleByteIndex Index);
-#endif

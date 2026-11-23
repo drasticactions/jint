@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 
 namespace Jint.WebApi.Url.Parsing;
@@ -59,4 +58,3 @@ internal readonly record struct UrlHost(UrlHostKind Kind, string Serialized)
 
     public override string ToString() => Serialized;
 }
-#endif

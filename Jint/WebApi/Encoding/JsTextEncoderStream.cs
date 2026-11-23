@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 using Jint.Native;
 using Jint.Runtime;
@@ -118,4 +117,3 @@ internal sealed class JsTextEncoderStream : JsGenericTransformStream
         Enqueue(Realm.Intrinsics.Uint8Array.Construct(ReplacementCharacterUtf8));
     }
 }
-#endif

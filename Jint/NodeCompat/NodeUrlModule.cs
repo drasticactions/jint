@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 using Jint.Native;
 using Jint.Native.Object;
@@ -411,4 +410,3 @@ internal static class NodeUrlModule
         return null!;
     }
 }
-#endif

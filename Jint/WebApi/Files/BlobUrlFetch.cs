@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Globalization;
 using Jint.WebApi.Fetch;
 
@@ -224,4 +223,3 @@ internal static class BlobUrlFetch
         return position == start ? null : collected;
     }
 }
-#endif

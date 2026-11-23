@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Function;
 using Jint.Native.Object;
@@ -75,4 +74,3 @@ internal sealed class JsMessageChannel : ObjectInstance
     /// <summary>https://html.spec.whatwg.org/multipage/web-messaging.html#dom-messagechannel-port2.</summary>
     internal JsMessagePort Port2 { get; }
 }
-#endif

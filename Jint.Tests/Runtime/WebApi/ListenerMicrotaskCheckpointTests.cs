@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -371,4 +370,3 @@ public class ListenerMicrotaskCheckpointTests
         log.Should().Equal("first", "second");
     }
 }
-#endif

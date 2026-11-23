@@ -64,7 +64,6 @@ public partial class InteropTests : IDisposable
         json.Should().Be("{\"Test\":\"123\"}");
     }
 
-
     [Test]
     public void EngineShouldStringifyADictionary()
     {
@@ -258,21 +257,6 @@ public partial class InteropTests : IDisposable
     [Test]
     public void DynamicDelegateCanBeSet()
     {
-#if NETFRAMEWORK
-        var parameters = new[]
-        {
-            System.Linq.Expressions.Expression.Parameter(typeof(int)),
-            System.Linq.Expressions.Expression.Parameter(typeof(int))
-        };
-        var exp = System.Linq.Expressions.Expression.Add(parameters[0], parameters[1]);
-        var del = System.Linq.Expressions.Expression.Lambda(exp, parameters).Compile();
-
-        _engine.SetValue("add", del);
-
-        RunTest(@"
-                assert(add(1,1) === 2);
-            ");
-#endif
     }
 
     [Test]
@@ -525,7 +509,6 @@ public partial class InteropTests : IDisposable
     {
         var dictionary = new Dictionary<int, string>();
         dictionary.Add(1, "Mickey Mouse");
-
 
         _engine.SetValue("dictionary", dictionary);
 
@@ -1558,7 +1541,6 @@ public partial class InteropTests : IDisposable
         var name = e.Evaluate("o.values.filter(x => x.age == 12)[0].name").ToString();
         name.Should().Be("John");
     }
-
 
     [Test]
     public void CanSetIsConcatSpreadableForArrays()
@@ -3692,7 +3674,6 @@ new Thrower().ThrowExceptionWithMessage('boom');";
 
         var result = engine.Evaluate($"Object.keys(dictionary).join(',')").AsString();
         result.Should().Be("foo,bar");
-
 
         engine.Execute("dictionary.ContainsKey('foo')");
         result = engine.Evaluate($"Object.keys(dictionary).join(',')").AsString();

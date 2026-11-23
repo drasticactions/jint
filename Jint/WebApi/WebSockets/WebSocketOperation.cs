@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Channels;
@@ -493,4 +492,3 @@ internal sealed class WebSocketOperation
     [StructLayout(LayoutKind.Auto)]
     private readonly record struct WebSocketClosure(int Code, string Reason, bool WasClean);
 }
-#endif

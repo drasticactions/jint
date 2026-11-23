@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Iterator;
 using Jint.Native.Object;
@@ -253,4 +252,3 @@ internal sealed partial class ReadableStreamAsyncIteratorPrototype : Prototype
         }
     }
 }
-#endif

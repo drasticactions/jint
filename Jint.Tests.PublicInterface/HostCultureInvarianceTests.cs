@@ -22,9 +22,7 @@ namespace Jint.Tests.PublicInterface;
 ///
 /// <para>
 /// These tests live in the public-interface suite because that is the vantage point that matters — an embedder
-/// sets a culture and calls <see cref="Engine.Evaluate(string)"/>, and nothing here needs internals. They run on
-/// net472 as well as net10.0, which is what covers both halves of <c>ValueStringBuilder</c>'s target-framework
-/// split.
+/// sets a culture and calls <see cref="Engine.Evaluate(string)"/>, and nothing here needs internals.
 /// </para>
 /// </summary>
 // CultureInfo.CurrentCulture is ambient state, so this class must not run beside anything else: it is

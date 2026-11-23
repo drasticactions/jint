@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 namespace Jint.WebApi.Encoding;
 
 /// <summary>
@@ -144,4 +143,3 @@ internal sealed class Utf16DecoderHandler : TextDecoderHandler
 
     private static bool IsTrailSurrogate(int codeUnit) => codeUnit is >= 0xDC00 and <= 0xDFFF;
 }
-#endif

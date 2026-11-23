@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Buffers;
 using System.Net.Http;
 using System.Threading;
@@ -357,4 +356,3 @@ internal sealed class EventSourceConnection
         _source.AbandonConnection(this);
     }
 }
-#endif

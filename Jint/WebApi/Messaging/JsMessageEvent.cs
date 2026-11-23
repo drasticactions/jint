@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.WebApi.Events;
 
@@ -63,4 +62,3 @@ internal sealed class JsMessageEvent : JsEvent
     /// </summary>
     internal JsArray Ports { get; }
 }
-#endif

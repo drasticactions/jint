@@ -2476,7 +2476,7 @@ internal static class NonIsoCalendars
     // ToDateTime raises outside them, which is to say it was whatever calendar data the runner shipped: a
     // runtime that moved its window by a day would have moved every proleptic answer with it, and the only
     // symptom would have been a date a quarter of a million years away landing somewhere else on one CI
-    // leg. The window is the same on net472 and on .NET 10 today, and PersianCalendarBoundaryTests is what
+    // leg. PersianCalendarBoundaryTests is what
     // says so on every runner — it asserts these constants against the platform, so a platform that ever
     // disagrees fails there, naming the reason, rather than silently moving the proleptic years.
     //

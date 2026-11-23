@@ -6,14 +6,12 @@ using System.Xml.Linq;
 namespace Jint.Tests.PublicInterface;
 
 /// <summary>
-/// Where the five assemblies Jint ships, and the XML documentation files beside them, are on disk.
+/// Where the assemblies Jint ships, and the XML documentation files beside them, are on disk.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Both the public API baselines and the documentation gate read the <em>built</em> assemblies rather than the
-/// one this test process loaded, because three of the five target frameworks — <c>netstandard2.0</c>,
-/// <c>netstandard2.1</c> and <c>net8.0</c> — cannot be loaded by any test project at all. Keeping them
-/// present and current is the <c>BuildJintForEveryShippedTargetFramework</c> target in this project's
+/// one this test process loaded, so that what they check is what ships. Keeping them present and current is the <c>BuildJintForEveryShippedTargetFramework</c> target in this project's
 /// <c>.csproj</c>.
 /// </para>
 /// <para>
@@ -40,14 +38,8 @@ internal static class ShippedJintBuildOutput
     public static string[] TargetFrameworks { get; } = ReadShippedTargetFrameworks();
 
     /// <summary>
-    /// The last target framework <c>Jint.csproj</c> declares, whose public surface is a superset of every
-    /// other's — which is what lets the documentation gate run on one of the five.
+    /// The last target framework <c>Jint.csproj</c> declares, which the documentation gate runs on.
     /// </summary>
-    /// <remarks>
-    /// The superset claim is not assumed. <c>PublicApiDocumentationTest.NoTargetFrameworkIsDocumentedLessThanTheNewest</c>
-    /// checks it against the other four on every run, so a target framework appended out of order fails
-    /// loudly instead of narrowing what is measured.
-    /// </remarks>
     public static string NewestTargetFramework => TargetFrameworks[^1];
 
     public static string AssemblyPath(string targetFramework)
@@ -66,9 +58,8 @@ internal static class ShippedJintBuildOutput
     /// both have to be reachable.
     /// </summary>
     /// <remarks>
-    /// The assembly's own output directory is deliberately <em>not</em> added wholesale: the <c>net472</c>
-    /// pivot carries its own copy of Acornima, and a resolver handed two paths for one assembly identity
-    /// fails with "has already been loaded into this MetadataLoadContext".
+    /// The assembly's own output directory is deliberately <em>not</em> added wholesale: a resolver handed two
+    /// paths for one assembly identity fails with "has already been loaded into this MetadataLoadContext".
     /// </remarks>
     public static List<string> ResolverPaths(string assemblyPath)
     {

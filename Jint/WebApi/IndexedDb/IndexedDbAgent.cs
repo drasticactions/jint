@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Linq;
 using Jint.Runtime;
 
@@ -91,4 +90,3 @@ internal sealed class IndexedDbAgent
         _transactions.Clear();
     }
 }
-#endif

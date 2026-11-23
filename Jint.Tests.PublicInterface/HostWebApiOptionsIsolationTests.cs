@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Net;
@@ -211,4 +210,3 @@ public class HostWebApiOptionsIsolationTests
         handler.Urls.Should().ContainSingle().Which.Should().Be("https://allowed.example/x");
     }
 }
-#endif

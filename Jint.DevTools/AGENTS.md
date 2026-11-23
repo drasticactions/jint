@@ -13,10 +13,8 @@ works for a host with no pages at all: an Orchard or Elsa host can attach Chrome
 The page-level domains belong to `Jint.Browser`, which combines the native `Jint.HtmlParser` DOM with the Jint
 JavaScript engine.
 
-The package is `net8.0;net10.0`, the same floor `Jint/WebApi/` sits on and for the same reason: host surface
-built on the modern BCL, not engine surface a `netstandard` consumer resolves. Unlike the web APIs there is
-**no `#if` anywhere in it**, and `PublicApiTest.NoSourceFileIsGatedByTargetFramework` says so — that is what
-lets one public-API baseline cover both assets.
+The package is `net10.0`, like Jint. There is **no `#if` anywhere in it**, and
+`PublicApiTest.NoSourceFileIsGatedByTargetFramework` says so — that is what lets one public-API baseline cover it.
 
 `Domains/` carries its own instruction file. [`Domains/AGENTS.md`](Domains/AGENTS.md) is what a domain
 *answers* — remote-object handles and the promise they keep, the console journal, the script registry and
@@ -97,8 +95,7 @@ transfer objects and generators do not chain, `Jint.SourceGenerators` is `netsta
 Six things about the emitted code are decisions rather than accidents:
 
 - **A CDP `enum` becomes `string` plus a `<Type>Values` class of `const string`s**, never a C# enum.
-  `JsonStringEnumMemberName` is .NET 9+ and `net8.0` has to compile; string constants are also what a
-  protocol that gains a value in a bump degrades into gracefully.
+  String constants are what a protocol that gains a value in a bump degrades into gracefully.
 - **Everything is `global::`-qualified.** The data transfer objects live in `Jint.DevTools.Protocol.Runtime`,
   `.Console`, `.Debugger` and so on, where an unqualified `Console` or `Runtime` binds to the namespace.
 - **Every serializable type is declared in `ProtocolJsonContext` with a domain-qualified
@@ -261,7 +258,7 @@ Not oversights, and not to be added without a decision:
 
 ### Test strategy
 
-`Jint.Tests.DevTools` is NUnit plus AwesomeAssertions on `net8.0;net10.0`, and it is signed because
+`Jint.Tests.DevTools` is NUnit plus AwesomeAssertions on `net10.0`, and it is signed because
 everything it tests is `internal`.
 
 - **Protocol tests assert text, not objects.** A client library matches on `id`, `error.code` and — for a

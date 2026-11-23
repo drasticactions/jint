@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.WebApi.Url.Parsing;
 
 namespace Jint.WebApi.Fetch;
@@ -244,4 +243,3 @@ internal static class FetchReferrer
         }
     }
 }
-#endif

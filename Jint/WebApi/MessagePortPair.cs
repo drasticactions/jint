@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using Jint.Native;
 
@@ -6,7 +5,7 @@ namespace Jint.WebApi;
 
 /// <summary>
 /// Two entangled <c>MessagePort</c> objects, one belonging to each of the engines
-/// <c>Engine.WebApi.CreateMessagePortPair</c> was given. Requires .NET 8 or higher.
+/// <c>Engine.WebApi.CreateMessagePortPair</c> was given.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -32,4 +31,3 @@ namespace Jint.WebApi;
 /// </param>
 [StructLayout(LayoutKind.Auto)]
 public readonly record struct MessagePortPair(JsValue Local, JsValue Remote);
-#endif

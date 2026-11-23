@@ -60,11 +60,7 @@ public class ObjectConverterRegistrationTests
     /// going through the converter exactly as before.
     /// </summary>
     private static readonly bool _compiledReadLaneAvailable =
-#if NET8_0_OR_GREATER
         System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeCompiled;
-#else
-        false;
-#endif
 
     /// <summary>
     /// Every caller of this helper reads a member through a <b>deliberately misdeclared</b> converter — one

@@ -449,23 +449,8 @@ public class HostNativeRecursionGuardTests
                 } catch (error) { outcome = error.name + ':' + error.message; }
                 String(outcome);
                 """).AsString();
-#if NETFRAMEWORK
-            // Same carve-out as the trapless proxy *call* above, and for the same reason: the .NET Framework
-            // JIT turns `return target.Get(property, receiver)` into a tail call, so this one route can
-            // consume no stack and legitimately answer the read. Modern runtimes keep the forwarding frames,
-            // and a trap in the way is a real call on every target framework.
-            if (route == "trapless read")
-            {
-                outcome.Should().BeOneOf("undefined", "RangeError:Maximum call stack size exceeded");
-            }
-            else
-            {
-                outcome.Should().Be("RangeError:Maximum call stack size exceeded");
-            }
-#else
             _ = route;
             outcome.Should().Be("RangeError:Maximum call stack size exceeded");
-#endif
 
             engine.Evaluate("6 * 7").AsNumber().Should().Be(42);
         }, maxStackSize: 1024 * 1024);
@@ -519,12 +504,8 @@ public class HostNativeRecursionGuardTests
                 } catch (error) { outcome = error.name + ':' + error.message; }
                 String(outcome);
                 """).AsString();
-#if NETFRAMEWORK
-            outcome.Should().BeOneOf(frameworkAnswer, "RangeError:Maximum call stack size exceeded");
-#else
             _ = frameworkAnswer;
             outcome.Should().Be("RangeError:Maximum call stack size exceeded");
-#endif
 
             engine.Evaluate("6 * 7").AsNumber().Should().Be(42);
         }, maxStackSize: 1024 * 1024);

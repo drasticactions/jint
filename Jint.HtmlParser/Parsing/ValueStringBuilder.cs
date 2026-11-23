@@ -135,9 +135,6 @@ internal ref partial struct ValueStringBuilder
         int remaining = _pos - index;
         _chars.Slice(index, remaining).CopyTo(_chars.Slice(index + count));
         s
-#if !NET
-            .AsSpan()
-#endif
             .CopyTo(_chars.Slice(index));
         _pos += count;
     }
@@ -187,9 +184,6 @@ internal ref partial struct ValueStringBuilder
         }
 
         s
-#if !NET
-            .AsSpan()
-#endif
             .CopyTo(_chars.Slice(pos));
         _pos += s.Length;
     }

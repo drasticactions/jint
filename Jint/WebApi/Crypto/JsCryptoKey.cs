@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using Jint.Native;
 using Jint.Native.Array;
@@ -320,4 +319,3 @@ internal sealed class JsCryptoKey : ObjectInstance
     /// </summary>
     internal JsArray UsagesObject() => _usagesCached ??= KeyUsages.ToArray(_engine, Usages);
 }
-#endif

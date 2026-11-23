@@ -49,8 +49,7 @@ internal sealed class ImmutableCrossingTypeFilter
     /// </summary>
     internal bool Claims(Type targetType)
     {
-        // cannot be static: the answer depends on _declaredTypes, and the state-carrying GetOrAdd overload
-        // does not exist on every target framework, so the delegate is built once per filter
+        // cannot be static: the answer depends on _declaredTypes, so the delegate is built once per filter
         return _claims.GetOrAdd(targetType, _computeClaims ??= type => ComputeClaims(_declaredTypes, type));
     }
 

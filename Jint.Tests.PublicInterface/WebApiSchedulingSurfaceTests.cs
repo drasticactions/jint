@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Threading;
@@ -302,4 +301,3 @@ public class WebApiSchedulingSurfaceTests
         engine.Evaluate("typeof requestIdleCallback").Should().Be(new JsString("function"));
     }
 }
-#endif

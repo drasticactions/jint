@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Array;
 using Jint.Native.Object;
@@ -309,4 +308,3 @@ internal sealed partial class PerformanceObserverPrototype : Prototype
     /// </summary>
     private readonly record struct ObserverInit(string[]? EntryTypes, string? Type, bool HasBuffered, bool Buffered);
 }
-#endif

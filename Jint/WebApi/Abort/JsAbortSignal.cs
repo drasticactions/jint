@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Threading;
 using Jint.Native;
 using Jint.Runtime;
@@ -269,4 +268,3 @@ internal class JsAbortSignal : JsEventTarget
         (source._dependentSignals ??= new List<JsAbortSignal>()).Add(this);
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Security.Cryptography;
 
 namespace Jint.WebApi.Crypto;
@@ -186,4 +185,3 @@ internal static class AesCtrAlgorithm
         block[partialIndex] = (byte) ((block[partialIndex] & ~mask) | incremented);
     }
 }
-#endif

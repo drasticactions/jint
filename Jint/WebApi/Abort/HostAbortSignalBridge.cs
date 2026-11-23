@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Threading;
 using Jint.Native;
 using Jint.Runtime;
@@ -110,4 +109,3 @@ internal sealed class HostAbortSignalBridge
     /// </remarks>
     internal void Detach() => _registration.Unregister();
 }
-#endif

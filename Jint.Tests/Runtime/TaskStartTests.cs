@@ -148,7 +148,6 @@ public sealed class TaskStartTests
         budget.Depth.Should().Be(0);
     }
 
-#if NET8_0_OR_GREATER
     [Test]
     public void AnIdleCallbackStartsInsideItsBudgetAndRetainsItsReactionCheckpoint()
     {
@@ -174,5 +173,4 @@ public sealed class TaskStartTests
         order.Should().Equal("start", "idle", "reaction");
         budget.Depth.Should().Be(0);
     }
-#endif
 }

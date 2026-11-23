@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Collections.Concurrent;
@@ -644,4 +643,3 @@ public class WorkerTests
         public override Engine? CreateWorkerEngine(WorkerRequest request) => null;
     }
 }
-#endif

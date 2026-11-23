@@ -122,7 +122,6 @@ public class TypedArrayInteropTests
         fromEngine.AsBigUint64Array().Should().Equal(source);
     }
 
-#if NET6_0_OR_GREATER
         [Test]
         public void CanInteropWithFloat16()
         {
@@ -139,7 +138,6 @@ public class TypedArrayInteropTests
             engine.SetValue("testFunc", new Func<Native.JsTypedArray, Native.JsTypedArray>(v => v));
             engine.Evaluate("testFunc(testSubject)").AsFloat16Array().Should().Equal(source);
         }
-#endif
 
     [Test]
     public void CanInteropWithFloat32()

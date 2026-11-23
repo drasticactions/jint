@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Object;
 
@@ -71,4 +70,3 @@ internal static class EventHandlerAttributes
         return JsValue.Undefined;
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics;
 using Jint;
 using Jint.Native;
@@ -247,4 +246,3 @@ public class WebApiTimerTests
         ran.Should().BeFalse();
     }
 }
-#endif

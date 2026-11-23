@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using Jint.Runtime;
 
@@ -89,4 +88,3 @@ internal readonly record struct UrlPatternCompileOptions(char DelimiterCodePoint
 /// pattern string, or throws a <c>TypeError</c>.
 /// </summary>
 internal delegate string UrlPatternEncodingCallback(Realm realm, string input);
-#endif

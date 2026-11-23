@@ -292,9 +292,7 @@ public class HostOptionsShapeTests
             ("Options.Profiling", static o => _ = o.Profiling, static o => o.Profiling.Enabled = true),
         };
 
-#if NET8_0_OR_GREATER
         groups.Add(("Options.WebApi", static o => _ = o.WebApi, static o => o.WebApi.Features = WebApiFeatures.Console));
-#endif
 
         return groups.ToArray();
     }

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 // The folder is the feature's, the namespace is the host's: every host-facing extension point in this
 // subtree — StorageProvider, CacheStorageProvider, BroadcastChannelBroker, ConsoleSink, DiagnosticsSink —
 // lives in Jint.WebApi so that one using directive reaches all of them, while the internal, JS-facing types
@@ -14,7 +13,7 @@ internal interface IClassicWorkerProvider
 /// <summary>
 /// The host's answer to <c>new Worker(...)</c>: it decides whether a worker may exist at all, builds the
 /// <see cref="Engine"/> that runs it, and — because Jint never starts a thread — decides which thread pumps
-/// it. Requires .NET 8 or higher.
+/// it.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -150,4 +149,3 @@ public abstract class WorkerProvider
     {
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -263,4 +262,3 @@ public class UrlTests
         engine.Evaluate("typeof url.urlToHttpOptions").AsString().Should().Be("undefined");
     }
 }
-#endif

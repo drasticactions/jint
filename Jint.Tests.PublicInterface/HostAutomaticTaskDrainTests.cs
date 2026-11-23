@@ -36,7 +36,6 @@ public class HostAutomaticTaskDrainTests
         settled.Should().BeTrue();
     }
 
-#if NET8_0_OR_GREATER
     private sealed class FrozenClock : TimeProvider
     {
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
@@ -60,5 +59,4 @@ public class HostAutomaticTaskDrainTests
 
         order.Should().Equal("script", "reaction", "timer");
     }
-#endif
 }

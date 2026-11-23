@@ -512,7 +512,6 @@ public class ReplacedIteratorNextTests
         StepsNatively(instance).Should().BeFalse();
     }
 
-#if NET8_0_OR_GREATER
     private static Engine WebEngine() => new(options => options.UseWebApis(WebApiFeatures.Fetch | WebApiFeatures.Files | WebApiFeatures.Url));
 
     /// <summary>
@@ -573,5 +572,4 @@ public class ReplacedIteratorNextTests
         engine.Execute("it.next = function () { return { done: true }; };");
         StepsNatively(instance).Should().BeFalse();
     }
-#endif
 }

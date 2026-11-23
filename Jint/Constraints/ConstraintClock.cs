@@ -4,8 +4,8 @@ using Jint.Runtime;
 namespace Jint.Constraints;
 
 /// <summary>
-/// The timestamp arithmetic the time-based constraints share, and — on the target frameworks that have
-/// <c>TimeProvider</c> — the one place that decides what a host-supplied clock resolves to.
+/// The timestamp arithmetic the time-based constraints share, and the one place that decides what a
+/// host-supplied <c>TimeProvider</c> resolves to.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -17,13 +17,6 @@ namespace Jint.Constraints;
 /// <c>GetTimestamp()</c> and <c>TimestampFrequency</c> <em>are</em> <see cref="Stopwatch.GetTimestamp"/>
 /// and <see cref="Stopwatch.Frequency"/>, so the fold changes no answer — it only removes the
 /// indirection from the case nobody asked to move.
-/// </para>
-/// <para>
-/// The provider half is <c>net8.0</c>-and-later. <c>TimeProvider</c> arrived in .NET 8, and Jint's
-/// downlevel targets could only reach it through <c>Microsoft.Bcl.TimeProvider</c> — a second runtime
-/// dependency on a package that has exactly one, in exchange for a seam whose consumer is a test. The
-/// constraints therefore compile without any of it on <c>net472</c>, <c>netstandard2.0</c> and
-/// <c>netstandard2.1</c>: no field, no branch, the same instructions they emitted before.
 /// </para>
 /// </remarks>
 internal static class ConstraintClock
@@ -57,7 +50,6 @@ internal static class ConstraintClock
         return ticks >= long.MaxValue ? TimeSpan.MaxValue : TimeSpan.FromTicks((long) ticks);
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// The provider a constraint should store, or <see langword="null"/> for "read
     /// <see cref="Stopwatch.GetTimestamp"/> directly".
@@ -91,5 +83,4 @@ internal static class ConstraintClock
     /// </summary>
     internal static long FrequencyOf(TimeProvider? provider)
         => provider is null ? Stopwatch.Frequency : provider.TimestampFrequency;
-#endif
 }

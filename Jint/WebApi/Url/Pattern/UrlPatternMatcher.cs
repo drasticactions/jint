@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -293,4 +292,3 @@ internal sealed class UrlPatternMatcher
         };
     }
 }
-#endif

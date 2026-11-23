@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.WebApi.Abort;
 using Jint.WebApi.Base64;
 using Jint.WebApi.Compression;
@@ -35,9 +34,7 @@ namespace Jint.Runtime;
 
 // The opt-in web platform APIs, lazily created per realm exactly like the ECMAScript intrinsics beside them.
 //
-// This part is gated on net8.0, so its documentation cannot be the type's: a doc comment here is absent from
-// the netstandard and net472 assemblies, which is what PublicApiDocumentationTest's cross-target-framework
-// check exists to notice. The type's summary is on the ungated part in Intrinsics.cs.
+// The type's summary is on the part in Intrinsics.cs.
 //
 // Reaching one of these fields is what creates it, and nothing but the global installed by
 // Jint.WebApi.WebApiRegistration reaches them - which is itself a lazy property descriptor. So an engine that
@@ -197,7 +194,6 @@ public sealed partial class Intrinsics
     /// <summary><c>EventSource</c> inherits from <c>EventTarget</c>.</summary>
     internal EventSourceConstructor EventSource =>
         _eventSource ??= new EventSourceConstructor(_engine, _realm, EventTarget);
-
 
     private WebSocketConstructor? _webSocket;
     private CloseEventConstructor? _closeEvent;
@@ -612,4 +608,3 @@ public sealed partial class Intrinsics
     internal IdleDeadlineConstructor IdleDeadline =>
         _idleDeadline ??= new IdleDeadlineConstructor(_engine, _realm, Function.PrototypeObject, Object.PrototypeObject);
 }
-#endif

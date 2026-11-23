@@ -1,9 +1,7 @@
 #nullable enable
 
 using Jint.Runtime;
-#if NET8_0_OR_GREATER
 using Microsoft.Extensions.Time.Testing;
-#endif
 
 namespace Jint.Tests.PublicInterface;
 
@@ -130,11 +128,9 @@ public class HostIteratorCloseConstraintTests
         "ObserveCancellation",
         "MaxRecursionDepth",
         "MaxArraySize",
-#if NET8_0_OR_GREATER
         // A host clock the row moves, and a per-thread allocation counter .NET Framework does not have.
         "LimitExecutionTime",
         "LimitMemory",
-#endif
     ];
 
     /// <summary>
@@ -311,9 +307,7 @@ public class HostIteratorCloseConstraintTests
         public Harness(string bound)
         {
             Action<Options>? configure = null;
-#if NET8_0_OR_GREATER
             var clock = new FakeTimeProvider();
-#endif
             switch (bound)
             {
                 case "LimitStatements":
@@ -336,7 +330,6 @@ public class HostIteratorCloseConstraintTests
                     _trip = "new Array(5000);";
                     Expected = typeof(MemoryLimitExceededException);
                     break;
-#if NET8_0_OR_GREATER
                 case "LimitExecutionTime":
                     configure = options =>
                     {
@@ -351,7 +344,6 @@ public class HostIteratorCloseConstraintTests
                     _trip = "const kept = []; for (let i = 0; i < 20000; i++) { kept.push(new Array(256).fill(i)); }";
                     Expected = typeof(MemoryLimitExceededException);
                     break;
-#endif
                 case "throw":
                     _trip = "throw new Error('from return');";
                     break;
@@ -365,9 +357,7 @@ public class HostIteratorCloseConstraintTests
             Engine = configure is null ? new Engine() : new Engine(configure);
             Engine.SetValue("reached", new Action(() => ReturnCalls++));
             Engine.SetValue("cancel", new Action(_cancellation.Cancel));
-#if NET8_0_OR_GREATER
             Engine.SetValue("advanceTheClock", new Action(() => clock.Advance(TimeSpan.FromHours(1))));
-#endif
         }
 
         public Engine Engine { get; }

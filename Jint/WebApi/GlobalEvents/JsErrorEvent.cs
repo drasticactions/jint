@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using Jint.Native;
 using Jint.Native.Error;
@@ -136,4 +135,3 @@ internal readonly record struct ErrorEventDetails(string Message, string Filenam
         return (location.SourceFile ?? string.Empty, (uint) line, column >= 0 ? (uint) column + 1u : 0u);
     }
 }
-#endif

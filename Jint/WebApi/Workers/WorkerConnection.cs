@@ -1,11 +1,10 @@
-#if NET8_0_OR_GREATER
 using System.Threading;
 
 namespace Jint.WebApi;
 
 /// <summary>
 /// One live parent↔worker pair, as the host sees it: the two engines, whether it is still running, and the
-/// host's own <c>terminate()</c>. Requires .NET 8 or higher.
+/// host's own <c>terminate()</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -207,7 +206,7 @@ public sealed class WorkerConnection
 }
 
 /// <summary>
-/// Why a <see cref="WorkerConnection"/> ended. Requires .NET 8 or higher.
+/// Why a <see cref="WorkerConnection"/> ended.
 /// </summary>
 public enum WorkerEndReason
 {
@@ -263,4 +262,3 @@ public enum WorkerEndReason
     /// <summary>Retirement of the worker engine.</summary>
     WorkerRetired,
 }
-#endif

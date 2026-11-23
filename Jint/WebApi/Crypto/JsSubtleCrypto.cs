@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native.Object;
 using Jint.Runtime;
 
@@ -27,4 +26,3 @@ internal sealed class JsSubtleCrypto : ObjectInstance
         _prototype = realm.Intrinsics.SubtleCrypto.PrototypeObject,
     };
 }
-#endif

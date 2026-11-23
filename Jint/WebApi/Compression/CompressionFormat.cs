@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Runtime;
 
@@ -99,4 +98,3 @@ internal static class CompressionFormats
         }
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 #pragma warning disable JINT0002 // the fetch observer is a preview surface; a stream is one of the lanes it watches
 
@@ -2046,4 +2045,3 @@ public class EventSourceTests
         stream.Complete();
     }
 }
-#endif

@@ -137,7 +137,6 @@ public class ExtensionMethodsTest
     }
 
     // TODO this fails due to double -> long assignment on FW
-#if !NETFRAMEWORK
         [Test]
         public void LinqExtensionMethodWithSingleGenericParameter()
         {
@@ -148,7 +147,6 @@ public class ExtensionMethodsTest
             var stringSumRes = engine.Evaluate("stringList.Sum(x => x.length)").AsNumber();
             stringSumRes.Should().Be(11);
         }
-#endif
 
     [Test]
     public void LinqExtensionMethodWithMultipleGenericParameters()

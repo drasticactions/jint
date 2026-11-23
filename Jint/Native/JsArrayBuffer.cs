@@ -180,7 +180,6 @@ public class JsArrayBuffer : ObjectInstance
 
     private static TypedArrayValue ReadFloat16(byte[] rawBytes, int byteIndex)
     {
-#if SUPPORTS_HALF
         // A NaN read canonicalizes to the NaN Number value.
         var value = BitConverter.ToHalf(rawBytes, byteIndex);
         if (Half.IsNaN(value))
@@ -188,10 +187,6 @@ public class JsArrayBuffer : ObjectInstance
             return double.NaN;
         }
         return value;
-#else
-        Throw.NotImplementedException("Float16/Half type is not supported in this build");
-        return default;
-#endif
     }
 
     /// <summary>
@@ -303,12 +298,7 @@ public class JsArrayBuffer : ObjectInstance
         switch (type)
         {
             case TypedArrayElementType.Float16:
-#if SUPPORTS_HALF
                 return BitConverter.GetBytes((Half) value.DoubleValue);
-#else
-                Throw.NotImplementedException("Float16/Half type is not supported in this build");
-                return default!;
-#endif
             case TypedArrayElementType.Float32:
                 return BitConverter.GetBytes((float) value.DoubleValue);
             case TypedArrayElementType.Float64:

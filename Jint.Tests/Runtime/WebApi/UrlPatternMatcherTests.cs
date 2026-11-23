@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Buffers;
@@ -252,4 +251,3 @@ public class UrlPatternMatcherTests
         seen.Should().HaveCountGreaterThan(1, "the walk reached the component matchers");
     }
 }
-#endif

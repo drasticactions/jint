@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Threading;
 using Jint;
 using Jint.WebApi;
@@ -228,4 +227,3 @@ public class WebApiBlobUrlTests
         filterCalls.Should().Be(0);
     }
 }
-#endif

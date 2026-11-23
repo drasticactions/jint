@@ -602,8 +602,7 @@ internal sealed record EventLoop
                     // specifies: everything a job queues, transitively, runs before the next timer is even
                     // looked at, so Promise.resolve().then(f) beats setTimeout(g, 0) and a chain of reactions
                     // can never be starved by a due interval. The check costs one predictable null test per
-                    // drain on an engine without timers, and on a target framework that has no timers at all
-                    // the call folds away to nothing.
+                    // drain on an engine without timers.
                     if (engine.TryPromoteDueTimerJob())
                     {
                         continue;

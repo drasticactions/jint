@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Runtime;
 using Jint.Runtime.Descriptors;
@@ -97,4 +96,3 @@ internal sealed class GlobalEventFunctions
     private ClrFunction Operation(string name, int length, JsCallDelegate body)
         => new(_engine, _realm, name, body, length, PropertyFlag.Configurable);
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -214,4 +213,3 @@ public class LiveEnableTests
         public override DateTimeOffset GetUtcNow() => DateTimeOffset.UnixEpoch;
     }
 }
-#endif

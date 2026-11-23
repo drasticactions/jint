@@ -1,12 +1,10 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using Jint.Native;
 
 namespace Jint.WebApi;
 
 /// <summary>
-/// Which <c>console</c> method produced a record, named as the Console Standard names it. Requires .NET 8
-/// or higher.
+/// Which <c>console</c> method produced a record, named as the Console Standard names it.
 /// </summary>
 /// <remarks>
 /// A member exists only once the engine implements the method behind it, so naming one can never compile
@@ -74,7 +72,7 @@ public enum ConsoleMethod
 
 /// <summary>
 /// One <c>console</c> call as the engine saw it: which method, its raw arguments, and the line the printer
-/// made of them. Requires .NET 8 or higher.
+/// made of them.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -161,7 +159,7 @@ public readonly struct ConsoleRecord
 }
 
 /// <summary>
-/// One frame of a console record's call stack. Requires .NET 8 or higher.
+/// One frame of a console record's call stack.
 /// </summary>
 [StructLayout(LayoutKind.Auto)]
 public readonly struct ConsoleStackFrame
@@ -186,4 +184,3 @@ public readonly struct ConsoleStackFrame
     /// <summary>Gets the one-based column number.</summary>
     public int Column { get; }
 }
-#endif

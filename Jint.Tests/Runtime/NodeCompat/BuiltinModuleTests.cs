@@ -69,10 +69,8 @@ public class BuiltinModuleTests
     [TestCase("node:path")]
     [TestCase("node:path/posix")]
     [TestCase("node:path/win32")]
-#if NET8_0_OR_GREATER
     [TestCase("node:querystring")]
     [TestCase("node:url")]
-#endif
     public void EveryProvidedBuiltinIsImportable(string specifier)
     {
         var engine = new Engine(options => options.UseNodeBuiltinModules());
@@ -117,10 +115,8 @@ public class BuiltinModuleTests
         exception.ResolverAlgorithmError.Should().Contain("node:path/posix");
         exception.ResolverAlgorithmError.Should().Contain("node:path/win32");
         exception.ResolverAlgorithmError.Should().Contain("deliberately not provided");
-#if NET8_0_OR_GREATER
         exception.ResolverAlgorithmError.Should().Contain("node:querystring");
         exception.ResolverAlgorithmError.Should().Contain("node:url");
-#endif
     }
 
     /// <summary>
@@ -158,10 +154,8 @@ public class BuiltinModuleTests
     [TestCase("path")]
     [TestCase("path/posix")]
     [TestCase("path/win32")]
-#if NET8_0_OR_GREATER
     [TestCase("querystring")]
     [TestCase("url")]
-#endif
     public void TheUnprefixedSpellingsResolveToTheBuiltins(string specifier)
     {
         var engine = new Engine(options => options.UseNodeBuiltinModules());

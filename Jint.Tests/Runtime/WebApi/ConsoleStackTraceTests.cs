@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.WebApi;
@@ -150,4 +149,3 @@ public class ConsoleStackTraceTests
         sink.Records[1].StackTrace.Should().NotBeNull();
     }
 }
-#endif

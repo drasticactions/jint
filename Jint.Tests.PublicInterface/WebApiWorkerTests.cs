@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Diagnostics;
@@ -691,4 +690,3 @@ public class WebApiWorkerTests
             => ModuleFactory.BuildSourceTextModule(engine, resolved, _sources[resolved.Key]);
     }
 }
-#endif

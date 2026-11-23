@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Net.Http;
 using Jint.Native;
 using Jint.Runtime;
@@ -774,4 +773,3 @@ internal sealed class JsEventSource : JsEventTarget
         }
     }
 }
-#endif

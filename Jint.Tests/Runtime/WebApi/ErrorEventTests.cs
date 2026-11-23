@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -270,4 +269,3 @@ public class ErrorEventTests
         engine.Evaluate("typeof PromiseRejectionEvent").AsString().Should().Be("undefined");
     }
 }
-#endif

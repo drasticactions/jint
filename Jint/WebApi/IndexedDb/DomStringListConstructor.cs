@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Linq;
 using Jint.Native;
 using Jint.Native.Object;
@@ -72,4 +71,3 @@ internal sealed partial class DomStringListPrototype : Prototype
         return JsBoolean.Create(list.Contains(TypeConverter.ToString(args[0])));
     }
 }
-#endif

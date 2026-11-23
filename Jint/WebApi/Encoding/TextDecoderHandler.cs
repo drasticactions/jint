@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 using SystemEncoding = System.Text.Encoding;
 
@@ -115,4 +114,3 @@ internal sealed class BclDecoderHandler : TextDecoderHandler
 
     internal override void Reset() => _decoder = null;
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using SystemEncoding = System.Text.Encoding;
 using Jint.Native;
 using Jint.Runtime;
@@ -241,4 +240,3 @@ internal sealed class JsWebSocket : JsEventTarget
         };
     }
 }
-#endif

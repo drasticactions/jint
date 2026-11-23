@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 using Jint.WebApi.Url.Parsing;
 
@@ -132,4 +131,3 @@ internal static class NodeQueryString
         return PercentEncoding.DecodeToString(input);
     }
 }
-#endif

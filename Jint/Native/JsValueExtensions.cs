@@ -469,7 +469,6 @@ public static class JsValueExtensions
         return value is JsTypedArray { _arrayElementType: TypedArrayElementType.Float16 };
     }
 
-#if SUPPORTS_HALF
     /// <summary>
     /// Returns a copy of a <c>Float16Array</c>'s elements as a CLR array.
     /// </summary>
@@ -485,7 +484,6 @@ public static class JsValueExtensions
 
         return ((JsTypedArray) value).ToNativeArray<Half>();
     }
-#endif
 
     /// <summary>
     /// Returns whether this value is a <c>Float32Array</c>.

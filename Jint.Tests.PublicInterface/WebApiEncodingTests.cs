@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint;
 using Jint.Native;
 using Jint.Runtime;
@@ -144,4 +143,3 @@ public class WebApiEncodingTests
         first.Evaluate("d.decode(new Uint8Array([0xAC]))").AsString().Should().Be("€");
     }
 }
-#endif

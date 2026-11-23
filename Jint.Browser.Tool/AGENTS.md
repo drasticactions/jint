@@ -95,12 +95,12 @@ would be a report on the profile.
 
 ### Packaging
 
-`PackAsTool` with `ToolCommandName` `jint-browser`. Ordinary builds keep `net8.0;net10.0` for the
-in-process tests; **distribution sets `BrowserToolNative=true`**, selects `net10.0` and uses .NET 10's
+`PackAsTool` with `ToolCommandName` `jint-browser`. Ordinary builds are `net10.0` for the
+in-process tests; **distribution sets `BrowserToolNative=true`** and uses .NET 10's
 platform-specific Native AOT tool format. Installation requires the .NET 10 SDK, execution no runtime.
 
 - **Publish AOT on this executable, not as a global MSBuild property.** A global `PublishAot=true`
-  reaches Jint's downlevel targets and its source generators and fails before compiling the tool.
+  reaches Jint's netstandard2.0 source generators and fails before compiling the tool.
   No assembly is rooted wholesale and no new IL diagnostic is suppressed. `IlcTreatWarningsAsErrors=false`
   keeps the core engine's standing inventory visible, as in `Jint.AotExample`; the distribution workflow
   rejects diagnostics outside that core-engine inventory. This closed program's native run is not a

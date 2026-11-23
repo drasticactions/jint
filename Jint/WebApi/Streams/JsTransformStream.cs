@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Object;
 using Jint.Native.Promise;
@@ -60,4 +59,3 @@ internal sealed class JsTransformStream : ObjectInstance
     /// </remarks>
     internal bool Detached { get; set; }
 }
-#endif

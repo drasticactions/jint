@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Net;
 using System.Net.Http;
 using Jint.Native;
@@ -266,4 +265,3 @@ internal static class FetchHandlerHosting
         }
     }
 }
-#endif

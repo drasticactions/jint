@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Threading;
 using Jint.Runtime;
 using Jint.WebApi.Messaging;
@@ -10,7 +9,7 @@ namespace Jint.WebApi;
 /// The set of <c>BroadcastChannel</c> objects that can hear one another — what the HTML Standard reaches
 /// through "the <see href="https://html.spec.whatwg.org/multipage/web-messaging.html#dom-broadcastchannel-postmessage">
 /// BroadcastChannel objects whose relevant global object's storage key equals sourceStorageKey and whose
-/// channel name equals source's channel name</see>". Requires .NET 8 or higher.
+/// channel name equals source's channel name</see>".
 /// </summary>
 /// <remarks>
 /// <para>
@@ -260,4 +259,3 @@ internal sealed class BroadcastChannelSubscription
         engine.AddToEventLoop(() => channel.Receive(in message), Generation, EventLoopJobKind.Task);
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using Jint.Native;
 
@@ -640,4 +639,3 @@ internal static class EventDispatch
         return composedPath;
     }
 }
-#endif

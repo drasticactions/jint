@@ -1,9 +1,8 @@
-#if NET8_0_OR_GREATER
 namespace Jint.WebApi;
 
 /// <summary>
 /// The <see cref="StorageProvider"/> an engine gets when the host supplies none: a plain in-memory map that
-/// keeps insertion order and enforces a byte budget. Requires .NET 8 or higher.
+/// keeps insertion order and enforces a byte budget.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -133,4 +132,3 @@ public sealed class InMemoryStorageProvider : StorageProvider
 
     private static long SizeOf(string value) => 2L * value.Length;
 }
-#endif

@@ -373,34 +373,9 @@ public sealed partial class JsObject : ObjectInstance
     // The in-object slot block. On modern runtimes this is a single-field [InlineArray] so `_inline[i]`
     // lowers to a bounds-check-free field-offset access; on legacy TFMs it is an equivalent hand-rolled
     // fixed struct. InlineCapacity must equal the element count.
-#if NET8_0_OR_GREATER
     [System.Runtime.CompilerServices.InlineArray(InlineCapacity)]
     private struct InlineSlots
     {
         private JsValue? _slot0;
     }
-#else
-    private struct InlineSlots
-    {
-        private JsValue? _slot0;
-        private JsValue? _slot1;
-        private JsValue? _slot2;
-        private JsValue? _slot3;
-
-        public JsValue? this[int index]
-        {
-            get => index switch { 0 => _slot0, 1 => _slot1, 2 => _slot2, _ => _slot3 };
-            set
-            {
-                switch (index)
-                {
-                    case 0: _slot0 = value; break;
-                    case 1: _slot1 = value; break;
-                    case 2: _slot2 = value; break;
-                    default: _slot3 = value; break;
-                }
-            }
-        }
-    }
-#endif
 }

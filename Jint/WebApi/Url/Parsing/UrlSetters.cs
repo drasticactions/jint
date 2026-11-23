@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 namespace Jint.WebApi.Url.Parsing;
 
 /// <summary>
@@ -136,4 +135,3 @@ internal static class UrlSetters
         UrlParser.ParseInto(input, url, UrlParserState.Fragment);
     }
 }
-#endif

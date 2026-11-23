@@ -104,7 +104,7 @@ there a non-generic value that satisfies what was asked for?*
 | same site, `IList<>` branch | `GenericListWrapperFactory<int>` | degrades to `ListWrapper` |
 | same site, `IReadOnlyList<>` branch | `ReadOnlyListWrapperFactory<double>` | degrades to a plain `ObjectWrapper` (loses array-likeness, keeps the indexer) |
 | `ObjectWrapper.ResolveEnumerableSnapshotFactory` | `EnumerableSnapshotFactory<int>` | degrades to `ObjectEnumerableSnapshotFactory` |
-| `DefaultTypeConverter.GetFromResultMethod`, ×2 | `Task.FromResult<double>`, and `ValueTask.FromResult<double>` on `net8.0`+ | throws `NotSupportedException` |
+| `DefaultTypeConverter.GetFromResultMethod`, ×2 | `Task.FromResult<double>`, and `ValueTask.FromResult<double>` | throws `NotSupportedException` |
 | `MethodInfoFunction.ResolveMethod` | `methodInfo.MakeGenericMethod(double)` | throws `NotSupportedException` |
 | `DefaultTypeConverter.TryConvertInternal`, ×2 | `List<long>` for an `IEnumerable<long>` parameter, and the inner list a `Collection<short>` takes | throws `NotSupportedException` |
 | `NamespaceReference.MakeGenericType` → `TypeReference` | a closed generic type the *script* named | throws `NotSupportedException`, on construction |

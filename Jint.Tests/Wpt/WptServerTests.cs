@@ -1,5 +1,4 @@
-﻿#if NET8_0_OR_GREATER
-#nullable enable
+﻿#nullable enable
 
 using System.Globalization;
 using System.Net;
@@ -1165,4 +1164,3 @@ public class WptServerTests
         return Encoding.UTF8.GetString(answer.ToArray());
     }
 }
-#endif

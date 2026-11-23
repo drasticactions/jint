@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -740,4 +739,3 @@ public abstract class FetchObserver
     {
     }
 }
-#endif

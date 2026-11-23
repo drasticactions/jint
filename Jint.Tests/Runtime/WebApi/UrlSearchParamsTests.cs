@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -328,4 +327,3 @@ public class UrlSearchParamsTests
         engine.Evaluate("t.configurable").AsBoolean().Should().BeTrue("the class string is configurable");
     }
 }
-#endif

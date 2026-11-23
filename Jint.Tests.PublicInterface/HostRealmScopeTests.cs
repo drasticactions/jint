@@ -302,7 +302,6 @@ public sealed class HostRealmScopeTests
         engine.Global.Should().BeSameAs(principalGlobal);
     }
 
-#if NET8_0_OR_GREATER
     [Test]
     public void RealmSetupIsTransparentToAHostDispatchsEmptyStackCheckpoint()
     {
@@ -377,7 +376,6 @@ public sealed class HostRealmScopeTests
             engine.GetValue("target"),
             engine.Evaluate("new Event('ping')"));
     }
-#endif
 
     [Test]
     public void TopLevelRealmEntryReportsUnhandledRejectionsWhenItCompletes()

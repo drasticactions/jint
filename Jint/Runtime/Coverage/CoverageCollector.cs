@@ -22,7 +22,7 @@ namespace Jint.Runtime.Coverage;
 /// </para>
 /// <para>
 /// A plain <see cref="Dictionary{TKey,TValue}"/> rather than a <see cref="ConditionalWeakTable{TKey,TValue}"/>:
-/// the report has to enumerate what was counted, which a weak table cannot do on every target framework, and
+/// the report has to enumerate what was counted, and
 /// the AST is rooted by whatever prepared script or parse the host is holding anyway. The direction of the
 /// reference matters and is the safe one — the engine points at AST nodes, never the reverse — so an engine
 /// collecting coverage stays collectable while the script it ran is still rooted.

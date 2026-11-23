@@ -118,7 +118,6 @@ internal static class DefaultObjectConverter
                     return result is not null;
                 }
 
-#if !NETFRAMEWORK && !NETSTANDARD2_0
                 if (value is ValueTask valueTask)
                 {
                     result = JsValue.ConvertAwaitableToPromise(engine, valueTask);
@@ -132,16 +131,13 @@ internal static class DefaultObjectConverter
                     result = JsValue.ConvertAwaitableToPromise(engine, value);
                     return result is not null;
                 }
-#endif
             }
 
-#if NET8_0_OR_GREATER
             if (value is System.Text.Json.Nodes.JsonValue jsonValue)
             {
                 result = ConvertSystemTextJsonValue(engine, jsonValue);
                 return result is not null;
             }
-#endif
 
             var t = value.GetType();
 
@@ -205,7 +201,6 @@ internal static class DefaultObjectConverter
         return result is not null;
     }
 
-#if NET8_0_OR_GREATER
     private static JsValue? ConvertSystemTextJsonValue(Engine engine, System.Text.Json.Nodes.JsonNode value)
     {
         return value.GetValueKind() switch
@@ -254,7 +249,6 @@ internal static class DefaultObjectConverter
 
         return JsNumber.DoubleNaN;
     }
-#endif
 
     private static bool TryConvertConvertible(Engine engine, IConvertible convertible, [NotNullWhen(true)] out JsValue? result)
     {
@@ -820,7 +814,6 @@ internal sealed class ArrayCopyContext
                 engine._objectWrapperCache.Add(copy.Target, copy.Result);
             }
         }
-
     }
 
     public void CommitDiagnostics(Engine engine)
@@ -849,7 +842,6 @@ internal sealed class ArrayCopyContext
         {
             _publishedIdentityCopies.Capacity = 0;
         }
-
     }
 
     public static void Commit(in ArrayCopySavepoint savepoint)

@@ -108,7 +108,6 @@ public class FastArrayMaxArraySizeTests
             """).AsNumber().Should().Be(98);
     }
 
-#if NET8_0_OR_GREATER
     [Test]
     public void FormDataGetAllRefusesAnArrayPastTheLimit()
     {
@@ -184,5 +183,4 @@ public class FastArrayMaxArraySizeTests
         Caught.Exception(() => engine.Evaluate("new MessageEvent('m', { ports: ports(3) })")).Should().BeOfType<MemoryLimitExceededException>();
         engine.Evaluate("new MessageEvent('m', { ports: ports(2) }).ports.length").AsNumber().Should().Be(2);
     }
-#endif
 }

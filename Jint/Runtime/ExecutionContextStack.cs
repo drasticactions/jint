@@ -60,11 +60,7 @@ internal sealed class ExecutionContextStack
         // case where strictness changes without pushing a new context (a class body evaluated in
         // the enclosing context); returns the previous value so the caller can restore it.
         var previous = executionContext.Strict;
-        // MA0168 (net472/netstandard2.0 only): the older Unsafe.AsRef(in T) overload flags this
-        // intentional in-place write of a readonly field on the deliberately mutable ExecutionContext.
-#pragma warning disable MA0168
         Unsafe.AsRef(in executionContext.Strict) = strict;
-#pragma warning restore MA0168
         return previous;
     }
 
@@ -123,8 +119,6 @@ internal sealed class ExecutionContextStack
         ref var slot = ref stack._array[stack._size++];
         Debug.Assert(slot.LexicalEnvironment is null && slot.Function is null && slot.Generator is null && slot.ParserOptions is null && slot.AsyncFunction is null && slot.AsyncGenerator is null && slot.PrivateEnvironment is null);
 
-        // MA0168 (net472/netstandard2.0 only): see ReplaceTopStrict.
-#pragma warning disable MA0168
         if (!ReferenceEquals(slot.ScriptOrModule, scriptOrModule))
         {
             Unsafe.AsRef(in slot.ScriptOrModule) = scriptOrModule;
@@ -144,7 +138,6 @@ internal sealed class ExecutionContextStack
 
         Unsafe.AsRef(in slot.Function) = function;
         Unsafe.AsRef(in slot.Strict) = strict;
-#pragma warning restore MA0168
 
         return ref slot;
     }
@@ -164,7 +157,6 @@ internal sealed class ExecutionContextStack
 
         ref var slot = ref stack._array[--stack._size];
 
-#pragma warning disable MA0168
         Unsafe.AsRef(in slot.LexicalEnvironment) = null!;
         Unsafe.AsRef(in slot.VariableEnvironment) = null!;
         Unsafe.AsRef(in slot.PrivateEnvironment) = null;
@@ -174,7 +166,6 @@ internal sealed class ExecutionContextStack
         Unsafe.AsRef(in slot.AsyncFunction) = null;
         Unsafe.AsRef(in slot.AsyncGenerator) = null;
         Unsafe.AsRef(in slot.Strict) = false;
-#pragma warning restore MA0168
     }
 
     public IScriptOrModule? GetActiveScriptOrModule()

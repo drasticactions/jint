@@ -161,7 +161,6 @@ public class ValueInspectorTests
         description.Description.Should().Be("Error");
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// A <c>DOMException</c> keeps its text. Its <c>name</c> and <c>message</c> are WebIDL prototype
     /// accessors by design (https://webidl.spec.whatwg.org/#idl-DOMException), so the refuse-every-accessor
@@ -179,7 +178,6 @@ public class ValueInspectorTests
         ValueInspector.Describe(engine.Evaluate("new QuotaExceededError('too much')")).Description
             .Should().Be("QuotaExceededError: too much");
     }
-#endif
 
     [Test]
     public void ACyclicObjectTerminates()

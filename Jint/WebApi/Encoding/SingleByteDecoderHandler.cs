@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 namespace Jint.WebApi.Encoding;
 
 /// <summary>
@@ -119,4 +118,3 @@ internal sealed class XUserDefinedDecoderHandler : TextDecoderHandler
     {
     }
 }
-#endif

@@ -124,9 +124,7 @@ public sealed class MemoryLimitConstraint : Constraint
     }
 
     /// <summary>The accounting accuracy available on the current runtime.</summary>
-    public static MemoryLimitAccuracy Accuracy => GCPolyfills.AllocatedBytesForCurrentThreadIsSupported
-        ? MemoryLimitAccuracy.ExecutionThread
-        : MemoryLimitAccuracy.Unavailable;
+    public static MemoryLimitAccuracy Accuracy => MemoryLimitAccuracy.ExecutionThread;
 
     /// <summary>Whether a host-defined multi-entry operation is currently armed.</summary>
     public bool IsOperationActive
@@ -155,7 +153,6 @@ public sealed class MemoryLimitConstraint : Constraint
             Throw.InvalidOperationException("A memory-limit operation cannot be started while the engine is executing.");
         }
 
-        EnsureSupported();
         if (_explicitOperation is { } previous)
         {
             previous.Enabled = false;
@@ -216,8 +213,6 @@ public sealed class MemoryLimitConstraint : Constraint
             return;
         }
 
-        EnsureSupported();
-
         var usage = GetUsage(state);
         if (state.Exceeded || usage > _memoryLimit)
         {
@@ -249,7 +244,7 @@ public sealed class MemoryLimitConstraint : Constraint
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void CheckOnEngineThread()
     {
-        if (!GCPolyfills.AllocatedBytesForCurrentThreadIsSupported || GC.GetAllocatedBytesForCurrentThread() > _passLimit)
+        if (GC.GetAllocatedBytesForCurrentThread() > _passLimit)
         {
             Check();
         }
@@ -270,12 +265,6 @@ public sealed class MemoryLimitConstraint : Constraint
     internal void CheckBeforeStatement()
     {
         _uncheckedStatements = 0;
-        if (!GCPolyfills.AllocatedBytesForCurrentThreadIsSupported)
-        {
-            Check();
-            return;
-        }
-
         var allocated = GC.GetAllocatedBytesForCurrentThread();
         if (allocated > _passLimit)
         {
@@ -372,7 +361,6 @@ public sealed class MemoryLimitConstraint : Constraint
 
     internal OperationState BeginEntry()
     {
-        EnsureSupported();
         var state = _explicitOperation ?? RentState();
         _lastState = state;
         return state;
@@ -590,7 +578,6 @@ public sealed class MemoryLimitConstraint : Constraint
 
     private void StartSegment()
     {
-        EnsureSupported();
         _segmentThreadId = Environment.CurrentManagedThreadId;
         _segmentStart = GC.GetAllocatedBytesForCurrentThread();
     }
@@ -619,15 +606,6 @@ public sealed class MemoryLimitConstraint : Constraint
         }
 
         return left >= long.MaxValue - right ? long.MaxValue : left + right;
-    }
-
-    private static void EnsureSupported()
-    {
-        if (!GCPolyfills.AllocatedBytesForCurrentThreadIsSupported)
-        {
-            Throw.PlatformNotSupportedException(
-                "The current runtime does not expose GC.GetAllocatedBytesForCurrentThread, so Jint cannot enforce a memory allocation limit without charging unrelated process allocations.");
-        }
     }
 
     internal sealed class OperationState

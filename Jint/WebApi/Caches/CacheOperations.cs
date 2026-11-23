@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Array;
 using Jint.Native.Promise;
@@ -417,4 +416,3 @@ internal static class CacheOperations
     internal static JsValue ProviderFailure(Realm realm, Exception failure)
         => new JavaScriptException(realm.Intrinsics.TypeError, "The cache storage provider failed", failure).Error;
 }
-#endif

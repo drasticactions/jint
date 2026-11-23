@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -131,4 +130,3 @@ internal sealed class FetchResourceTiming
         _report?.Invoke(info);
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -205,4 +204,3 @@ internal static class CompiledDelegateInvoker
 
     private static bool IsBindable(Type type) => !type.IsByRef && !type.IsPointer && type.IsVisible;
 }
-#endif

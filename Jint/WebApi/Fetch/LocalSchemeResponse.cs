@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 
 namespace Jint.WebApi.Fetch;
@@ -15,4 +14,3 @@ namespace Jint.WebApi.Fetch;
 /// </remarks>
 [StructLayout(LayoutKind.Auto)]
 internal readonly record struct LocalSchemeResponse(int Status, string StatusText, List<HeaderEntry> Headers, ReadOnlyMemory<byte>? Body);
-#endif

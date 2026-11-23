@@ -156,15 +156,11 @@ public class TypeConverterRegistrationTests
     }
 
     /// <summary>
-    /// The compiled lanes are built from expression trees on net8.0+ and need dynamic code, so on the other
-    /// targets there is no lane to arm and every conversion reaches the converter however it was registered.
+    /// The compiled lanes are built from expression trees and need dynamic code, so where there is none (Native
+    /// AOT) there is no lane to arm and every conversion reaches the converter however it was registered.
     /// </summary>
     private static readonly bool _compiledLanesAvailable =
-#if NET8_0_OR_GREATER
         System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeCompiled;
-#else
-        false;
-#endif
 
     /// <inheritdoc cref="ObjectConverterRegistrationTests.Verifying"/>
     public static bool Verifying => HostContractVerificationSwitch.Enabled;

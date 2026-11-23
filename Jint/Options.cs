@@ -529,12 +529,7 @@ public sealed partial class Options
         // The other end of the same decision is in Engine: the TimeConstraint a replayed factory builds takes
         // its clock from the engine being constructed, so a worker measures both budgets on its own clock
         // rather than one on each.
-        //
-        // Conditional because the setting is: TimeProvider is a .NET 8 type, so the downlevel targets have
-        // no such property for this list to name.
-#if NET8_0_OR_GREATER
         "Constraints.TimeProvider",
-#endif
 
         // The clock and date parser Date, Temporal.Now and Intl read. Script-visible, unlike the constraint
         // clock above, and for that reason even less inheritable: a worker is a separate agent and its notion
@@ -660,7 +655,6 @@ public sealed partial class Options
 
         HostInterop.Instance.ApplyOptions(this, engine);
 
-#if NET8_0_OR_GREATER
         // Opt-in WHATWG web APIs. Deliberately after the configuration callbacks above, so that a global a
         // host registered itself is never replaced by one of ours: WebApiRegistration skips every name the
         // global object already owns. Nothing is installed while Features is None, which is the default.
@@ -672,7 +666,6 @@ public sealed partial class Options
         {
             Jint.WebApi.WebApiRegistration.Apply(this, engine);
         }
-#endif
 
         // Both halves of the extension-method feature read the registration list here, after every
         // configuration callback above has run and after the untrusted profile's re-expansion has had its
@@ -762,9 +755,7 @@ public sealed partial class Options
         clone._temporal = _temporal?.Clone();
         clone._json = _json?.Clone();
         clone._profiling = _profiling?.Clone();
-#if NET8_0_OR_GREATER
         clone._webApi = _webApi?.Clone();
-#endif
         // The clone inherits the source's frozen state through MemberwiseClone, and the profile below is a
         // long sequence of writes. A host may legitimately hand a frozen Options to a second engine, so the
         // private snapshot is thawed for the expansion; the engine freezes it again once it has read it.
@@ -844,7 +835,6 @@ public sealed partial class Options
             }
         }
     }
-
 
     public sealed partial class DebuggerOptions
     {
@@ -1097,7 +1087,6 @@ public sealed partial class Options
         internal static readonly MemberAccessorDelegate _defaultMemberAccessor = static (engine, target, member) => null;
 
         /// <summary>
-        ///
         /// </summary>
         public MemberAccessorDelegate MemberAccessor { get; set { ThrowIfReadOnly(); field = value; } } = _defaultMemberAccessor;
 
@@ -1498,7 +1487,6 @@ public sealed partial class Options
         /// </summary>
         public int MaxAtomicsPauseIterations { get; set { ThrowIfReadOnly(); field = value; } } = 10_000;
 
-#if NET8_0_OR_GREATER
         /// <summary>
         /// The clock this engine's own time budgets measure against — <see cref="ConstraintsOptionsExtensions.LimitExecutionTime"/>'s
         /// constraint and <see cref="PromiseTimeout"/>. Defaults to <see cref="TimeProvider.System"/>; a fake
@@ -1541,7 +1529,6 @@ public sealed partial class Options
         /// </para>
         /// </remarks>
         public TimeProvider TimeProvider { get; set { ThrowIfReadOnly(); field = value; } } = TimeProvider.System;
-#endif
 
         internal ConstraintOptions Clone()
         {

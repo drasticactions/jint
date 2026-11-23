@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Globalization;
 using System.Text;
 using Jint.Runtime;
@@ -300,4 +299,3 @@ internal static class UrlPatternStringParser
         }
     }
 }
-#endif

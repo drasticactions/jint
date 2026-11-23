@@ -898,7 +898,6 @@ public class BuiltInIteratorReturnTests
         engine._builtinIteratorChainMayHaveReturn.Should().BeFalse();
     }
 
-#if NET8_0_OR_GREATER
     private static Engine WebEngine() => new(options => options.UseWebApis(WebApiFeatures.Fetch | WebApiFeatures.Files | WebApiFeatures.Url));
 
     private static readonly string[] WebKinds =
@@ -965,5 +964,4 @@ public class BuiltInIteratorReturnTests
     {
         Run(WebEngine(), $"closed(function () {{ return {kind}; }}, '{route}', '{consumer}', false)").Should().Be(expected);
     }
-#endif
 }

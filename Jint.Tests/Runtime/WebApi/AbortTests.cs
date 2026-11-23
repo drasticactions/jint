@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -541,4 +540,3 @@ public class AbortTests
         Log(engine).Should().Be("aborted");
     }
 }
-#endif

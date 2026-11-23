@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -660,4 +659,3 @@ public class GlobalErrorEventTests
         engine.Evaluate("seen").AsString().Should().Be("live");
     }
 }
-#endif

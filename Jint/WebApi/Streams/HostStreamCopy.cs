@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
@@ -447,4 +446,3 @@ internal sealed class HostStreamCopy : HostStreamBridge
         internal override void ErrorSteps(JsValue error) => _copy.OnSourceErrored(error);
     }
 }
-#endif

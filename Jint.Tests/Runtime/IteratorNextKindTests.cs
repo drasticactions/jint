@@ -178,11 +178,7 @@ public class IteratorNextKindTests
     private static Engine NewEngine(bool web = false)
     {
         var engine = web
-#if NET8_0_OR_GREATER
             ? new Engine(options => options.UseWebApis(WebApiFeatures.Fetch | WebApiFeatures.Files | WebApiFeatures.Url))
-#else
-            ? throw new InvalidOperationException("The web APIs need net8.0 or later.")
-#endif
             : new Engine();
         engine.SetValue("list", new List<int> { 1, 2 });
         engine.SetValue("dictionary", new Dictionary<string, int> { ["1"] = 1, ["2"] = 2 });
@@ -382,7 +378,6 @@ public class IteratorNextKindTests
         Lanes(engine, instance).Should().Be((true, true), "under its own kind's prototype of another realm");
     }
 
-#if NET8_0_OR_GREATER
     public static TestCases<string, string, string> WebNextsOnEveryReceiver
         => BorrowRows([.. WebKinds], [.. LanguageKinds, .. ClrKinds, .. WebKinds, .. OtherReceivers]);
 
@@ -457,5 +452,4 @@ public class IteratorNextKindTests
         engine.Execute($"Object.setPrototypeOf(it, protoOf('{kind}'));");
         Lanes(engine, instance).Should().Be((true, true), "moved back");
     }
-#endif
 }

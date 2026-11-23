@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Globalization;
 using Jint.Native;
 using Jint.Native.Object;
@@ -322,4 +321,3 @@ internal static class UrlPatternProperties
     internal static readonly JsString BaseUrl = new("baseURL");
     internal static readonly JsString IgnoreCase = new("ignoreCase");
 }
-#endif

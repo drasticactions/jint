@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -213,7 +212,6 @@ public sealed class WptTimerDeadlineTests
         sink.UncaughtCallbackErrors.Should().ContainSingle().Which.Should().Contain("before completion");
     }
 
-
     [Test]
     public void ControlledTimeStillDetectsAnIntervalDelayedPastTheWatchdog()
     {
@@ -247,7 +245,6 @@ public sealed class WptTimerDeadlineTests
         Caught.Exception(() => engine.Tasks.ProcessTasks()).Should().BeOfType<ExecutionCanceledException>();
     }
 
-
     [Test]
     public void ControlledTimerTimeCannotExtendTheRealHarnessDeadline()
     {
@@ -259,6 +256,4 @@ public sealed class WptTimerDeadlineTests
         clock.GetTimestamp().Should().Be(0, "host time cannot move the timer clock");
         clock.DeadlineError(deadline).Should().Contain("did not complete within 00:05:00");
     }
-
 }
-#endif

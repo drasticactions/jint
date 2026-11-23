@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Threading;
 using Jint.WebApi.Fetch;
 
@@ -114,4 +113,3 @@ internal sealed class WebSocketObservation
         }
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Diagnostics;
@@ -621,4 +620,3 @@ public class TimerTests
         engine.Evaluate("new ShadowRealm().evaluate('typeof queueMicrotask')").AsString().Should().Be("undefined");
     }
 }
-#endif

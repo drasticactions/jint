@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -495,4 +494,3 @@ public class StreamPipeTests
         Log(engine).Should().Be("dest:A!,dest:B!,dest:C!,dest:close,piped");
     }
 }
-#endif

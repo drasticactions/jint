@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint;
 using Jint.WebApi;
 
@@ -218,4 +217,3 @@ public class WebApiFetchModelTests
         engine.Evaluate("new Response('hi').text()").UnwrapIfPromise().AsString().Should().Be("hi");
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Linq;
 using Jint.Native;
 using Jint.Runtime;
@@ -85,4 +84,3 @@ internal sealed class JsIdbDatabase : JsEventTarget
         Agent.Forget(this);
     }
 }
-#endif

@@ -709,72 +709,12 @@ internal static class NumberParser
 
     private static int BitLength(ulong value)
     {
-#if NETCOREAPP3_0_OR_GREATER
         return 64 - BitOperations.LeadingZeroCount(value);
-#else
-        var bits = 0;
-        while (value != 0)
-        {
-            bits++;
-            value >>= 1;
-        }
-
-        return bits;
-#endif
     }
 
     private static int BitLength(BigInteger value)
     {
-#if NET5_0_OR_GREATER
         return (int) value.GetBitLength();
-#else
-        if (value.IsZero)
-        {
-            return 0;
-        }
-
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP2_1_OR_GREATER
-        var byteCount = value.GetByteCount();
-        byte[]? byteArray = null;
-        try
-        {
-            var bytes = byteCount <= 64
-                ? stackalloc byte[byteCount]
-                : (byteArray = ArrayPool<byte>.Shared.Rent(byteCount)).AsSpan(0, byteCount);
-            var success = value.TryWriteBytes(bytes, out var bytesWritten);
-            Debug.Assert(success && bytesWritten == byteCount);
-            return GetBitLength(bytes);
-        }
-        finally
-        {
-            if (byteArray is not null)
-            {
-                ArrayPool<byte>.Shared.Return(byteArray);
-            }
-        }
-#else
-        return GetBitLength(value.ToByteArray());
-#endif
-
-        static int GetBitLength(ReadOnlySpan<byte> bytes)
-        {
-            var index = bytes.Length - 1;
-            while (index > 0 && bytes[index] == 0)
-            {
-                index--;
-            }
-
-            var bits = index * 8;
-            int top = bytes[index];
-            while (top != 0)
-            {
-                bits++;
-                top >>= 1;
-            }
-
-            return bits;
-        }
-#endif
     }
 
     /// <summary>

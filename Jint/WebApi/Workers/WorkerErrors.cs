@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Runtime;
 using Jint.WebApi.DomException;
 
@@ -33,4 +32,3 @@ internal static class WorkerErrors
         Throw.JavaScriptException(engine, exception, in location);
     }
 }
-#endif

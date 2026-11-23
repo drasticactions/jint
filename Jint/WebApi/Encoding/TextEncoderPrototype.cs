@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 using Jint.Native;
 using Jint.Native.Object;
@@ -168,4 +167,3 @@ internal sealed partial class TextEncoderPrototype : Prototype
         }
     }
 }
-#endif

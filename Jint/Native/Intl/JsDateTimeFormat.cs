@@ -308,12 +308,10 @@ internal sealed class JsDateTimeFormat : ObjectInstance
     internal static string SystemTimeZoneIdentifier(TimeZoneInfo zone)
     {
         var id = zone.Id;
-#if NET8_0_OR_GREATER
         if (!zone.HasIanaId && TimeZoneInfo.TryConvertWindowsIdToIanaId(id, out var ianaId))
         {
             id = ianaId;
         }
-#endif
 
         var canonical = Data.TimeZoneData.FindCanonical(id);
         if (canonical is null)

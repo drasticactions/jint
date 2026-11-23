@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.IO;
 using System.IO.Compression;
 
@@ -208,4 +207,3 @@ internal sealed class DecompressionCodec : IDisposable
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Runtime;
 using Jint.WebApi.Events;
 
@@ -47,4 +46,3 @@ internal sealed class JsWorker : JsEventTarget
     /// </summary>
     internal WorkerLink? Link { get; set; }
 }
-#endif

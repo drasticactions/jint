@@ -453,9 +453,7 @@ public class UntrustedCodeProfileTests
             MaxOperationDuration = TestBudgets.WedgeCeiling,
         };
         using var cancellation = new CancellationTokenSource();
-        // TaskCompletionSource<bool> rather than the non-generic one, which only exists from .NET 5 and
-        // this project also compiles for net472.
-        var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var engine = new Engine(options => options.ForUntrustedCode(limits))
             .SetValue("gate", new Func<Task>(() => gate.Task));
         var scope = limits.BeginOperation(engine, cancellation.Token);
@@ -465,7 +463,7 @@ public class UntrustedCodeProfileTests
             .Should().Throw<InvalidOperationException>()
             .WithMessage("*asynchronous operation in progress*");
 
-        gate.SetResult(true);
+        gate.SetResult();
         (await pending).AsNumber().Should().Be(42);
         Invoking(scope.Dispose).Should().NotThrow();
         engine.Constraints.Find<MemoryLimitConstraint>()!.IsOperationActive.Should().BeFalse();

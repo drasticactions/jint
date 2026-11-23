@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.WebApi.Events;
 
@@ -33,4 +32,3 @@ internal sealed class JsPromiseRejectionEvent : JsEvent
     /// </summary>
     internal JsValue Reason { get; }
 }
-#endif

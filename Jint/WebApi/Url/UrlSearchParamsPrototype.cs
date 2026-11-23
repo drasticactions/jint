@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Array;
 using Jint.Native.Iterator;
@@ -292,4 +291,3 @@ internal sealed partial class UrlSearchParamsPrototype : Prototype
         return null!;
     }
 }
-#endif

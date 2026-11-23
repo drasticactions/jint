@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Object;
 using Jint.Runtime;
@@ -53,4 +52,3 @@ internal sealed class DedicatedWorkerGlobalScopeConstructor : Constructor
         return null!;
     }
 }
-#endif

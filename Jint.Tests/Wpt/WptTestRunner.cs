@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Reflection;
@@ -986,7 +985,6 @@ public class WptTestRunner
         // decoders, which EncodingLabels documents as out of scope and issue #3106 implements. Each of these
         // fails with "the encoding label provided ('…') is invalid" and nothing else.
 
-
         // Named one at a time rather than as "stream: *": the utf-8 row of that family passes, and an
         // exclusion is not allowed to cover a test that works.
 
@@ -1302,7 +1300,6 @@ public class WptTestRunner
         new("fetch/api/redirect/redirect-location.any.js", "Redirect 30* in \"manual\" mode *", WptDivergence.NeedsOpaqueRedirect),
         new("fetch/api/redirect/redirect-empty-location.any.js",
             "redirect response with empty Location, manual mode", WptDivergence.NeedsOpaqueRedirect),
-
 
         // The three rows the .NET HTTP stack does not carry rather than the engine getting wrong: a header
         // value with a byte above ASCII. WptServerTests.AHeaderValueAboveAsciiDoesNotSurviveTheHttpStack is
@@ -2250,4 +2247,3 @@ public class WptTestRunner
         message.ToString().Should().BeEmpty();
     }
 }
-#endif

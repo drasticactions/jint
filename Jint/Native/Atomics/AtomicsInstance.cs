@@ -1498,7 +1498,6 @@ internal sealed partial class AtomicsInstance : BuiltinShapeObject
     // CompareExchange loops. Deliberately kept as local helpers rather than routed through
     // extension-member backfills of Interlocked: Interlocked.Xor has no BCL equivalent on any
     // framework, so backfilling only two of the three would split a trio that reads as one unit.
-#if NET8_0_OR_GREATER
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int InterlockedAnd(ref int location, int value)
     {
@@ -1522,67 +1521,6 @@ internal sealed partial class AtomicsInstance : BuiltinShapeObject
     {
         return Interlocked.Or(ref location, value);
     }
-#else
-    private static int InterlockedAnd(ref int location, int value)
-    {
-        int current = location;
-        while (true)
-        {
-            int newValue = current & value;
-            int oldValue = Interlocked.CompareExchange(ref location, newValue, current);
-            if (oldValue == current)
-            {
-                return current;
-            }
-            current = oldValue;
-        }
-    }
-
-    private static int InterlockedOr(ref int location, int value)
-    {
-        int current = location;
-        while (true)
-        {
-            int newValue = current | value;
-            int oldValue = Interlocked.CompareExchange(ref location, newValue, current);
-            if (oldValue == current)
-            {
-                return current;
-            }
-            current = oldValue;
-        }
-    }
-
-    private static long InterlockedAnd64(ref long location, long value)
-    {
-        long current = Interlocked.Read(ref location);
-        while (true)
-        {
-            long newValue = current & value;
-            long oldValue = Interlocked.CompareExchange(ref location, newValue, current);
-            if (oldValue == current)
-            {
-                return current;
-            }
-            current = oldValue;
-        }
-    }
-
-    private static long InterlockedOr64(ref long location, long value)
-    {
-        long current = Interlocked.Read(ref location);
-        while (true)
-        {
-            long newValue = current | value;
-            long oldValue = Interlocked.CompareExchange(ref location, newValue, current);
-            if (oldValue == current)
-            {
-                return current;
-            }
-            current = oldValue;
-        }
-    }
-#endif
 
     // XOR is not available in any .NET version via Interlocked, so always use CompareExchange loop
     private static int InterlockedXor(ref int location, int value)

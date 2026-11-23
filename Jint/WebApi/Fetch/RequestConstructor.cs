@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Function;
 using Jint.Native.Object;
@@ -393,4 +392,3 @@ internal sealed class RequestConstructor : Constructor
         return value.IsUndefined() ? null : value;
     }
 }
-#endif

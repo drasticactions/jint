@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Function;
 using Jint.Native.Object;
@@ -147,4 +146,3 @@ internal static class CommonEventProperties
     internal static readonly JsString Passive = new("passive");
     internal static readonly JsString Signal = new("signal");
 }
-#endif

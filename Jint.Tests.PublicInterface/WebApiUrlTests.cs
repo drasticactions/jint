@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint;
 using Jint.Native;
 
@@ -224,4 +223,3 @@ public class WebApiUrlTests
         engine.Evaluate("new URLPattern({ pathname: '/x' }).test({ pathname: '/x' })").AsBoolean().Should().BeTrue();
     }
 }
-#endif

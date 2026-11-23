@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using System.Text;
 using SystemEncoding = System.Text.Encoding;
@@ -135,4 +134,3 @@ internal static class FormUrlEncoded
         return SystemEncoding.UTF8.GetString(PercentEncoding.Decode(bytes));
     }
 }
-#endif

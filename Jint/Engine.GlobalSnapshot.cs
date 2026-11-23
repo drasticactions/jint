@@ -346,7 +346,6 @@ public partial class Engine
         // the engine's rather than the event loop's, so clearing the loop above does not reach it.
         DiscardPendingRejectionNotifications();
 
-#if NET8_0_OR_GREATER
         // A timer registered by the cycle that is ending must never fire into the globals just restored. The
         // queue is the engine's, not the event loop's, so clearing the loop above does not reach it; the
         // generation each entry carries is the second line of defence for one already promoted into a job.
@@ -361,7 +360,6 @@ public partial class Engine
         // close it rather than merely stop delivering its chunks: the generation fence already does the
         // latter.
         AbandonHostStreamBridges();
-#endif
 
         ClearLastSyntaxElement();
 
@@ -375,11 +373,9 @@ public partial class Engine
         _recentObjectWrapperCache?.Clear();
         _objectWrapperCache = null;
 
-#if NET8_0_OR_GREATER
         // Last of all, with the engine whole again: the host is told about the worker connections this restore
         // ended. It is host code, so it runs outside everything above it rather than in the middle of it.
         WebApiEngineState.NotifyWorkerHosts(endedWorkers);
-#endif
     }
 }
 

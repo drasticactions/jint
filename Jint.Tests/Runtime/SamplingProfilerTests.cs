@@ -398,11 +398,8 @@ public class SamplingProfilerTests
         options.MaxSamples.Should().Be(SamplingOptions.DefaultMaxSamples);
     }
 
-    /// <summary>
-    /// <c>Dictionary.GetValueOrDefault</c> by hand: this project still targets net472, which does not have it.
-    /// </summary>
     private static double Weight<TKey>(Dictionary<TKey, double> totals, TKey key) where TKey : notnull
-        => totals.TryGetValue(key, out var weight) ? weight : 0;
+        => totals.GetValueOrDefault(key);
 
     private static int Burn(int n)
     {

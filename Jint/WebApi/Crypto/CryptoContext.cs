@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Diagnostics.CodeAnalysis;
 using Jint.Native;
 using Jint.Runtime;
@@ -80,4 +79,3 @@ internal readonly struct CryptoContext
         Throw.JavaScriptException(Engine, exception, in location);
     }
 }
-#endif

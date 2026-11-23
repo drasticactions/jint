@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Object;
 using Jint.Runtime;
@@ -64,4 +63,3 @@ internal sealed partial class IdbOpenDbRequestPrototype : Prototype
     [JsAccessor("onupgradeneeded", AccessorKind.Set, Flags = PropertyFlag.Configurable | PropertyFlag.Enumerable)]
     private JsValue OnUpgradeNeededSet(JsValue thisObject, JsValue handler) { EventHandlerAttributes.Set(Brand(thisObject), "upgradeneeded", handler); return Undefined; }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Native;
@@ -707,4 +706,3 @@ public class BlobTests
         engine.Evaluate("Blob.prototype.textStream.name").AsString().Should().Be("textStream");
     }
 }
-#endif

@@ -1031,7 +1031,6 @@ public class FastCallLaneTests
         engine.Evaluate("'abc'.endsWith('', null)").AsBoolean().Should().BeTrue();
     }
 
-#if !NETFRAMEWORK // Math.f16round needs System.Half, which .NET Framework does not have
     /// <summary>
     /// <c>Math.f16round</c> must return a Number for every input. It used to hand back the argument
     /// itself on the infinity / signed-zero branches, which is only the same value when the argument
@@ -1051,7 +1050,6 @@ public class FastCallLaneTests
 
         result.Should().Be("number,Infinity,number,-Infinity,number,Infinity,true");
     }
-#endif
 
     /// <summary>
     /// A Prepared&lt;Script&gt; shares its handler tree across engines, so a call-site cache populated

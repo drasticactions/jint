@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Runtime.InteropServices;
 using Jint.Native;
 using Jint.Native.Object;
@@ -160,4 +159,3 @@ internal sealed class JsPerformanceObserver : ObjectInstance
     /// <summary>https://w3c.github.io/performance-timeline/#dom-performanceobserver-disconnect, step 2.</summary>
     internal void EmptyObserverBuffer() => _buffer = null;
 }
-#endif

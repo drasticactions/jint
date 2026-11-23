@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Text;
 using Jint.Runtime;
 using Jint.WebApi.Url.Parsing;
@@ -216,4 +215,3 @@ internal static class UrlPatternCanonicalization
         return dummyUrl.Fragment ?? string.Empty;
     }
 }
-#endif

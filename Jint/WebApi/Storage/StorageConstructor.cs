@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Function;
 using Jint.Native.Object;
@@ -54,4 +53,3 @@ internal sealed class StorageConstructor : Constructor
     /// </summary>
     internal JsStorage CreateStorage(StorageProvider provider) => new(_engine, _realm, provider, PrototypeObject);
 }
-#endif

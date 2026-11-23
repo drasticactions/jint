@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using System.Diagnostics;
@@ -75,4 +74,3 @@ public class PumpWaitTests
         fired.Should().BeTrue();
     }
 }
-#endif

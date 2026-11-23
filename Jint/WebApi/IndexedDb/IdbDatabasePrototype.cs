@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Linq;
 using Jint.Native;
 using Jint.Native.Object;
@@ -112,4 +111,3 @@ internal sealed partial class IdbDatabasePrototype : Prototype
     [JsAccessor("onversionchange", AccessorKind.Set, Flags = PropertyFlag.Configurable | PropertyFlag.Enumerable)]
     private JsValue OnVersionChangeSet(JsValue thisObject, JsValue handler) { EventHandlerAttributes.Set(Brand(thisObject), "versionchange", handler); return Undefined; }
 }
-#endif

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 #nullable enable
 
 using Jint.Runtime;
@@ -639,4 +638,3 @@ public class TransferableStreamTests
         engine.Evaluate("pulls").AsNumber().Should().Be(pullsAfterStranding);
     }
 }
-#endif

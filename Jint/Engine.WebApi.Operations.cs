@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using Jint.Native;
 using Jint.Native.Promise;
 using Jint.Runtime;
@@ -21,8 +20,7 @@ public partial class Engine
     private WebApiOperations? _webApiOperations;
 
     /// <summary>
-    /// Gets the bridge between this engine's opt-in web platform APIs and the host; requires .NET 8 or
-    /// higher.
+    /// Gets the bridge between this engine's opt-in web platform APIs and the host.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -50,8 +48,7 @@ public partial class Engine
         }
 
         /// <summary>
-        /// The opt-in web APIs this engine carries, after the feature closure has been expanded. Requires
-        /// .NET 8 or higher.
+        /// The opt-in web APIs this engine carries, after the feature closure has been expanded.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -71,7 +68,7 @@ public partial class Engine
         public WebApiFeatures Features => _engine._webApiFeatures;
 
         /// <summary>
-        /// What <c>navigator.userAgent</c> answers on this engine. Requires .NET 8 or higher.
+        /// What <c>navigator.userAgent</c> answers on this engine.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -102,7 +99,7 @@ public partial class Engine
         /// <summary>
         /// Turns on the web APIs a host normally wants — <see cref="WebApiFeatures.Default"/> — on an engine
         /// that already exists. The per-engine counterpart of
-        /// <see cref="WebApiOptionsExtensions.UseWebApis(Options)"/>. Requires .NET 8 or higher.
+        /// <see cref="WebApiOptionsExtensions.UseWebApis(Options)"/>.
         /// </summary>
         /// <returns>The features this call added; see the main overload.</returns>
         public WebApiFeatures Enable() => Enable(Jint.WebApiFeatures.Default, configure: null);
@@ -112,7 +109,7 @@ public partial class Engine
         /// counterpart of <see cref="WebApiOptionsExtensions.UseWebApis(Options, WebApiFeatures)"/>, for the
         /// host that only discovers per request which APIs the script it is about to run needs — a pooled
         /// engine in a tenant host, a plugin runner — and would otherwise have to over-provision every engine
-        /// or build a fresh one. Requires .NET 8 or higher.
+        /// or build a fresh one.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -226,7 +223,7 @@ public partial class Engine
         /// <summary>
         /// Creates a pair of entangled <c>MessagePort</c> objects spanning this engine and
         /// <paramref name="other"/>, so a script on one can <c>postMessage</c> to a script on the other.
-        /// Requires .NET 8 or higher, and <see cref="WebApiFeatures.Messaging"/> on <b>both</b> engines.
+        /// Requires <see cref="WebApiFeatures.Messaging"/> on <b>both</b> engines.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -333,7 +330,6 @@ public partial class Engine
 
         /// <summary>
         /// Whether a fetch handler is registered on this engine <b>through <see cref="SetFetchHandler"/></b>.
-        /// Requires .NET 8 or higher.
         /// </summary>
         /// <remarks>
         /// It is deliberately about that registration alone, and answers <see langword="false"/> for an engine
@@ -349,8 +345,7 @@ public partial class Engine
         /// <summary>
         /// Registers the script function inbound requests are routed to by
         /// <see cref="InvokeFetchHandler(HttpRequestMessage)"/> and <see cref="InvokeFetchHandlerAsync"/>,
-        /// turning the engine into a request handler in the style Cloudflare Workers established. Requires
-        /// .NET 8 or higher.
+        /// turning the engine into a request handler in the style Cloudflare Workers established.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -428,8 +423,7 @@ public partial class Engine
 
         /// <summary>
         /// Routes an inbound request to the registered fetch handler — or, failing that, to the script's own
-        /// <c>fetch</c> listeners — and hands back an operation the host drives with its own pump. Requires
-        /// .NET 8 or higher.
+        /// <c>fetch</c> listeners — and hands back an operation the host drives with its own pump.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -492,7 +486,7 @@ public partial class Engine
 
         /// <summary>
         /// The same invocation, with the host's own "this request has been abandoned" token wired to the
-        /// <c>Request</c>'s <c>signal</c>. Requires .NET 8 or higher.
+        /// <c>Request</c>'s <c>signal</c>.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -587,7 +581,7 @@ public partial class Engine
 
         /// <summary>
         /// Routes an inbound request to the registered fetch handler and awaits its response, without holding
-        /// a thread while the handler's promise is outstanding. Requires .NET 8 or higher.
+        /// a thread while the handler's promise is outstanding.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -1017,7 +1011,7 @@ public partial class Engine
 
         /// <summary>
         /// Wraps a readable <see cref="Stream"/> as a <c>ReadableStream</c> a script can read, cancel, tee
-        /// and pipe. Requires .NET 8 or higher.
+        /// and pipe.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -1077,7 +1071,7 @@ public partial class Engine
 
         /// <summary>
         /// Wraps a writable <see cref="Stream"/> as a <c>WritableStream</c> a script can write, close, abort
-        /// and pipe into. Requires .NET 8 or higher.
+        /// and pipe into.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -1130,7 +1124,7 @@ public partial class Engine
 
         /// <summary>
         /// Starts reading a script's <c>ReadableStream</c> into a host <see cref="Stream"/> and returns at
-        /// once, without blocking and without a thread of its own. Requires .NET 8 or higher.
+        /// once, without blocking and without a thread of its own.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -1210,7 +1204,7 @@ public partial class Engine
 
         /// <summary>
         /// Reads a script's <c>ReadableStream</c> into a host <see cref="Stream"/>, driving the engine while
-        /// it waits. Requires .NET 8 or higher.
+        /// it waits.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -1243,4 +1237,3 @@ public partial class Engine
         }
     }
 }
-#endif

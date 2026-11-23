@@ -170,9 +170,7 @@ internal static class ResultConverter
                     TypedArrayElementType.Int16 => array.ToNativeArray<short>(),
                     TypedArrayElementType.Int32 => array.ToNativeArray<int>(),
                     TypedArrayElementType.BigInt64 => array.ToNativeArray<long>(),
-#if SUPPORTS_HALF
                     TypedArrayElementType.Float16 => array.ToNativeArray<Half>(),
-#endif
                     TypedArrayElementType.Float32 => array.ToNativeArray<float>(),
                     TypedArrayElementType.Float64 => array.ToNativeArray<double>(),
                     TypedArrayElementType.Uint8 => array.ToNativeArray<byte>(),
