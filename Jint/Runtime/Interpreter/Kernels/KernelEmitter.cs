@@ -168,20 +168,23 @@ internal sealed class KernelEmitter
         internal LocalBuilder Ref = null!;
         internal LocalBuilder Environment = null!;
 
-        // The Number of a slot the code may store to, while HasNumber; any other value read, while HasValue.
-        internal LocalBuilder Number = null!;
-        internal LocalBuilder HasNumber = null!;
-        internal LocalBuilder Value = null!;
-        internal LocalBuilder HasValue = null!;
+        // What the code holds of the name, in State: the Number of a slot the code may store to (NumberHeld), or any
+        // other value it read (ValueHeld). With a value, whether it is a Uint8Array whose facts are taken (TypedHeld,
+        // or NotTyped), and whether its length as an array or a typed array is held (LengthHeld, or NoLength). One
+        // store of 0 drops it all.
+        internal const int NumberHeld = 1;
+        internal const int ValueHeld = 2;
+        internal const int TypedHeld = 4;
+        internal const int NotTyped = 8;
+        internal const int LengthHeld = 16;
+        internal const int NoLength = 32;
 
-        // While the name holds a value: whether it is a Uint8Array whose facts are taken (0 not yet, 1 taken, 2 not
-        // one), and the facts; whether its length as an array or a typed array is held (the same states), and the
-        // length. Dropped with the value.
-        internal LocalBuilder TypedState = null!;
+        internal LocalBuilder State = null!;
+        internal LocalBuilder Number = null!;
+        internal LocalBuilder Value = null!;
         internal LocalBuilder TypedData = null!;
         internal LocalBuilder TypedOffset = null!;
         internal LocalBuilder TypedLength = null!;
-        internal LocalBuilder LengthState = null!;
         internal LocalBuilder Length = null!;
 
         // Whether the code stores a Number to the local, which then has to be written back.
@@ -725,7 +728,7 @@ internal sealed class KernelEmitter
             }
 
             var skip = il.DefineLabel();
-            il.Emit(OpCodes.Ldloc, name.HasNumber);
+            EmitHeld(name, NameLocals.NumberHeld);
             il.Emit(OpCodes.Brfalse, skip);
             il.Emit(OpCodes.Ldloc, name.Ref);
             il.Emit(OpCodes.Ldloc, name.Number);
@@ -748,18 +751,28 @@ internal sealed class KernelEmitter
         Return(value);
     }
 
+    /// <summary>The bits <paramref name="bits"/> of the name's state, left on the stack.</summary>
+    private void EmitHeld(NameLocals name, int bits)
+    {
+        _il.Emit(OpCodes.Ldloc, name.State);
+        _il.Emit(OpCodes.Ldc_I4, bits);
+        _il.Emit(OpCodes.And);
+    }
+
+    private void EmitAddState(NameLocals name, int bits)
+    {
+        _il.Emit(OpCodes.Ldloc, name.State);
+        _il.Emit(OpCodes.Ldc_I4, bits);
+        _il.Emit(OpCodes.Or);
+        _il.Emit(OpCodes.Stloc, name.State);
+    }
+
     /// <summary>The locals of a name dropped, after a store to its binding that did not go through them.</summary>
     private void EmitDrop(NameLocals name)
     {
         var il = _il;
         il.Emit(OpCodes.Ldc_I4_0);
-        il.Emit(OpCodes.Stloc, name.HasNumber);
-        il.Emit(OpCodes.Ldc_I4_0);
-        il.Emit(OpCodes.Stloc, name.HasValue);
-        il.Emit(OpCodes.Ldc_I4_0);
-        il.Emit(OpCodes.Stloc, name.TypedState);
-        il.Emit(OpCodes.Ldc_I4_0);
-        il.Emit(OpCodes.Stloc, name.LengthState);
+        il.Emit(OpCodes.Stloc, name.State);
     }
 
     // ----- expressions -----
@@ -882,13 +895,11 @@ internal sealed class KernelEmitter
                         // The length of an array or a typed array the name holds, held with it.
                         var locals = Name(held);
                         var known = il.DefineLabel();
-                        il.Emit(OpCodes.Ldloc, locals.LengthState);
-                        il.Emit(OpCodes.Ldc_I4_1);
-                        il.Emit(OpCodes.Beq, known);
-                        il.Emit(OpCodes.Ldloc, locals.LengthState);
-                        il.Emit(OpCodes.Brtrue, generic);
-                        il.Emit(OpCodes.Ldloc, locals.HasValue);
-                        il.Emit(OpCodes.Brfalse, generic);
+                        EmitHeld(locals, NameLocals.LengthHeld);
+                        il.Emit(OpCodes.Brtrue, known);
+                        EmitHeld(locals, NameLocals.ValueHeld | NameLocals.NoLength);
+                        il.Emit(OpCodes.Ldc_I4, NameLocals.ValueHeld);
+                        il.Emit(OpCodes.Bne_Un, generic);
                         EmitHot(property, typeof(KernelProperty));
                         il.Emit(OpCodes.Ldloc, target);
                         il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.LengthFact)));
@@ -899,16 +910,13 @@ internal sealed class KernelEmitter
                         il.Emit(OpCodes.Stloc, locals.Length);
                         il.Emit(OpCodes.Ldloc, fact);
                         il.Emit(OpCodes.Ldfld, ResultValue);
-                        il.Emit(OpCodes.Ldnull);
-                        il.Emit(OpCodes.Ceq);
-                        il.Emit(OpCodes.Ldc_I4_2);
-                        il.Emit(OpCodes.Sub);
-                        il.Emit(OpCodes.Neg);
-                        il.Emit(OpCodes.Stloc, locals.LengthState);
                         Return(fact);
-                        il.Emit(OpCodes.Ldloc, locals.LengthState);
-                        il.Emit(OpCodes.Ldc_I4_1);
-                        il.Emit(OpCodes.Bne_Un, generic);
+                        var hasLength = il.DefineLabel();
+                        il.Emit(OpCodes.Brfalse, hasLength);
+                        EmitAddState(locals, NameLocals.NoLength);
+                        il.Emit(OpCodes.Br, generic);
+                        il.MarkLabel(hasLength);
+                        EmitAddState(locals, NameLocals.LengthHeld);
                         il.MarkLabel(known);
                         il.Emit(OpCodes.Ldloc, locals.Length);
                         il.Emit(OpCodes.Stloc, number);
@@ -1257,7 +1265,7 @@ internal sealed class KernelEmitter
         var notNumber = il.DefineLabel();
         var cold = il.DefineLabel();
         var done = il.DefineLabel();
-        il.Emit(OpCodes.Ldloc, locals.HasNumber);
+        EmitHeld(locals, NameLocals.NumberHeld);
         il.Emit(OpCodes.Brfalse, notNumber);
         il.Emit(OpCodes.Ldnull);
         il.Emit(OpCodes.Stloc, value);
@@ -1265,7 +1273,7 @@ internal sealed class KernelEmitter
         il.Emit(OpCodes.Stloc, number);
         il.Emit(OpCodes.Br, done);
         il.MarkLabel(notNumber);
-        il.Emit(OpCodes.Ldloc, locals.HasValue);
+        EmitHeld(locals, NameLocals.ValueHeld);
         il.Emit(OpCodes.Brfalse, cold);
         il.Emit(OpCodes.Ldloc, locals.Value);
         il.Emit(OpCodes.Stloc, value);
@@ -1308,14 +1316,14 @@ internal sealed class KernelEmitter
         il.MarkLabel(held);
         il.Emit(OpCodes.Ldloc, number);
         il.Emit(OpCodes.Stloc, locals.Number);
-        il.Emit(OpCodes.Ldc_I4_1);
-        il.Emit(OpCodes.Stloc, locals.HasNumber);
+        il.Emit(OpCodes.Ldc_I4, NameLocals.NumberHeld);
+        il.Emit(OpCodes.Stloc, locals.State);
         il.Emit(OpCodes.Br, done);
         il.MarkLabel(heldValue);
         il.Emit(OpCodes.Ldloc, value);
         il.Emit(OpCodes.Stloc, locals.Value);
-        il.Emit(OpCodes.Ldc_I4_1);
-        il.Emit(OpCodes.Stloc, locals.HasValue);
+        il.Emit(OpCodes.Ldc_I4, NameLocals.ValueHeld);
+        il.Emit(OpCodes.Stloc, locals.State);
         il.MarkLabel(done);
         Return(read);
     }
@@ -1365,13 +1373,13 @@ internal sealed class KernelEmitter
                     var result = Rent(typeof(double));
                     var value = Rent(typeof(JsValue));
                     var number = Rent(typeof(double));
-                    il.Emit(OpCodes.Ldloc, locals.HasNumber);
+                    EmitHeld(locals, NameLocals.NumberHeld);
                     il.Emit(OpCodes.Brfalse, notNumber);
                     il.Emit(OpCodes.Ldloc, locals.Number);
                     il.Emit(OpCodes.Stloc, result);
                     il.Emit(OpCodes.Br, done);
                     il.MarkLabel(notNumber);
-                    il.Emit(OpCodes.Ldloc, locals.HasValue);
+                    EmitHeld(locals, NameLocals.ValueHeld);
                     il.Emit(OpCodes.Brfalse, cold);
                     il.Emit(OpCodes.Ldloc, locals.Value);
                     il.Emit(OpCodes.Stloc, value);
@@ -1827,7 +1835,7 @@ internal sealed class KernelEmitter
                     var unheld = il.DefineLabel();
                     var found = il.DefineLabel();
                     var throughSlot = il.DefineLabel();
-                    il.Emit(OpCodes.Ldloc, target.HasNumber);
+                    EmitHeld(target, NameLocals.NumberHeld);
                     il.Emit(OpCodes.Brfalse, unheld);
                     il.Emit(OpCodes.Ldloc, target.Ref);
                     il.Emit(OpCodes.Stloc, binding);
@@ -1847,7 +1855,7 @@ internal sealed class KernelEmitter
 
                     // Held after the right-hand side only if nothing else ran, or it read the name back through the
                     // same slot.
-                    il.Emit(OpCodes.Ldloc, target.HasNumber);
+                    EmitHeld(target, NameLocals.NumberHeld);
                     il.Emit(OpCodes.Brfalse, throughSlot);
                     il.Emit(OpCodes.Ldloc, resultValue);
                     il.Emit(OpCodes.Brtrue, throughSlot);
@@ -1895,7 +1903,7 @@ internal sealed class KernelEmitter
                     var target = Name(update._target);
                     var unheld = il.DefineLabel();
                     var old = Rent(typeof(double));
-                    il.Emit(OpCodes.Ldloc, target.HasNumber);
+                    EmitHeld(target, NameLocals.NumberHeld);
                     il.Emit(OpCodes.Brfalse, unheld);
                     il.Emit(OpCodes.Ldloc, target.Number);
                     il.Emit(OpCodes.Stloc, old);
@@ -1943,7 +1951,7 @@ internal sealed class KernelEmitter
                     var environment = Rent(typeof(DeclarativeEnvironment));
                     var ready = il.DefineLabel();
                     var toSlot = il.DefineLabel();
-                    il.Emit(OpCodes.Ldloc, target.HasNumber);
+                    EmitHeld(target, NameLocals.NumberHeld);
                     il.Emit(OpCodes.Brtrue, ready);
                     EmitFind(compound._target, binding, environment);
                     il.Emit(OpCodes.Ldloc, binding);
@@ -1959,7 +1967,7 @@ internal sealed class KernelEmitter
                     il.Emit(OpCodes.Stloc, resultValue);
 
                     // A pure operation leaves a held name held, and holds one it read through the same slot.
-                    il.Emit(OpCodes.Ldloc, target.HasNumber);
+                    EmitHeld(target, NameLocals.NumberHeld);
                     il.Emit(OpCodes.Brfalse, toSlot);
                     il.Emit(OpCodes.Ldloc, resultNumber);
                     il.Emit(OpCodes.Stloc, target.Number);
@@ -2053,13 +2061,11 @@ internal sealed class KernelEmitter
     {
         var il = _il;
         var known = il.DefineLabel();
-        il.Emit(OpCodes.Ldloc, locals.TypedState);
-        il.Emit(OpCodes.Ldc_I4_1);
-        il.Emit(OpCodes.Beq, known);
-        il.Emit(OpCodes.Ldloc, locals.TypedState);
-        il.Emit(OpCodes.Brtrue, generic);
-        il.Emit(OpCodes.Ldloc, locals.HasValue);
-        il.Emit(OpCodes.Brfalse, generic);
+        EmitHeld(locals, NameLocals.TypedHeld);
+        il.Emit(OpCodes.Brtrue, known);
+        EmitHeld(locals, NameLocals.ValueHeld | NameLocals.NotTyped);
+        il.Emit(OpCodes.Ldc_I4, NameLocals.ValueHeld);
+        il.Emit(OpCodes.Bne_Un, generic);
         il.Emit(OpCodes.Ldloc, target);
         il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.TypedFacts)));
         var facts = Rent(typeof(KernelTypedFacts));
@@ -2075,31 +2081,53 @@ internal sealed class KernelEmitter
         il.Emit(OpCodes.Stloc, locals.TypedLength);
         Return(facts);
 
-        // 1 with facts, 2 without.
-        il.Emit(OpCodes.Ldc_I4_2);
-        il.Emit(OpCodes.Stloc, locals.TypedState);
+        var typed = il.DefineLabel();
         il.Emit(OpCodes.Ldloc, locals.TypedData);
-        il.Emit(OpCodes.Brfalse, generic);
-        il.Emit(OpCodes.Ldc_I4_1);
-        il.Emit(OpCodes.Stloc, locals.TypedState);
+        il.Emit(OpCodes.Brtrue, typed);
+        EmitAddState(locals, NameLocals.NotTyped);
+        il.Emit(OpCodes.Br, generic);
+        il.MarkLabel(typed);
+        EmitAddState(locals, NameLocals.TypedHeld);
 
-        // An index of an element: 0 <= key < length, an integer (-0 is "0"); NaN fails the first test.
+        // An index of an element: an integer the key converts to and back exactly (-0 is "0"; NaN and keys out of
+        // range do not), below the length.
         il.MarkLabel(known);
         il.Emit(OpCodes.Ldloc, key);
-        il.Emit(OpCodes.Ldc_R8, 0.0);
-        il.Emit(OpCodes.Blt_Un, generic);
-        il.Emit(OpCodes.Ldloc, key);
-        il.Emit(OpCodes.Ldloc, locals.TypedLength);
-        il.Emit(OpCodes.Conv_R8);
-        il.Emit(OpCodes.Bge_Un, generic);
-        il.Emit(OpCodes.Ldloc, key);
-        il.Emit(OpCodes.Conv_I4);
+        EmitTruncate();
         il.Emit(OpCodes.Stloc, index);
         il.Emit(OpCodes.Ldloc, index);
         il.Emit(OpCodes.Conv_R8);
         il.Emit(OpCodes.Ldloc, key);
         il.Emit(OpCodes.Bne_Un, generic);
+        il.Emit(OpCodes.Ldloc, index);
+        il.Emit(OpCodes.Ldloc, locals.TypedLength);
+        il.Emit(OpCodes.Bge_Un, generic);
     }
+
+    /// <summary>
+    /// The double on the stack truncated to an int, any int for NaN or a value out of range: one instruction where
+    /// the processor has one, rather than the saturating conversion of <c>conv.i4</c>.
+    /// </summary>
+    private void EmitTruncate()
+    {
+        if (TruncateScalar is not null)
+        {
+            _il.Emit(OpCodes.Call, CreateScalar!);
+            _il.Emit(OpCodes.Call, TruncateScalar);
+        }
+        else
+        {
+            _il.Emit(OpCodes.Conv_I4);
+        }
+    }
+
+    private static readonly MethodInfo? CreateScalar = typeof(System.Runtime.Intrinsics.Vector128).GetMethod(
+        nameof(System.Runtime.Intrinsics.Vector128.CreateScalarUnsafe), [typeof(double)]);
+
+    private static readonly MethodInfo? TruncateScalar = System.Runtime.Intrinsics.X86.Sse2.IsSupported && CreateScalar is not null
+        ? typeof(System.Runtime.Intrinsics.X86.Sse2).GetMethod(
+            nameof(System.Runtime.Intrinsics.X86.Sse2.ConvertToInt32WithTruncation), [typeof(System.Runtime.Intrinsics.Vector128<double>)])
+        : null;
 
     private void EmitInterpretEffect(KernelEffect effect, bool valueUsed, LocalBuilder value)
     {
@@ -2156,14 +2184,11 @@ internal sealed class KernelEmitter
                 Ref = _il.DeclareLocal(typeof(Binding).MakeByRefType()),
                 Environment = _il.DeclareLocal(typeof(DeclarativeEnvironment)),
                 Number = _il.DeclareLocal(typeof(double)),
-                HasNumber = _il.DeclareLocal(typeof(bool)),
                 Value = _il.DeclareLocal(typeof(JsValue)),
-                HasValue = _il.DeclareLocal(typeof(bool)),
-                TypedState = _il.DeclareLocal(typeof(int)),
+                State = _il.DeclareLocal(typeof(int)),
                 TypedData = _il.DeclareLocal(typeof(byte[])),
                 TypedOffset = _il.DeclareLocal(typeof(int)),
                 TypedLength = _il.DeclareLocal(typeof(int)),
-                LengthState = _il.DeclareLocal(typeof(int)),
                 Length = _il.DeclareLocal(typeof(double)),
             };
             _names[name._binding] = locals;
