@@ -49,7 +49,9 @@ internal sealed class KernelElement : KernelExpression
 
         if (target is JsTypedArray typedArray)
         {
-            return typedArray.ReadNumberKey(key, out number);
+            var element = KernelCodeRuntime.ReadTypedElement(typedArray, key);
+            number = element.Number;
+            return element.Value;
         }
 
         if (target is JsArray array)
@@ -151,6 +153,15 @@ internal sealed class KernelProperty : KernelExpression
 
             if (target is JsTypedArray typedArray)
             {
+                // What ReadTypedArrayLength answers while what it checked last holds, for a fixed-length view.
+                if (CachedTypedArrayLengthHolds(typedArray)
+                    && typedArray._viewedArrayBuffer is { _arrayBufferData: not null, _arrayBufferMaxByteLength: null }
+                    && typedArray._arrayLength != JsTypedArray.LengthAuto)
+                {
+                    number = typedArray._arrayLength;
+                    return null;
+                }
+
                 return ReadTypedArrayLength(typedArray, out number);
             }
         }
@@ -277,6 +288,12 @@ internal sealed class KernelCall : KernelExpression
     internal JintFunctionDefinition? _registerDefinition;
     internal JintFunctionDefinition.State? _registerState;
 
+    // The body of the definition last probed, when the tree computes it in place (see KernelInlineBody), with the
+    // site that accepts its callees; and which Math function the fast callee is, when it is one computed in place.
+    private KernelInlineBody? _inlineBody;
+    private KernelInlineSite? _inlineSite;
+    private int _intrinsic;
+
     // What a call made on the tree counts for in statements towards compiling the kernel (LoopKernel.WorthCompiling):
     // measured on the WebGL conformance loops, a call of a small script function takes the tree about as long as 20
     // to 30 statements of its own, a built-in's about 3.
@@ -321,7 +338,7 @@ internal sealed class KernelCall : KernelExpression
         if (function is ScriptFunction script)
         {
             frame.Work += ScriptCallWork;
-            return CallScript(frame, script, thisValue);
+            return CallScript(frame, script, thisValue, out number);
         }
 
         frame.Work += BuiltinCallWork;
@@ -340,10 +357,34 @@ internal sealed class KernelCall : KernelExpression
 
             _fastCallee = function;
             _fastShape = shape;
+            _intrinsic = _arguments.Length == 1 ? KernelIntrinsics.Identify(function) : KernelIntrinsics.None;
         }
 
         // Before any argument runs: an argument can call back into this kernel and record another callee here.
         var fastShape = _fastShape;
+        var intrinsic = _intrinsic;
+        if (intrinsic != KernelIntrinsics.None)
+        {
+            // A Math function of a Number, computed as the built-in computes it: it runs no script and cannot throw.
+            var argument = _arguments[0].Evaluate(frame, out number);
+            if (argument is null)
+            {
+                number = KernelIntrinsics.Compute(intrinsic, number);
+                return null;
+            }
+
+            if ((argument._type & (InternalTypes.Number | InternalTypes.Integer)) != InternalTypes.Empty)
+            {
+                number = KernelIntrinsics.Compute(intrinsic, Unsafe.As<JsNumber>(argument)._value);
+                return null;
+            }
+
+            number = 0;
+            return fastShape.IsLeafFor(thisValue, argument, JsValue.Undefined)
+                ? function.CallFast(thisValue, argument, JsValue.Undefined)
+                : CallWithFrame(frame, function, thisValue, argument, JsValue.Undefined);
+        }
+
         var arg0 = _arguments.Length >= 1 ? Box(_arguments[0].Evaluate(frame, out var n0), n0) : JsValue.Undefined;
         var arg1 = _arguments.Length >= 2 ? Box(_arguments[1].Evaluate(frame, out var n1), n1) : JsValue.Undefined;
 
@@ -379,6 +420,7 @@ internal sealed class KernelCall : KernelExpression
                 {
                     _registerDefinition = definition;
                     _registerState = script.TryInitializeDefinition() is { SupportsRegisterCall: true } probed ? probed : null;
+                    ProbeInlineBody();
                 }
 
                 if (_registerState is { } registerState)
@@ -406,6 +448,7 @@ internal sealed class KernelCall : KernelExpression
 
             _fastCallee = function;
             _fastShape = probedShape;
+            _intrinsic = _arguments.Length == 1 ? KernelIntrinsics.Identify(function) : KernelIntrinsics.None;
         }
 
         shape = _fastShape;
@@ -492,8 +535,9 @@ internal sealed class KernelCall : KernelExpression
         return result;
     }
 
-    private JsValue CallScript(KernelFrame frame, ScriptFunction function, JsValue thisValue)
+    private JsValue? CallScript(KernelFrame frame, ScriptFunction function, JsValue thisValue, out double number)
     {
+        number = 0;
         var engine = frame.Engine;
         var arguments = _arguments;
         if (arguments.Length <= 4 && !function._isClassConstructor)
@@ -504,11 +548,17 @@ internal sealed class KernelCall : KernelExpression
                 // What JintCallExpression.ProbeRegisterCallee records.
                 _registerDefinition = definition;
                 _registerState = function.TryInitializeDefinition() is { SupportsRegisterCall: true } probed ? probed : null;
+                ProbeInlineBody();
             }
 
             // Before any argument runs: an argument can call back into this kernel and probe another callee here.
             if (_registerState is { } state)
             {
+                if (_inlineBody is { } body && _inlineSite!.Accepts(function, engine))
+                {
+                    return CallInline(frame, function, thisValue, state, body, out number);
+                }
+
                 return CallRegisters(frame, function, thisValue, state);
             }
         }
@@ -548,6 +598,103 @@ internal sealed class KernelCall : KernelExpression
 
         engine.RestoreLastSyntaxElement(in oldSyntaxElement);
         return result;
+    }
+
+    /// <summary>
+    /// Whether the tree computes the body of the definition just probed in place: a call of a name (whose
+    /// <c>this</c> the body cannot read anyway) through the register lane, of a body <see cref="KernelInlineBody"/>
+    /// accepts, as compiled code computes it.
+    /// </summary>
+    private void ProbeInlineBody()
+    {
+        _inlineBody = null;
+        _inlineSite = null;
+        if (_member is null && _registerState is not null && _registerDefinition is { } definition
+            && KernelInlineBody.TryCreate(definition, _arguments.Length) is { } body)
+        {
+            _inlineBody = body;
+            _inlineSite = new KernelInlineSite(definition, body.MathKinds.ToArray());
+        }
+    }
+
+    /// <summary>
+    /// The two statement checks a call of an inlined body runs (the body's and its <c>return</c>'s), taken when neither
+    /// would run a constraint; false, having taken neither, otherwise.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool TryTakeInlineChecks(KernelFrame frame)
+    {
+        var context = frame.Context;
+        var engine = frame.Engine;
+        var exact = context.ShouldRunPerStatementChecks;
+        if (exact)
+        {
+            if (engine._statementsBeforeExactChecks < 2)
+            {
+                return false;
+            }
+        }
+        else if (context.StatementCounter is not null)
+        {
+            return false;
+        }
+
+        if (context.RunsAmortizedChecks)
+        {
+            if (engine._amortizedConstraintCountdown < 3)
+            {
+                return false;
+            }
+
+            engine._amortizedConstraintCountdown -= 2;
+        }
+
+        if (exact)
+        {
+            engine._statementsBeforeExactChecks -= 2;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// A call of a function whose body the tree computes in place, the callee accepted by the site: the arguments
+    /// evaluated in order, then the body computed when every one is a Number and its statement checks would pass
+    /// without running anything; otherwise the call made through the register lane with the arguments evaluated.
+    /// </summary>
+    private JsValue? CallInline(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, KernelInlineBody body, out double number)
+    {
+        var arguments = _arguments;
+        var count = arguments.Length;
+        double n0 = 0, n1 = 0, n2 = 0, n3 = 0;
+        var v0 = count >= 1 ? arguments[0].Evaluate(frame, out n0) : null;
+        var v1 = count >= 2 ? arguments[1].Evaluate(frame, out n1) : null;
+        var v2 = count >= 3 ? arguments[2].Evaluate(frame, out n2) : null;
+        var v3 = count >= 4 ? arguments[3].Evaluate(frame, out n3) : null;
+        if (IsNumber(v0, ref n0) && IsNumber(v1, ref n1) && IsNumber(v2, ref n2) && IsNumber(v3, ref n3) && TryTakeInlineChecks(frame))
+        {
+            var result = body.Compute(n0, n1, n2, n3);
+            if (body.IsBoolean)
+            {
+                number = 0;
+                return result != 0 ? JsBoolean.True : JsBoolean.False;
+            }
+
+            number = result;
+            return null;
+        }
+
+        number = 0;
+        return CallFromRegisters(
+            frame,
+            function,
+            thisValue,
+            state,
+            count >= 1 ? Box(v0, n0) : JsValue.Undefined,
+            count >= 2 ? Box(v1, n1) : JsValue.Undefined,
+            count >= 3 ? Box(v2, n2) : JsValue.Undefined,
+            count >= 4 ? Box(v3, n3) : JsValue.Undefined,
+            count);
     }
 
     /// <summary>JintCallExpression.RegisterLaneCall: the arguments in locals, the callee's own register entry.</summary>

@@ -113,6 +113,23 @@ internal static class KernelIntrinsics
 
     internal static string Name(int kind) => Names[kind];
 
+    /// <summary>The function a Math property of this name is, or <see cref="None"/>.</summary>
+    internal static int Kind(string name)
+    {
+        var kind = System.Array.IndexOf(Names, name);
+        return kind > 0 ? kind : None;
+    }
+
+    /// <summary>Function <paramref name="kind"/> of a Number, as its built-in computes it.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static double Compute(int kind, double value) => kind switch
+    {
+        Abs => System.Math.Abs(value),
+        Floor => System.Math.Floor(value),
+        Ceil => System.Math.Ceiling(value),
+        _ => System.Math.Sqrt(value),
+    };
+
     /// <summary>Which of the functions <paramref name="function"/> is in its realm, or <see cref="None"/>.</summary>
     internal static int Identify(Native.Function.Function function)
     {

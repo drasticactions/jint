@@ -1059,7 +1059,7 @@ internal sealed class KernelEmitter
             && call._callee is not null
             && call._registerState is not null
             && call._registerDefinition is { } definition
-            && InlineBody.TryCreate(definition, call._arguments.Length) is { } body)
+            && KernelInlineBody.TryCreate(definition, call._arguments.Length) is { } body)
         {
             EmitInlineCall(call, body, value, number);
             return;
@@ -1156,128 +1156,19 @@ internal sealed class KernelEmitter
         Return(thisValue);
     }
 
-    /// <summary>
-    /// The body of a function a call site computes in place (see <see cref="KernelInlineSite"/>): <c>return</c> of
-    /// Number arithmetic and comparisons over its simple parameters, Number literals and the Math functions of
-    /// <see cref="KernelIntrinsics"/>, so that for Number arguments it runs no script, throws nothing and allocates
-    /// nothing.
-    /// </summary>
-    [RequiresDynamicCode("Part of the emitter.")]
-    private sealed class InlineBody
-    {
-        internal readonly Expression Result;
-        internal readonly string[] Parameters;
-        internal readonly List<int> MathKinds = [];
-        internal bool IsBoolean;
-
-        private InlineBody(Expression result, string[] parameters)
-        {
-            Result = result;
-            Parameters = parameters;
-        }
-
-        internal static InlineBody? TryCreate(JintFunctionDefinition definition, int argumentCount)
-        {
-            var function = definition.Function;
-            if (function.Generator || function.Async || function.Params.Count != argumentCount || argumentCount > 4)
-            {
-                return null;
-            }
-
-            var parameters = new string[argumentCount];
-            for (var i = 0; i < parameters.Length; i++)
-            {
-                if (function.Params[i] is not Identifier { Name: var name }
-                    || name is "arguments" or "eval" or "Math"
-                    || Array.IndexOf(parameters, name, 0, i) >= 0)
-                {
-                    return null;
-                }
-
-                parameters[i] = name;
-            }
-
-            if (function.Body is not FunctionBody { Body: { Count: 1 } statements } || statements[0] is not ReturnStatement { Argument: { } result })
-            {
-                return null;
-            }
-
-            var body = new InlineBody(result, parameters);
-            var kind = body.Classify(result);
-            if (kind == Invalid)
-            {
-                return null;
-            }
-
-            body.IsBoolean = kind == Boolean;
-            return body;
-        }
-
-        internal const int Invalid = 0;
-        internal const int Number = 1;
-        internal const int Boolean = 2;
-
-        /// <summary>What <paramref name="expression"/> answers for Number parameters: a Number, a boolean, or something not computed in place.</summary>
-        private int Classify(Expression expression)
-        {
-            switch (expression)
-            {
-                case Literal literal:
-                    return JintLiteralExpression.ConvertToJsValue(literal) is JsNumber ? Number : Invalid;
-
-                case Identifier identifier:
-                    return Array.IndexOf(Parameters, identifier.Name) >= 0 ? Number : Invalid;
-
-                case NonUpdateUnaryExpression { Operator: Operator.UnaryNegation or Operator.UnaryPlus } unary:
-                    return Classify(unary.Argument) == Number ? Number : Invalid;
-
-                case NonLogicalBinaryExpression binary when KernelBinary.IsSupported(binary.Operator):
-                    if (Classify(binary.Left) != Number || Classify(binary.Right) != Number)
-                    {
-                        return Invalid;
-                    }
-
-                    return IsComparison(binary.Operator) ? Boolean : Number;
-
-                case CallExpression
-                {
-                    Optional: false,
-                    Callee: MemberExpression { Computed: false, Optional: false, Object: Identifier { Name: "Math" }, Property: Identifier { Name: var name } },
-                    Arguments: { Count: 1 } arguments,
-                } when arguments[0] is Expression argument && Array.IndexOf(KernelIntrinsicNames, name) is var kind and > 0:
-                    if (Classify(argument) != Number)
-                    {
-                        return Invalid;
-                    }
-
-                    if (!MathKinds.Contains(kind))
-                    {
-                        MathKinds.Add(kind);
-                    }
-
-                    return Number;
-
-                default:
-                    return Invalid;
-            }
-        }
-    }
-
-    private static readonly string[] KernelIntrinsicNames = ["", "abs", "floor", "ceil", "sqrt"];
-
     private static bool IsComparison(Operator op) => op
         is Operator.LessThan or Operator.LessThanOrEqual or Operator.GreaterThan or Operator.GreaterThanOrEqual
         or Operator.Equality or Operator.Inequality or Operator.StrictEquality or Operator.StrictInequality;
 
     /// <summary>
-    /// A call of a function whose body the code computes in place (<see cref="InlineBody"/>): the callee read, which
+    /// A call of a function whose body the code computes in place (<see cref="KernelInlineBody"/>): the callee read, which
     /// must be one <see cref="KernelInlineSite.Accepts"/> (held until anything else runs), the arguments evaluated in
     /// order, then the body computed when every argument is a Number and the body's two statement checks (the body
     /// and its <c>return</c>) would pass without running anything; otherwise the call made through the register lane
     /// with the arguments evaluated. A callee read that is anything else makes the call as
     /// <see cref="EmitCallThroughLanes"/> makes it, reading the callee again (a read that runs nothing).
     /// </summary>
-    private void EmitInlineCall(KernelCall call, InlineBody body, LocalBuilder value, LocalBuilder number)
+    private void EmitInlineCall(KernelCall call, KernelInlineBody body, LocalBuilder value, LocalBuilder number)
     {
         var il = _il;
         var site = new KernelInlineSite(call._registerDefinition!, body.MathKinds.ToArray());
@@ -1439,7 +1330,7 @@ internal sealed class KernelEmitter
     }
 
     /// <summary>A Number expression of an inlined body, its parameters' Numbers in locals, left on the stack.</summary>
-    private void EmitInlineNumber(InlineBody body, Expression expression, LocalBuilder[] parameters)
+    private void EmitInlineNumber(KernelInlineBody body, Expression expression, LocalBuilder[] parameters)
     {
         var il = _il;
         switch (expression)
@@ -1479,7 +1370,7 @@ internal sealed class KernelEmitter
                 {
                     var name = ((Identifier) ((MemberExpression) call.Callee).Property).Name;
                     EmitInlineNumber(body, (Expression) call.Arguments[0], parameters);
-                    il.Emit(OpCodes.Call, KernelIntrinsics.Method(Array.IndexOf(KernelIntrinsicNames, name)));
+                    il.Emit(OpCodes.Call, KernelIntrinsics.Method(KernelIntrinsics.Kind(name)));
                     return;
                 }
 
@@ -1489,7 +1380,7 @@ internal sealed class KernelEmitter
     }
 
     /// <summary>Jumps to <paramref name="target"/> when the comparison an inlined body returns is true.</summary>
-    private void EmitInlineBranch(InlineBody body, NonLogicalBinaryExpression comparison, LocalBuilder[] parameters, Label target)
+    private void EmitInlineBranch(KernelInlineBody body, NonLogicalBinaryExpression comparison, LocalBuilder[] parameters, Label target)
     {
         var il = _il;
         var left = Rent(typeof(double));

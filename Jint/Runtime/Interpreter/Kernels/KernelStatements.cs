@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Jint.Native;
+using Jint.Native.TypedArray;
 using Jint.Runtime.Interpreter.Statements;
 
 namespace Jint.Runtime.Interpreter.Kernels;
@@ -41,9 +42,41 @@ internal abstract class KernelStatement
     protected void RunChecks(KernelFrame frame)
     {
         frame.Work++;
+        RunChecks(frame, _statement);
+    }
+
+    /// <summary>
+    /// <see cref="EvaluationContext.PrepareFor"/> and <see cref="EvaluationContext.RunBeforeExecuteStatementChecks"/>
+    /// of <paramref name="statement"/>, with a statement the exact constraints let pass taken in place: a kernel runs
+    /// without coverage or a debugger (<see cref="KernelProgram.CanRun"/>), which are all the per-statement checks do
+    /// besides the constraints.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static void RunChecks(KernelFrame frame, Statement statement)
+    {
         var context = frame.Context;
-        context.PrepareFor(_statement);
-        context.RunBeforeExecuteStatementChecks(_statement);
+        var engine = frame.Engine;
+        engine.SetLastSyntaxElement(statement);
+        if (context.ShouldRunPerStatementChecks)
+        {
+            if (engine._statementsBeforeExactChecks > 0)
+            {
+                engine._statementsBeforeExactChecks--;
+            }
+            else
+            {
+                engine.RunPerStatementChecks(statement);
+            }
+        }
+        else
+        {
+            context.ChargeStatement();
+        }
+
+        if (context.RunsAmortizedChecks && --engine._amortizedConstraintCountdown <= 0)
+        {
+            KernelCodeRuntime.CheckAmortized(engine);
+        }
     }
 }
 
@@ -305,7 +338,11 @@ internal sealed class KernelForStatement : KernelStatement
         _update = update;
         _body = body;
         _owner = owner;
+        _header = KernelLoopHeader.TryCreate(test, update);
     }
+
+    // The test and update taken in place when they count a name up or down to a limit (see KernelLoopHeader).
+    internal readonly KernelLoopHeader? _header;
 
     // The kernel this loop belongs to, and the entry of the kernel's code at this loop's head (see KernelCode).
     internal LoopKernel _kernel = null!;
@@ -331,6 +368,11 @@ internal sealed class KernelForStatement : KernelStatement
         var test = _test;
         var update = _update;
         var body = _body;
+        var header = _header;
+
+        // The counter's Number as the update stored it, which the test that follows reads (nothing runs between).
+        var counted = false;
+        var counter = 0.0;
         while (true)
         {
             // An iteration about to begin can as well begin in the kernel's code: everything the tree has done is in
@@ -341,7 +383,20 @@ internal sealed class KernelForStatement : KernelStatement
                 return EnterCode(frame, code);
             }
 
-            if (test is not null && test.Test(frame) != 1)
+            if (header is not null)
+            {
+                var result = header.Test(frame, counted, counter);
+                if (result < 0)
+                {
+                    result = test!.Test(frame);
+                }
+
+                if (result != 1)
+                {
+                    return Normal;
+                }
+            }
+            else if (test is not null && test.Test(frame) != 1)
             {
                 return Normal;
             }
@@ -371,7 +426,18 @@ internal sealed class KernelForStatement : KernelStatement
                 }
             }
 
-            update?.EvaluateDiscarded(frame);
+            if (header is not null)
+            {
+                counted = header.Update(frame, out counter);
+                if (!counted)
+                {
+                    update!.EvaluateDiscarded(frame);
+                }
+            }
+            else
+            {
+                update?.EvaluateDiscarded(frame);
+            }
         }
     }
 
@@ -426,5 +492,164 @@ internal sealed class KernelForStatement : KernelStatement
     {
         var completion = frame.Abrupt;
         return completion.Type == CompletionType.Continue && _owner is not null && _owner.ContinuesWith(completion.Target!);
+    }
+}
+
+/// <summary>
+/// The test and the update of a loop that counts a name: a test <c>counter &lt;op&gt; limit</c> comparing it with a
+/// Number literal, a name or the <c>length</c> of a name, and an update <c>++counter</c>, <c>counter++</c>,
+/// <c>--counter</c>, <c>counter--</c> or <c>counter += literal</c> (<c>-=</c>). Each is taken in place, without a
+/// node per operand, in the cases where its nodes complete with a Number: the counter's slot holds a Number (and, for
+/// the update, is a mutable binding), the limit is a Number, an array's length, or a typed array's length its node has
+/// found the built-in getter answers. Every other case is left to the nodes, which repeat nothing observable: the
+/// test is pure and a case the update does not take has done nothing yet.
+/// </summary>
+internal sealed class KernelLoopHeader
+{
+    private const int LimitNumber = 0;
+    private const int LimitName = 1;
+    private const int LimitLength = 2;
+
+    private readonly KernelRoot _root;
+    private readonly Acornima.Operator _operator;
+    private readonly KernelName _counter;
+    private readonly int _limitKind;
+    private readonly double _limitNumber;
+    private readonly KernelName? _limitName;
+    private readonly KernelProperty? _limitProperty;
+    private readonly int _counterBinding;
+    private readonly double _step;
+
+    private KernelLoopHeader(KernelRoot root, KernelBinary binary, KernelName counter, int limitKind, double limitNumber, KernelName? limitName, KernelProperty? limitProperty, double step)
+    {
+        _root = root;
+        _operator = binary._operator;
+        _counter = counter;
+        _counterBinding = counter._binding;
+        _limitKind = limitKind;
+        _limitNumber = limitNumber;
+        _limitName = limitName;
+        _limitProperty = limitProperty;
+        _step = step;
+    }
+
+    internal static KernelLoopHeader? TryCreate(KernelExpression? test, KernelExpression? update)
+    {
+        if (test is not KernelRoot { _pure: KernelBinary { _isComparison: true, _leftName: { } counter } binary } root)
+        {
+            return null;
+        }
+
+        double step;
+        switch (update)
+        {
+            case KernelUpdateSlot slot when slot._target._binding == counter._binding:
+                step = slot._change;
+                break;
+            case KernelCompoundSlot { _operation: { _operator: Acornima.Operator.Addition or Acornima.Operator.Subtraction, _rightNumber: { } amount } operation } compound
+                when compound._target._binding == counter._binding:
+                step = operation._operator == Acornima.Operator.Addition ? amount._value : -amount._value;
+                break;
+            default:
+                return null;
+        }
+
+        switch (binary._right)
+        {
+            case KernelNumber number:
+                return new KernelLoopHeader(root, binary, counter, LimitNumber, number._value, null, null, step);
+            case KernelName name:
+                return new KernelLoopHeader(root, binary, counter, LimitName, 0, name, null, step);
+            case KernelProperty { _isLength: true, Object: KernelName owner } property:
+                return new KernelLoopHeader(root, binary, counter, LimitLength, 0, owner, property, step);
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// The test: 1 or 0, or -1 for a case left to its node. <paramref name="counted"/> says that the update just stored
+    /// <paramref name="counter"/>, which the counter then reads.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal int Test(KernelFrame frame, bool counted, double counter)
+    {
+        if (_root._interpretOnly || (!counted && !_counter.TryReadNumber(frame, out counter)))
+        {
+            return -1;
+        }
+
+        double limit;
+        switch (_limitKind)
+        {
+            case LimitNumber:
+                limit = _limitNumber;
+                break;
+            case LimitName:
+                if (!_limitName!.TryReadNumber(frame, out limit))
+                {
+                    return -1;
+                }
+
+                break;
+            default:
+                if (!TryReadLength(frame, out limit))
+                {
+                    return -1;
+                }
+
+                break;
+        }
+
+        _root.Completed();
+        return _operator switch
+        {
+            Acornima.Operator.LessThan => counter < limit,
+            Acornima.Operator.LessThanOrEqual => counter <= limit,
+            Acornima.Operator.GreaterThan => counter > limit,
+            Acornima.Operator.GreaterThanOrEqual => counter >= limit,
+            Acornima.Operator.Equality or Acornima.Operator.StrictEquality => counter == limit,
+            _ => counter != limit,
+        } ? 1 : 0;
+    }
+
+    /// <summary>The length its node reads, where it is an array's or a fixed-length typed array's the node has cached the getter of.</summary>
+    private bool TryReadLength(KernelFrame frame, out double length)
+    {
+        var target = _limitName!.Evaluate(frame, out _);
+        if (target is JsTypedArray typedArray)
+        {
+            if (_limitProperty!.CachedTypedArrayLengthHolds(typedArray)
+                && typedArray._viewedArrayBuffer is { _arrayBufferData: not null, _arrayBufferMaxByteLength: null }
+                && typedArray._arrayLength != JsTypedArray.LengthAuto)
+            {
+                length = typedArray._arrayLength;
+                return true;
+            }
+        }
+        else if (target is JsArray array)
+        {
+            length = array.GetLength();
+            return true;
+        }
+
+        length = 0;
+        return false;
+    }
+
+    /// <summary>The update of a counter in a mutable binding holding a Number: true with the Number stored; false, having done nothing, otherwise.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal bool Update(KernelFrame frame, out double counter)
+    {
+        ref var binding = ref KernelSlots.Find(frame, _counterBinding, out _);
+        if (!Unsafe.IsNullRef(ref binding) && binding.TryGetMutableNumber(out var value))
+        {
+            counter = value + _step;
+            Environments.Binding.StoreMutableNumber(ref binding, counter);
+            return true;
+        }
+
+        counter = 0;
+        return false;
     }
 }

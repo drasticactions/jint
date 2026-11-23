@@ -290,7 +290,7 @@ internal sealed class KernelRoot : KernelExpression
     // each hand-back costs the evaluation the interpreter repeats. A hand-back lowers the score by more than an
     // evaluation that completes raises it.
     private int _score;
-    private bool _interpretOnly;
+    internal bool _interpretOnly;
     private const int ScoreCeiling = 1024;
     private const int BailCost = 16;
     private const int ScoreFloor = -64;
@@ -340,7 +340,7 @@ internal sealed class KernelRoot : KernelExpression
     internal bool InterpretTest(KernelFrame frame) => (_handler ??= JintExpression.Build(_expression)).GetBooleanValue(frame.Context);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void Completed()
+    internal void Completed()
     {
         if (_score < ScoreCeiling)
         {

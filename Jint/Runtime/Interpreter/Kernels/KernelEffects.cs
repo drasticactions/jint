@@ -297,11 +297,19 @@ internal sealed class KernelStoreElement : KernelEffect
     internal readonly KernelExpression _key;
     internal readonly KernelExpression _value;
 
+    // The operands a loop stores with most, names and a literal, read without a call.
+    internal readonly KernelName? _objectName;
+    internal readonly KernelName? _keyName;
+    internal readonly KernelNumber? _valueNumber;
+
     public KernelStoreElement(Expression expression, KernelExpression obj, KernelExpression key, KernelExpression value) : base(expression)
     {
         _object = obj;
         _key = key;
         _value = value;
+        _objectName = obj as KernelName;
+        _keyName = key as KernelName;
+        _valueNumber = value as KernelNumber;
     }
 
     internal override JsValue? Evaluate(KernelFrame frame, out double number) => TryRun(frame, out number) ? null : Interpret(frame);
@@ -316,17 +324,37 @@ internal sealed class KernelStoreElement : KernelEffect
 
     private bool TryRun(KernelFrame frame, out double number)
     {
-        if (_object.Evaluate(frame, out _) is JsTypedArray typedArray)
+        var target = _objectName is not null ? _objectName.Evaluate(frame, out _) : _object.Evaluate(frame, out _);
+        if (target is JsTypedArray typedArray)
         {
-            var key = 0.0;
-            var keyValue = _key.Evaluate(frame, out key);
-            if (IsNumber(keyValue, ref key))
+            if (_keyName is null || !_keyName.TryReadNumber(frame, out var key))
+            {
+                key = 0;
+                var keyValue = _key.Evaluate(frame, out key);
+                if (!IsNumber(keyValue, ref key))
+                {
+                    number = 0;
+                    return false;
+                }
+            }
+
+            if (_valueNumber is not null)
+            {
+                number = _valueNumber._value;
+            }
+            else
             {
                 var value = _value.Evaluate(frame, out number);
-                if (IsNumber(value, ref number) && typedArray.TryWriteNumberKey(key, number))
+                if (!IsNumber(value, ref number))
                 {
-                    return true;
+                    number = 0;
+                    return false;
                 }
+            }
+
+            if (KernelCodeRuntime.StoreTypedElement(typedArray, key, number))
+            {
+                return true;
             }
         }
 

@@ -44,7 +44,7 @@ internal sealed class KernelBinary : KernelExpression
         _ => IsComparison(op),
     };
 
-    private static bool IsComparison(Operator op) => op
+    internal static bool IsComparison(Operator op) => op
         is Operator.LessThan or Operator.LessThanOrEqual or Operator.GreaterThan or Operator.GreaterThanOrEqual
         or Operator.Equality or Operator.Inequality or Operator.StrictEquality or Operator.StrictInequality;
 
@@ -114,7 +114,11 @@ internal sealed class KernelBinary : KernelExpression
         return IsNumber(rightValue, ref right);
     }
 
-    private bool Compare(double left, double right) => _operator switch
+    private bool Compare(double left, double right) => Compare(_operator, left, right);
+
+    /// <summary>A comparison operator of two Numbers.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool Compare(Operator op, double left, double right) => op switch
     {
         Operator.LessThan => left < right,
         Operator.LessThanOrEqual => left <= right,
@@ -124,7 +128,7 @@ internal sealed class KernelBinary : KernelExpression
         _ => left != right,
     };
 
-    private static double Apply(Operator op, double left, double right)
+    internal static double Apply(Operator op, double left, double right)
     {
         switch (op)
         {

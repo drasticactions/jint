@@ -144,7 +144,7 @@ public class LoopKernelTests
           Math.floor = savedFloor;
           for (var k = 0; k < 5; k++) {
             if (k == 2) near = function (a, b) { return a + b; };
-            if (k == 3) { Math = { abs: function (x) { return "own"; } }; }
+            if (k == 3) { Math = { abs: function (x) { return "own"; }, floor: function (x) { return "own floor"; } }; }
             var f = near(k, 1), g = sq(k);
             out.push(f, g);
           }
@@ -471,6 +471,67 @@ public class LoopKernelTests
           return k + "," + failed + "," + bad;
         }
         """,
+        // loops that count a name to a limit, which the tree tests and updates in place: limits that change, that are
+        // not Numbers (one converting through valueOf), lengths that change or that a getter or an own property answers,
+        // counters that are not Numbers, that the body changes, that are constants, and every comparison and step
+        """
+        function test() {
+          var out = [], log = [], n = 5, s = "4", o = { valueOf: function () { log.push("v"); return 3; } };
+          for (var i = 0; i < n; i++) { if (i == 2) n = 4; out.push(i); }
+          for (var i2 = 0; i2 < s; i2++) { if (i2 == 2) s = "x"; out.push(i2); }
+          for (var i3 = 0; i3 < o; i3++) out.push(i3);
+          for (var i4 = "0"; i4 < 3; i4++) out.push(typeof i4, i4);
+          for (var i5 = 0; i5 <= 10; i5 += 3) { if (i5 == 3) i5 = "4"; out.push(i5); }
+          for (var i6 = 9; i6 >= 0; i6 -= 2.5) out.push(i6);
+          for (var i7 = 6; i7 > 0; i7--) out.push(i7);
+          for (var i8 = 0; i8 != 6; ++i8) { if (i8 == 3) i8 = 4; out.push(i8); }
+          for (var i9 = 0; i9 !== 3; i9++) out.push(i9);
+          for (var i10 = 1; i10 == 1; i10++) out.push(i10);
+          for (var i11 = -2; i11 < NaN; i11++) out.push("never");
+          for (var i12 = 0; i12 < undefined; i12++) out.push("never");
+          for (var i13 = 0; i13 < 3; --i13) { if (i13 < -2) i13 = 10; out.push(i13); }
+          var a = [1, 2, 3];
+          for (var j = 0; j < a.length; j++) { if (j == 1) a.push(9); if (j == 3) a.length = 2; out.push(a[j]); }
+          var t = new Uint8Array(6), u = new Uint8Array(3);
+          for (var k = 0; k < t.length; k++) { if (k == 2) t = u; out.push(k, t.length); }
+          var v = new Uint8Array(5);
+          Object.defineProperty(v, "length", { value: 2 });
+          for (var m = 0; m < v.length; m++) out.push(m);
+          var w = { length: 3 };
+          for (var q = 0; q < w.length; q++) { if (q == 1) w = new Uint8Array(4); out.push(q); }
+          var proto = Object.getPrototypeOf(Uint8Array.prototype), desc = Object.getOwnPropertyDescriptor(proto, "length"), x = new Uint8Array(6);
+          for (var r = 0; r < x.length; r++) {
+            if (r == 2) Object.defineProperty(proto, "length", { get: function () { log.push("g"); return 4; }, configurable: true });
+            out.push(r);
+          }
+          Object.defineProperty(proto, "length", desc);
+          for (var c = 0; c < 3; c++) { out.push(c); }
+          try { (function () { const z = 0; for (; z < 3; z++) out.push(z); })(); } catch (e) { out.push(e.name); }
+          var big = 9007199254740990;
+          for (var b = big; b < big + 2; b++) out.push(b);
+          return out.join(",") + log.join("");
+        }
+        """,
+        // calls computed in place by the tree too: arguments evaluated in order before the callee runs, a callee that
+        // turns out not to be inlinable, a statement limit inside a call, Math functions of Numbers and of other values
+        """
+        var near = function (a, b) { return Math.abs(a - b) < 0.5; };
+        function mix(a, b, c, d) { return a * b - c / d + -a; }
+        function test() {
+          var out = [], log = [];
+          function arg(v) { log.push(v); return v; }
+          for (var i = 0; i < 6; i++) {
+            var a = near(arg(i), arg(i / 2)), b = mix(i, 2, i + 1, 4 - i), c = mix(i, 2, 3), d = mix(-i, i, "2", 1);
+            var e = Math.sqrt(i - 2), f = Math.floor(-i / 3), g = Math.ceil(i + 0.5), h = 1 / Math.abs(-0 * i);
+            var p = Math.abs({ valueOf: function () { log.push("o"); return -i; } }), q = Math.abs("" + -i), r = Math.abs();
+            out.push(a, b, c, d, e, f, g, h, p, q, r);
+          }
+          var calls = 0;
+          var counted = function (a) { calls++; return a; };
+          for (var j = 0; j < 3; j++) { var x = counted(j); if (j == 1) near = counted; var y = near(j, 1); out.push(x, y); }
+          return out.join(",") + log.join("") + calls;
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()
@@ -545,10 +606,10 @@ public class LoopKernelTests
         engine._loopKernelCodeRuns.Should().Be(2, "once compiled, the loop runs as code from its start");
     }
 
-    [Test]
-    public void StatementLimitStopsAtTheSameStatement()
+    [TestCase("var progress = ''; function f() { var t = 0; for (var i = 0; i < 1000; i++) { if (i % 3) { t += i; progress = t; } else t--; } return t; } f();")]
+    [TestCase("var progress = ''; function g(a, b) { return a * 2 - b; } function f() { var t = 0; for (var i = 0; i < 1000; i += 2) { t = g(t, i) % 1000; progress = t; } return t; } f();")]
+    public void StatementLimitStopsAtTheSameStatement(string script)
     {
-        const string Script = "var progress = ''; function f() { var t = 0; for (var i = 0; i < 1000; i++) { if (i % 3) { t += i; progress = t; } else t--; } return t; } f();";
         for (var limit = 1; limit < 60; limit++)
         {
             foreach (var mode in KernelModes)
@@ -562,7 +623,7 @@ public class LoopKernelTests
                 Configure(engine, mode);
                 try
                 {
-                    return engine.Evaluate(Script).ToString();
+                    return engine.Evaluate(script).ToString();
                 }
                 catch (StatementsCountOverflowException)
                 {
