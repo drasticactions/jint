@@ -174,6 +174,16 @@ internal sealed class KernelEmitter
         internal LocalBuilder Value = null!;
         internal LocalBuilder HasValue = null!;
 
+        // While the name holds a value: whether it is a Uint8Array whose facts are taken (0 not yet, 1 taken, 2 not
+        // one), and the facts; whether its length as an array or a typed array is held (the same states), and the
+        // length. Dropped with the value.
+        internal LocalBuilder TypedState = null!;
+        internal LocalBuilder TypedData = null!;
+        internal LocalBuilder TypedOffset = null!;
+        internal LocalBuilder TypedLength = null!;
+        internal LocalBuilder LengthState = null!;
+        internal LocalBuilder Length = null!;
+
         // Whether the code stores a Number to the local, which then has to be written back.
         internal bool Stored;
     }
@@ -746,6 +756,10 @@ internal sealed class KernelEmitter
         il.Emit(OpCodes.Stloc, name.HasNumber);
         il.Emit(OpCodes.Ldc_I4_0);
         il.Emit(OpCodes.Stloc, name.HasValue);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Stloc, name.TypedState);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Stloc, name.LengthState);
     }
 
     // ----- expressions -----
@@ -821,10 +835,33 @@ internal sealed class KernelEmitter
                     EmitNumber(element._key, bail.Value);
                     var key = Rent(typeof(double));
                     il.Emit(OpCodes.Stloc, key);
+                    var generic = il.DefineLabel();
+                    var read = il.DefineLabel();
+                    if (element._object is KernelName held)
+                    {
+                        // The elements of a Uint8Array the name holds, read in place.
+                        var index = Rent(typeof(int));
+                        EmitTypedIndex(Name(held), target, key, index, generic);
+                        var locals = Name(held);
+                        il.Emit(OpCodes.Ldloc, locals.TypedData);
+                        il.Emit(OpCodes.Ldloc, locals.TypedOffset);
+                        il.Emit(OpCodes.Ldloc, index);
+                        il.Emit(OpCodes.Add);
+                        il.Emit(OpCodes.Ldelem_U1);
+                        il.Emit(OpCodes.Conv_R8);
+                        il.Emit(OpCodes.Stloc, number);
+                        il.Emit(OpCodes.Ldnull);
+                        il.Emit(OpCodes.Stloc, value);
+                        il.Emit(OpCodes.Br, read);
+                        Return(index);
+                    }
+
+                    il.MarkLabel(generic);
                     il.Emit(OpCodes.Ldloc, target);
                     il.Emit(OpCodes.Ldloc, key);
                     il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.ReadElement)));
                     EmitResult(value, number, bail);
+                    il.MarkLabel(read);
                     Return(key);
                     Return(targetNumber);
                     Return(target);
@@ -838,10 +875,54 @@ internal sealed class KernelEmitter
                     EmitUnion(property._object, bail, target, targetNumber);
                     il.Emit(OpCodes.Ldloc, target);
                     il.Emit(OpCodes.Brfalse, bail!.Value);
+                    var generic = il.DefineLabel();
+                    var read = il.DefineLabel();
+                    if (property._isLength && property._object is KernelName held)
+                    {
+                        // The length of an array or a typed array the name holds, held with it.
+                        var locals = Name(held);
+                        var known = il.DefineLabel();
+                        il.Emit(OpCodes.Ldloc, locals.LengthState);
+                        il.Emit(OpCodes.Ldc_I4_1);
+                        il.Emit(OpCodes.Beq, known);
+                        il.Emit(OpCodes.Ldloc, locals.LengthState);
+                        il.Emit(OpCodes.Brtrue, generic);
+                        il.Emit(OpCodes.Ldloc, locals.HasValue);
+                        il.Emit(OpCodes.Brfalse, generic);
+                        EmitHot(property, typeof(KernelProperty));
+                        il.Emit(OpCodes.Ldloc, target);
+                        il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.LengthFact)));
+                        var fact = Rent(typeof(KernelResult));
+                        il.Emit(OpCodes.Stloc, fact);
+                        il.Emit(OpCodes.Ldloc, fact);
+                        il.Emit(OpCodes.Ldfld, ResultNumber);
+                        il.Emit(OpCodes.Stloc, locals.Length);
+                        il.Emit(OpCodes.Ldloc, fact);
+                        il.Emit(OpCodes.Ldfld, ResultValue);
+                        il.Emit(OpCodes.Ldnull);
+                        il.Emit(OpCodes.Ceq);
+                        il.Emit(OpCodes.Ldc_I4_2);
+                        il.Emit(OpCodes.Sub);
+                        il.Emit(OpCodes.Neg);
+                        il.Emit(OpCodes.Stloc, locals.LengthState);
+                        Return(fact);
+                        il.Emit(OpCodes.Ldloc, locals.LengthState);
+                        il.Emit(OpCodes.Ldc_I4_1);
+                        il.Emit(OpCodes.Bne_Un, generic);
+                        il.MarkLabel(known);
+                        il.Emit(OpCodes.Ldloc, locals.Length);
+                        il.Emit(OpCodes.Stloc, number);
+                        il.Emit(OpCodes.Ldnull);
+                        il.Emit(OpCodes.Stloc, value);
+                        il.Emit(OpCodes.Br, read);
+                    }
+
+                    il.MarkLabel(generic);
                     EmitHot(property, typeof(KernelProperty));
                     il.Emit(OpCodes.Ldloc, target);
                     il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.ReadProperty)));
                     EmitResult(value, number, bail);
+                    il.MarkLabel(read);
                     Return(targetNumber);
                     Return(target);
                     return;
@@ -1909,6 +1990,27 @@ internal sealed class KernelEmitter
                     il.Emit(OpCodes.Stloc, key);
                     EmitNumber(store._value, interpret);
                     il.Emit(OpCodes.Stloc, resultNumber);
+                    var generic = il.DefineLabel();
+                    if (store._object is KernelName held)
+                    {
+                        // The elements of a Uint8Array the name holds, written in place.
+                        var index = Rent(typeof(int));
+                        EmitTypedIndex(Name(held), target, key, index, generic);
+                        var locals = Name(held);
+                        il.Emit(OpCodes.Ldloc, locals.TypedData);
+                        il.Emit(OpCodes.Ldloc, locals.TypedOffset);
+                        il.Emit(OpCodes.Ldloc, index);
+                        il.Emit(OpCodes.Add);
+                        il.Emit(OpCodes.Ldloc, resultNumber);
+                        il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.ToUint8)));
+                        il.Emit(OpCodes.Stelem_I1);
+                        il.Emit(OpCodes.Ldnull);
+                        il.Emit(OpCodes.Stloc, resultValue);
+                        il.Emit(OpCodes.Br, done);
+                        Return(index);
+                    }
+
+                    il.MarkLabel(generic);
                     il.Emit(OpCodes.Ldloc, target);
                     il.Emit(OpCodes.Ldloc, key);
                     il.Emit(OpCodes.Ldloc, resultNumber);
@@ -1939,6 +2041,64 @@ internal sealed class KernelEmitter
         {
             Return(resultNumber);
         }
+    }
+
+    /// <summary>
+    /// The index of an element of the Uint8Array a name holds into <paramref name="index"/>, the array's facts taken
+    /// the first time after the name was read; anything else (not held, another kind of value, a key that is not an
+    /// index of an element) jumps to <paramref name="generic"/>, the step <see cref="KernelCodeRuntime.ReadTypedElement"/>
+    /// or <see cref="KernelCodeRuntime.StoreTypedElement"/> takes.
+    /// </summary>
+    private void EmitTypedIndex(NameLocals locals, LocalBuilder target, LocalBuilder key, LocalBuilder index, Label generic)
+    {
+        var il = _il;
+        var known = il.DefineLabel();
+        il.Emit(OpCodes.Ldloc, locals.TypedState);
+        il.Emit(OpCodes.Ldc_I4_1);
+        il.Emit(OpCodes.Beq, known);
+        il.Emit(OpCodes.Ldloc, locals.TypedState);
+        il.Emit(OpCodes.Brtrue, generic);
+        il.Emit(OpCodes.Ldloc, locals.HasValue);
+        il.Emit(OpCodes.Brfalse, generic);
+        il.Emit(OpCodes.Ldloc, target);
+        il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.TypedFacts)));
+        var facts = Rent(typeof(KernelTypedFacts));
+        il.Emit(OpCodes.Stloc, facts);
+        il.Emit(OpCodes.Ldloc, facts);
+        il.Emit(OpCodes.Ldfld, Field(typeof(KernelTypedFacts), nameof(KernelTypedFacts.Data)));
+        il.Emit(OpCodes.Stloc, locals.TypedData);
+        il.Emit(OpCodes.Ldloc, facts);
+        il.Emit(OpCodes.Ldfld, Field(typeof(KernelTypedFacts), nameof(KernelTypedFacts.Offset)));
+        il.Emit(OpCodes.Stloc, locals.TypedOffset);
+        il.Emit(OpCodes.Ldloc, facts);
+        il.Emit(OpCodes.Ldfld, Field(typeof(KernelTypedFacts), nameof(KernelTypedFacts.Length)));
+        il.Emit(OpCodes.Stloc, locals.TypedLength);
+        Return(facts);
+
+        // 1 with facts, 2 without.
+        il.Emit(OpCodes.Ldc_I4_2);
+        il.Emit(OpCodes.Stloc, locals.TypedState);
+        il.Emit(OpCodes.Ldloc, locals.TypedData);
+        il.Emit(OpCodes.Brfalse, generic);
+        il.Emit(OpCodes.Ldc_I4_1);
+        il.Emit(OpCodes.Stloc, locals.TypedState);
+
+        // An index of an element: 0 <= key < length, an integer (-0 is "0"); NaN fails the first test.
+        il.MarkLabel(known);
+        il.Emit(OpCodes.Ldloc, key);
+        il.Emit(OpCodes.Ldc_R8, 0.0);
+        il.Emit(OpCodes.Blt_Un, generic);
+        il.Emit(OpCodes.Ldloc, key);
+        il.Emit(OpCodes.Ldloc, locals.TypedLength);
+        il.Emit(OpCodes.Conv_R8);
+        il.Emit(OpCodes.Bge_Un, generic);
+        il.Emit(OpCodes.Ldloc, key);
+        il.Emit(OpCodes.Conv_I4);
+        il.Emit(OpCodes.Stloc, index);
+        il.Emit(OpCodes.Ldloc, index);
+        il.Emit(OpCodes.Conv_R8);
+        il.Emit(OpCodes.Ldloc, key);
+        il.Emit(OpCodes.Bne_Un, generic);
     }
 
     private void EmitInterpretEffect(KernelEffect effect, bool valueUsed, LocalBuilder value)
@@ -1999,6 +2159,12 @@ internal sealed class KernelEmitter
                 HasNumber = _il.DeclareLocal(typeof(bool)),
                 Value = _il.DeclareLocal(typeof(JsValue)),
                 HasValue = _il.DeclareLocal(typeof(bool)),
+                TypedState = _il.DeclareLocal(typeof(int)),
+                TypedData = _il.DeclareLocal(typeof(byte[])),
+                TypedOffset = _il.DeclareLocal(typeof(int)),
+                TypedLength = _il.DeclareLocal(typeof(int)),
+                LengthState = _il.DeclareLocal(typeof(int)),
+                Length = _il.DeclareLocal(typeof(double)),
             };
             _names[name._binding] = locals;
         }

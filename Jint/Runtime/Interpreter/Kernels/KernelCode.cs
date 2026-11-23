@@ -141,6 +141,25 @@ internal readonly struct KernelNameRead
 }
 
 /// <summary>
+/// What compiled code may assume of a Uint8Array a name holds until anything else runs: its elements are
+/// <c>Data[Offset .. Offset + Length)</c>, read and written in place. Nothing but script can detach, resize or replace
+/// the buffer, and compiled code drops the facts with the value before anything else runs.
+/// </summary>
+internal readonly struct KernelTypedFacts
+{
+    internal readonly byte[]? Data;
+    internal readonly int Offset;
+    internal readonly int Length;
+
+    internal KernelTypedFacts(byte[] data, int offset, int length)
+    {
+        Data = data;
+        Offset = offset;
+        Length = length;
+    }
+}
+
+/// <summary>
 /// The steps of the kernel nodes that compiled code calls, each the same code as the node's own, small enough to be
 /// inlined into it.
 /// </summary>
@@ -409,6 +428,58 @@ internal static class KernelCodeRuntime
         var value = typedArray.ReadNumberKey(key, out var number);
         return new KernelResult(value, number);
     }
+
+    /// <summary>
+    /// The facts of a Uint8Array whose elements <see cref="ReadTypedElement"/> and <see cref="StoreTypedElement"/>
+    /// read and write in place (a fixed-length view of a fixed-length, mutable buffer on a little-endian host); none
+    /// (a null <see cref="KernelTypedFacts.Data"/>) for any other value.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static KernelTypedFacts TypedFacts(JsValue target)
+    {
+        if (target is JsTypedArray typedArray
+            && typedArray._arrayElementType == TypedArrayElementType.Uint8
+            && typedArray._contentType == TypedArrayContentType.Number
+            && typedArray._arrayLength != JsTypedArray.LengthAuto
+            && typedArray._viewedArrayBuffer is { _arrayBufferData: { } data, _arrayBufferMaxByteLength: null, _isImmutable: false }
+            && BitConverter.IsLittleEndian)
+        {
+            return new KernelTypedFacts(data, typedArray._byteOffset, (int) typedArray._arrayLength);
+        }
+
+        return default;
+    }
+
+    /// <summary>
+    /// The length <see cref="ReadProperty"/> answers for an array or a typed array, which compiled code may hold with
+    /// the value until anything else runs; Bail for anything else.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static KernelResult LengthFact(KernelProperty property, JsValue target)
+    {
+        if (property._isLength)
+        {
+            if (target is JsArray array)
+            {
+                return new KernelResult(null, array.GetLength());
+            }
+
+            if (target is JsTypedArray typedArray && property.CachedTypedArrayLengthHolds(typedArray))
+            {
+                var buffer = typedArray._viewedArrayBuffer;
+                if (buffer._arrayBufferData is not null && typedArray._arrayLength != JsTypedArray.LengthAuto && buffer._arrayBufferMaxByteLength is null)
+                {
+                    return new KernelResult(null, typedArray._arrayLength);
+                }
+            }
+        }
+
+        return KernelResult.Bail;
+    }
+
+    /// <summary>A Number as a Uint8 element stores it: <see cref="ToInteger"/>, modulo 2^8.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static byte ToUint8(double value) => (byte) ToInteger(value);
 
     /// <summary><see cref="KernelStoreElement"/>'s store once its operands are evaluated.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

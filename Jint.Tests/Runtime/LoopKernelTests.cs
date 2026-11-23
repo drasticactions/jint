@@ -84,6 +84,24 @@ public class LoopKernelTests
           return out.join(",");
         }
         """,
+        // Uint8Array elements read and written in place: conversions of stored values, keys that are not indices, a
+        // view at an offset, the name changed to another array in the loop, and lengths a getter or an own property
+        // answers
+        """
+        function test() {
+          var out = [], buf = new ArrayBuffer(16), a = new Uint8Array(buf, 4, 8), b = new Uint8Array(3), c = a;
+          var values = [-1, 256.7, NaN, Infinity, -Infinity, 1e10, -0, 0.5, 255.9];
+          for (var i = 0; i < 9; i++) { a[i] = values[i]; a[i - 0.5] = 7; a[-0] = a[0] + 1; out.push(a[i], a[NaN], a[8], a.length); }
+          for (var j = 0; j < 6; j++) { if (j == 3) c = b; c[j] = j + 100; out.push(c[j], c.length); }
+          out.push(new Uint8Array(buf).join(":"), b.join(":"));
+          var d = new Uint8Array(4), e = new Uint8Array(4);
+          Object.defineProperty(e, "length", { value: 2 });
+          for (var k = 0; k < d.length; k++) { d[k] = d[k - 1] + 3; out.push(d[k], e.length); }
+          Object.defineProperty(Object.getPrototypeOf(Uint8Array.prototype), "length", { get: function () { return 3; }, configurable: true });
+          for (var m = 0; m < 5 && m < d.length; m++) { out.push(d[m], d.length); }
+          return out.join(",");
+        }
+        """,
         // a detached buffer and a resizable one, changed while the loop runs
         """
         function test() {
