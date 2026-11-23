@@ -90,4 +90,25 @@ public class EmptyObjectLiteralShapeTests
         (record._type & InternalTypes.ShapeMode).Should().NotBe(InternalTypes.Empty);
         engine.Evaluate("var r = make(6); r.x + r.y").AsNumber().Should().Be(18);
     }
+
+    [Test]
+    public void AnEmptyObjectPastTheFanOutLimitRedefinesAPropertyInPlace()
+    {
+        // A bundler's CommonJS re-export: the exports object of a hot site, created empty, gets a property
+        // assigned and then redefined as a getter. Once the shared root's fan-out limit is reached, the first
+        // assignment moves the empty object to a dictionary, which must still replace the key, not add it again.
+        const string Script = """
+            (function () {
+                function module() { return { id: 1, loaded: false, exports: {} }; }
+                for (var i = 0; i < 100; i++) { var m = module(); m.exports['k' + i] = i; }
+                var t = module().exports;
+                t.sd = void 0;
+                Object.defineProperty(t, 'sd', { enumerable: true, get: function () { return 'getter'; } });
+                t.other = 1; t.other = 2;
+                return Object.getOwnPropertyNames(t).join() + '|' + t.sd + '|' + t.other;
+            })()
+            """;
+
+        new Engine().Evaluate(Script).AsString().Should().Be("sd,other|getter|2");
+    }
 }

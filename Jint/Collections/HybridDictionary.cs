@@ -12,7 +12,7 @@ internal sealed class HybridDictionary<TValue> : IEngineDictionary<Key, TValue>,
     // A fixed-size build with at least this many entries starts as a dictionary; fewer stays a list.
     internal const int FixedSizeCutoverPoint = 9;
 
-    private readonly bool _checkExistingKeys;
+    private bool _checkExistingKeys;
     private ListDictionary<TValue> _list;
     internal StringDictionarySlim<TValue> _dictionary;
 
@@ -293,12 +293,14 @@ internal sealed class HybridDictionary<TValue> : IEngineDictionary<Key, TValue>,
     }
 
     /// <summary>
-    /// Optimization when no need to check for existing items.
+    /// Optimization when no need to check for existing items. It also applies to the list made by a later add when the
+    /// dictionary is still empty.
     /// </summary>
     public bool CheckExistingKeys
     {
         set
         {
+            _checkExistingKeys = value;
             if (_list != null)
             {
                 _list.CheckExistingKeys = value;
