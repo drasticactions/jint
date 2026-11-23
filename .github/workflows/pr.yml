@@ -57,12 +57,7 @@ jobs:
     - name: Setup NET
       uses: actions/setup-dotnet@v6
       with:
-        # 8.0 alongside 10.0 because Jint.Tests and Jint.Tests.PublicInterface run a net8.0 leg:
-        # net8.0 is the asset most consumers resolve, and it used to be compiled but never executed.
-        # global.json still pins the SDK to 10.0.100, so 10.0 is what actually builds.
-        dotnet-version: |
-          8.0
-          10.0
+        dotnet-version: 10.0
 
     - name: Checkout source code
       uses: actions/checkout@v7
@@ -134,12 +129,7 @@ jobs:
     - name: Setup NET
       uses: actions/setup-dotnet@v6
       with:
-        # 8.0 alongside 10.0 because Jint.Tests and Jint.Tests.PublicInterface run a net8.0 leg:
-        # net8.0 is the asset most consumers resolve, and it used to be compiled but never executed.
-        # global.json still pins the SDK to 10.0.100, so 10.0 is what actually builds.
-        dotnet-version: |
-          8.0
-          10.0
+        dotnet-version: 10.0
 
     - name: Checkout source code
       uses: actions/checkout@v7
@@ -201,10 +191,9 @@ jobs:
   # that merely succeeds is not the evidence; the run is, because a package with no generator in it
   # would still compile every line of Jint's own API.
   #
-  # Windows, because net472 is half the point and only Windows can run it. Both shipped extremes are
-  # built from one project: net472, whose C# language version is 7.3 and where the run-time compiled
-  # member lanes decline outright — so it has the most to gain and the oldest compiler — and net10.0
-  # with nullable reference types on and warnings as errors.
+  # The consumer is built the way a modern project is, with nullable reference types on and warnings as
+  # errors, and run on Windows, where the generated code's paths and line endings are least like this
+  # repository's.
   # The two .NET automation clients, driving the obstacle course over a real socket. PuppeteerSharp's half
   # runs on every leg above — it is pure .NET, it launches nothing and it downloads nothing — so what this
   # leg adds is Playwright for .NET, which is a wrapper over a Node program. The Microsoft.Playwright package
@@ -231,9 +220,7 @@ jobs:
     - name: Setup NET
       uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: |
-          8.0
-          10.0
+        dotnet-version: 10.0
 
     - name: Checkout source code
       uses: actions/checkout@v7
@@ -314,13 +301,6 @@ jobs:
         set -o pipefail
         ./tools/package-consumer/bin/Release/net10.0/PackageConsumer.exe | tee net10.log
         grep -q '^ALL PROBES PASSED' net10.log
-
-    - name: Run it on net472
-      shell: bash
-      run: |
-        set -o pipefail
-        ./tools/package-consumer/bin/Release/net472/PackageConsumer.exe | tee net472.log
-        grep -q '^ALL PROBES PASSED' net472.log
 
     # The other half of the contract: a host who insists that no member of theirs falls back to
     # reflection says so in .editorconfig, with no attribute property and no MSBuild switch. That works

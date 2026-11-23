@@ -1,23 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
-    <TargetFrameworks Condition="'$(OS)' == 'Windows_NT'">$(TargetFrameworks);net472</TargetFrameworks>
+    <TargetFrameworks>net10.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
     <OutputType>Exe</OutputType>
     <EnableNUnitRunner>true</EnableNUnitRunner>
-    <!-- Match VSTest's x64 host and its 4 MB stack reserve for recursive scripts. -->
-    <PlatformTarget Condition="'$(TargetFramework)' == 'net472'">x64</PlatformTarget>
     <NoWarn>$(NoWarn);612</NoWarn>
-    <!-- Still needed on the net472 leg, and not for Jint itself: Microsoft.Extensions.TimeProvider.Testing
-         ships a targets file that warns it does not support anything below net8.0. -->
-    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
   </PropertyGroup>
 
 
   <ItemGroup>
     <ProjectReference Include="..\Jint\Jint.csproj" />
-    <ProjectReference Include="..\Jint.HtmlParser\Jint.HtmlParser.csproj" Condition="'$(TargetFramework)' != 'net472'" />
+    <ProjectReference Include="..\Jint.HtmlParser\Jint.HtmlParser.csproj" />
     <!--
       The [JsAccessible] generator is consumed here the way a third party consumes it, which is the whole
       reason the fixture is in this project and not in Jint.Tests: this is the only suite without
@@ -43,12 +37,12 @@
   </ItemGroup>
 
   <!--
-    The public API baselines (PublicApiTest.cs + Verify/PublicApiTest_*.verified.txt) are read out of the
-    built assemblies rather than out of the loaded one, so that the two target frameworks no test project
-    can execute - netstandard2.0 and netstandard2.1 - get a baseline too.
+    The public API baseline (PublicApiTest.cs + Verify/PublicApiTest_*.verified.txt, one per target framework
+    Jint.csproj declares, which is net10.0 alone) is read out of the built assembly rather than out of the
+    loaded one, so that what is snapshotted is exactly what ships.
 
-    They run on exactly ONE leg, and that is a correctness requirement rather than a saving. The snapshot
-    is of five files on disk, so which runtime executes the reader changes nothing about what is read - a
+    It runs on exactly ONE leg, and that is a correctness requirement rather than a saving. The snapshot
+    is of files on disk, so which runtime executes the reader changes nothing about what is read - a
     second leg is redundancy, not coverage. What a second leg does add is another process reading
     artifacts/bin/Jint/ while the other leg's build is still writing it, and a second copy of Jint.dll
     beside a test binary that the outer Jint build never refreshes. Both are exactly what
@@ -58,10 +52,6 @@
     macOS leg did in
     https://github.com/sebastienros/jint/actions/runs/32637573245 - the one CI machine that happened to
     start both legs in the same second.
-
-    net472 is excluded for its own, older reason: PublicApiGenerator formats through CodeDom, and nothing
-    promises the .NET Framework CodeDom lays the same metadata out identically, so that leg would be
-    verifying the host rather than Jint.
 
     One property decides the package references, the PUBLIC_API_BASELINES symbol that gates
     PublicApiTest.cs, and the build target below, so that adding a target framework cannot desynchronize
@@ -80,8 +70,8 @@
 
   <!--
     ...and reading them is only safe if they are all there and all current. A ProjectReference builds one
-    target framework of Jint - the one this project consumes - so `dotnet test Jint.Tests.PublicInterface`
-    would otherwise verify four fresh baselines against a fifth assembly left over from whenever the
+    target framework of Jint - the one this project consumes - so were Jint to ship another, `dotnet test
+    Jint.Tests.PublicInterface` would verify a fresh baseline against an assembly left over from whenever the
     solution was last built. Building the outer (cross-targeting) project puts every shipped target
     framework into artifacts/bin/Jint/, and costs nothing when Jint has not changed: MSBuild's up-to-date
     check skips each inner build, and a solution build has already produced them all anyway. RemoveProperties
@@ -140,11 +130,6 @@
     <Using Include="AwesomeAssertions.FluentActions" Static="true" />
     <Using Include="Jint.Tests" />
     <Using Include="NUnit.Framework" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
-    <Reference Include="Microsoft.CSharp" />
-    <PackageReference Include="System.Text.Json" />
   </ItemGroup>
 
 </Project>

@@ -3,10 +3,7 @@
   <PropertyGroup>
     <NeutralLanguage>en-US</NeutralLanguage>
 
-    <!-- The whole package is net8.0+, the same floor Jint/WebApi/ sits on and for the same reason: this
-         is host surface built on the modern BCL (System.Text.Json source generation, ValueTask, spans),
-         not engine surface a netstandard consumer resolves. -->
-    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <TargetFrameworks>net10.0</TargetFrameworks>
 
     <AssemblyOriginatorKeyFile>..\Jint\Jint.snk</AssemblyOriginatorKeyFile>
     <SignAssembly>true</SignAssembly>
@@ -40,7 +37,7 @@
       break, resume - and the same CI leg fails if any IL2xxx/IL3xxx diagnostic ILC re-derives over the
       closed program is attributed to a file in here.
     -->
-    <IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net7.0'))">true</IsAotCompatible>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <ItemGroup>

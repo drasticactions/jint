@@ -9,8 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Jint\Jint.csproj" />
-    <!-- The engine-level DevTools protocol, which is what the inspector flags serve. It is net8.0;net10.0, and this
-         project is net10.0. -->
+    <!-- The engine-level DevTools protocol, which is what the inspector flags serve. -->
     <ProjectReference Include="..\Jint.DevTools\Jint.DevTools.csproj" />
     <TrimmerRootAssembly Include="Jint" />
   </ItemGroup>

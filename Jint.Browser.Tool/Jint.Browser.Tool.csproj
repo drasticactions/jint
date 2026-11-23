@@ -6,7 +6,7 @@
 
     <!-- Keep both frameworks for the in-process command tests. Distribution below uses the .NET 10
          platform-specific tool format, which requires the .NET 10 SDK to install. -->
-    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <TargetFrameworks>net10.0</TargetFrameworks>
 
     <AssemblyOriginatorKeyFile>..\Jint\Jint.snk</AssemblyOriginatorKeyFile>
     <SignAssembly>true</SignAssembly>
@@ -31,7 +31,7 @@
   </PropertyGroup>
 
   <!-- Scope AOT to this executable: a command-line PublishAot=true would propagate to Jint's
-       downlevel targets and its netstandard source generators, where AOT is unsupported. -->
+       netstandard source generators, where AOT is unsupported. -->
   <PropertyGroup Condition="'$(BrowserToolNative)' == 'true'">
     <TargetFrameworks>net10.0</TargetFrameworks>
     <AssemblyName>jint-browser</AssemblyName>

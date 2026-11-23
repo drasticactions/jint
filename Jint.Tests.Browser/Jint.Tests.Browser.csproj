@@ -1,12 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- The package's own two target frameworks. There is no net472 leg because there is no net472 asset:
-         Jint.Browser is net8.0+, like Jint/WebApi/ and Jint.DevTools. -->
-    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
-    <!-- NonParallelizable isolates application fixtures within a testhost, not between frameworks.
-         Keep their wall-clock page/client budgets independent of the other framework's workload. -->
-    <TestTfmsInParallel>false</TestTfmsInParallel>
+    <TargetFrameworks>net10.0</TargetFrameworks>
 
     <!-- Signed with the repository key, because Jint.Browser is signed and names this assembly as a friend.
          Everything the binding has is internal, so without the grant there is nothing here to test. -->
@@ -37,16 +32,14 @@
     <!--
       The web-platform-tests corpus, its server and its exclusion vocabulary, which Wpt/ runs the browser lane
       on. One corpus and one pin: copying WptCorpus, WptServer and WptExclusion here would give the two lanes
-      two of each, and nothing would say when they drifted. Jint.Tests targets net8.0/net10.0 (plus net472 on
-      Windows, which this reference does not ask for) and grants InternalsVisibleTo to this assembly; the
-      dependency is one way, and nothing in Jint.Tests may reference Jint.Browser.
+      two of each, and nothing would say when they drifted. Jint.Tests grants InternalsVisibleTo to this
+      assembly; the dependency is one way, and nothing in Jint.Tests may reference Jint.Browser.
     -->
     <ProjectReference Include="..\Jint.Tests\Jint.Tests.csproj" />
     <!--
       The emitter, referenced as a library so DomBindingsStalenessTests can run it in memory against the
-      explicit contract and diff its output with what is checked in. That is the whole reason the generator
-      targets net8.0 rather than net10.0: this suite runs on both legs, and a net10.0-only emitter would be
-      unreferenceable from the lower one.
+      explicit contract and diff its output with what is checked in, which is why the generator is a
+      library on this suite's target framework rather than only a tool.
     -->
     <ProjectReference Include="..\tools\dom-bindings\Jint.Browser.BindingGenerator\Jint.Browser.BindingGenerator.csproj" />
   </ItemGroup>

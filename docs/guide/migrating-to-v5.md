@@ -20,24 +20,22 @@ withdrawn before it ships. Anything not listed here is intended to keep working 
 | Target | 4.16.x | 5.x |
 | --- | --- | --- |
 | `net462` | yes | **dropped** |
-| `net472` | — | **added** |
-| `netstandard2.0` | yes | yes |
-| `netstandard2.1` | yes | yes |
-| `net8.0` | yes | yes |
+| `netstandard2.0` | yes | **dropped** |
+| `netstandard2.1` | yes | **dropped** |
+| `net8.0` | yes | **dropped** |
 | `net10.0` | yes | yes |
 
-> **Status: landed** ([#3296](https://github.com/sebastienros/jint/pull/3296)). `Jint/Jint.csproj`
-> targets `net472;netstandard2.0;netstandard2.1;net8.0;net10.0`.
+> **Status: landed.** `Jint/Jint.csproj` targets `net10.0` only, and so do Jint.HtmlParser, Jint.DevTools,
+> Jint.Browser and its MCP server and tool. ([#3296](https://github.com/sebastienros/jint/pull/3296) first
+> moved the .NET Framework floor to `net472`; v5 then dropped every target below `net10.0`.)
 
-The `netstandard` and modern .NET targets are deliberately kept. `netstandard2.0` in particular is
-what game engines and other embedded runtimes resolve against, and it costs far more to drop than
-raising the .NET Framework floor does.
+A consumer on .NET Framework, a `netstandard` runtime (a game engine or another embedded runtime) or
+.NET 8 stays on the **4.16.x** line, which continues to receive correctness and conformance fixes on the
+`4.x` branch. Building against Jint 5 needs the .NET 10 SDK.
 
-A consumer pinned to `net462`, `net47` or `net471` stays on the **4.16.x** line, which continues to
-receive correctness and conformance fixes on the `4.x` branch.
-
-.NET Framework support is expected to end with **v6**; treat v5 as the last major version that
-carries a `net4x` target.
+Jint.SourceGenerators and Jint.SourceGenerators.Interop are still built for `netstandard2.0`: a compiler
+loads analyzers and source generators only from that target, so they are tooling rather than a supported
+runtime target.
 
 ## 2. Removed API
 
