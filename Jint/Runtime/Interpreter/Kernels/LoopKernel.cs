@@ -144,6 +144,55 @@ internal sealed class KernelFrame
         }
     }
 
+    /// <summary>
+    /// What <see cref="Resolve"/> answers for every name, taken for all of them as the run is entered where the
+    /// environment has the layout the kernel first ran in: the slots of the names it holds, and the global object for
+    /// the others when its outer environment is the global environment. A name this leaves alone is resolved when it
+    /// is first read, as before; a binding injected later moves the epoch, which resolves every name again.
+    /// </summary>
+    internal void ResolveLayout()
+    {
+        if (Start is not DeclarativeEnvironment start
+            || Layout is null
+            || !ReferenceEquals(start._slotNames, Layout)
+            || start._dictionary is { Count: > 0 }
+            || start is ModuleEnvironment
+            || !ReferenceEquals(start._engine, Engine))
+        {
+            return;
+        }
+
+        var epoch = Engine._envBindingInjectionEpoch;
+        var indices = LayoutIndices!;
+        var startSlots = start._slots;
+        var global = start._outerEnv as GlobalEnvironment;
+        var slots = Slots;
+        for (var i = 0; i < slots.Length; i++)
+        {
+            var index = indices[i];
+            ref var slot = ref slots[i];
+            if (index >= 0)
+            {
+                if (startSlots is not null && index < startSlots.Length)
+                {
+                    slot.Environment = start;
+                    slot.Index = index;
+                    slot.Epoch = epoch;
+                }
+            }
+            else if (global is not null)
+            {
+                slot.Index = GlobalBinding;
+                slot.Epoch = epoch;
+            }
+        }
+
+        if (global is not null)
+        {
+            Global = global;
+        }
+    }
+
     internal static int IndexOf(Key[] names, Key key)
     {
         for (var i = 0; i < names.Length; i++)
@@ -218,8 +267,14 @@ internal abstract class KernelProgram
             LearnLayout(start);
         }
 
-        frame.Layout = _layout;
-        frame.LayoutIndices = _layoutIndices;
+        // The layout is the program's, which a frame keeps from run to run.
+        if (frame.Layout is null && _layout is not null)
+        {
+            frame.Layout = _layout;
+            frame.LayoutIndices = _layoutIndices;
+        }
+
+        frame.ResolveLayout();
         frame.CodeThreshold = engine._loopKernelCodeThreshold;
         engine._loopKernelRuns++;
         return frame;
@@ -247,13 +302,17 @@ internal abstract class KernelProgram
 
     private protected static void Leave(KernelFrame frame)
     {
-        // Nothing of the run stays reachable from the handler tree, and the next run resolves every name again.
-        System.Array.Clear(frame.Slots, 0, frame.Slots.Length);
+        // Nothing of the run stays reachable from the handler tree, and the next run resolves every name again; the
+        // layout holds no engine state.
+        var slots = frame.Slots;
+        for (var i = 0; i < slots.Length; i++)
+        {
+            slots[i] = default;
+        }
+
         frame.Global = null;
         frame.Abrupt = default;
         frame.Start = null!;
-        frame.Layout = null;
-        frame.LayoutIndices = null;
         frame.Context = null!;
         frame.Engine = null!;
         frame.InCode = false;

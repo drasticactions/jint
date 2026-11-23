@@ -554,6 +554,27 @@ public class LoopKernelTests
           return out.join(",") + log.join("");
         }
         """,
+        // a loop entered once per call, its names resolved as the run is entered: names of the function, of a closure
+        // and globals, a binding an eval injects between runs, a global shadowed while the loop runs, and recursion
+        """
+        var g = 1, h = 2;
+        function outer() {
+          var o = 10;
+          function inner(n) { var t = 0; for (var i = 0; i < n; i++) { t += i * o + g; } return t; }
+          return inner;
+        }
+        function withEval(n, code) { var t = 0; if (code) eval(code); for (var i = 0; i < n; i++) { t += g + h; } return t; }
+        function rec(n) { var t = 0; for (var i = 0; i < 2; i++) { t += n; if (n > 0 && i == 0) t += rec(n - 1); } return t; }
+        function shadow(n) { var t = 0; for (var i = 0; i < n; i++) { if (i == 1) globalThis.h = 7; t += h; } h = 2; return t; }
+        function test() {
+          var out = [], inner = outer();
+          for (var r = 0; r < 6; r++) {
+            var a = inner(r), b = withEval(3, r == 2 ? "var g = 100;" : r == 4 ? "var h = 5;" : ""), c = rec(r), d = shadow(3);
+            out.push(a, b, c, d);
+          }
+          return out.join(",");
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()

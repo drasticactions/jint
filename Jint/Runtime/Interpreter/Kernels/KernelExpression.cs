@@ -165,6 +165,12 @@ internal sealed class KernelName : KernelExpression
             }
         }
 
+        if (slot.Index == KernelFrame.GlobalBinding && slot.Epoch == frame.Engine._envBindingInjectionEpoch)
+        {
+            number = 0;
+            return ReadGlobal(frame);
+        }
+
         return ReadUnresolved(frame, out number);
     }
 
