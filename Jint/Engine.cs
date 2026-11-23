@@ -3019,6 +3019,9 @@ public sealed partial class Engine : IDisposable
             parserOptions: parserOptions,
             strict: _isStrict || scriptRecord.EcmaScriptCode.Strict);
 
+        // Jobs run only once the execution context stack is empty (HTML's clean up after running script): a script that a
+        // host callback evaluates while other script is on the stack leaves the queue to the drain of the outermost run.
+        var drainsJobs = _executionContexts.Count <= _emptyStackContextDepth;
         EnterExecutionContext(in scriptContext);
 
         // Depth of the call stack when THIS evaluation began. A nested evaluation (a host callback
@@ -3088,7 +3091,10 @@ public sealed partial class Engine : IDisposable
             var completionValue = result.GetValueOrDefault();
 
             // TODO what about callstack and thrown exceptions?
-            RunAvailableContinuations();
+            if (drainsJobs)
+            {
+                RunAvailableContinuations();
+            }
 
             return completionValue;
         }

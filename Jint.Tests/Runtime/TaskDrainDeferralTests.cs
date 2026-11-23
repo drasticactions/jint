@@ -109,20 +109,22 @@ public class TaskDrainDeferralTests
         {
             using var nested = engine.Tasks.DeferTaskDrain();
             engine.Execute("Promise.resolve().then(() => record('nested reaction'));");
-            order.Should().Equal("nested reaction");
+
+            // The outer script is still on the stack, so the reaction waits for the outer run's checkpoint.
+            order.Should().BeEmpty();
         }));
         engine.Tasks.Post(() => order.Add("task"));
 
         using (engine.Tasks.DeferTaskDrain())
         {
             engine.Execute("reenter(); record('outer script');");
-            order.Should().Equal("nested reaction", "outer script");
+            order.Should().Equal("outer script", "nested reaction");
             engine.Execute("0;");
-            order.Should().Equal("nested reaction", "outer script");
+            order.Should().Equal("outer script", "nested reaction");
         }
 
         engine.Tasks.ProcessTask();
-        order.Should().Equal("nested reaction", "outer script", "task");
+        order.Should().Equal("outer script", "nested reaction", "task");
     }
 
     [Test]
