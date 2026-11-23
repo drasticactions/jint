@@ -456,7 +456,7 @@ internal sealed class JintCallExpression : JintExpression
                 thisObject,
                 arguments,
                 rented,
-                _calleeExpression);
+                this);
         }
 
         var callable = Unsafe.As<ICallable>(func);
@@ -476,7 +476,7 @@ internal sealed class JintCallExpression : JintExpression
         {
             var functionInstance = Unsafe.As<Function>(func);
             var callStack = engine.CallStack;
-            var recursionDepth = callStack.Push(functionInstance, _calleeExpression, engine.ExecutionContext);
+            var recursionDepth = callStack.Push(functionInstance, this, engine.ExecutionContext);
 
             if (recursionDepth > engine._maxRecursionDepth)
             {
@@ -702,7 +702,7 @@ internal sealed class JintCallExpression : JintExpression
                 thisObject,
                 arguments,
                 rented,
-                _calleeExpression);
+                this);
         }
 
         // The generic lane's dispatch; see the note there on keeping it in sync with Engine.Call.
@@ -711,7 +711,7 @@ internal sealed class JintCallExpression : JintExpression
         {
             var functionInstance = Unsafe.As<Function>(func);
             var callStack = engine.CallStack;
-            var recursionDepth = callStack.Push(functionInstance, _calleeExpression, engine.ExecutionContext);
+            var recursionDepth = callStack.Push(functionInstance, this, engine.ExecutionContext);
 
             if (recursionDepth > engine._maxRecursionDepth)
             {
@@ -837,11 +837,11 @@ internal sealed class JintCallExpression : JintExpression
                 arg3,
                 _argCount,
                 state,
-                _calleeExpression);
+                this);
         }
 
         var callStack = engine.CallStack;
-        var recursionDepth = callStack.Push(target, _calleeExpression, engine.ExecutionContext);
+        var recursionDepth = callStack.Push(target, this, engine.ExecutionContext);
 
         if (recursionDepth > engine._maxRecursionDepth)
         {
@@ -944,7 +944,7 @@ internal sealed class JintCallExpression : JintExpression
         }
 
         var callStack = engine.CallStack;
-        var recursionDepth = callStack.Push(target, _calleeExpression, engine.ExecutionContext);
+        var recursionDepth = callStack.Push(target, this, engine.ExecutionContext);
 
         if (recursionDepth > engine._maxRecursionDepth)
         {
@@ -1027,7 +1027,7 @@ internal sealed class JintCallExpression : JintExpression
         }
 
         var callStack = engine.CallStack;
-        var recursionDepth = callStack.Push(target, _calleeExpression, engine.ExecutionContext);
+        var recursionDepth = callStack.Push(target, this, engine.ExecutionContext);
 
         if (recursionDepth > engine._maxRecursionDepth)
         {

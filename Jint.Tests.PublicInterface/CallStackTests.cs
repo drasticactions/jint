@@ -17,8 +17,8 @@ public class CallStackTests
 
         const string Expected = """
 Trace
-    at trace (<anonymous>:1:16)
-    at x (<anonymous>:1:16)
+    at trace (<anonymous>:1:24)
+    at x (<anonymous>:1:24)
     at y (<anonymous>:1:51)
     at <anonymous>:1:58
 

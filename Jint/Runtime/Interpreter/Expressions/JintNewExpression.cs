@@ -82,7 +82,7 @@ internal sealed class JintNewExpression : JintExpression
         }
 
         // construct the new instance using the Function's constructor method
-        var instance = engine.Construct(jsValue, arguments, jsValue, _calleeExpression);
+        var instance = engine.Construct(jsValue, arguments, jsValue, this);
 
         if (rented)
         {
@@ -164,7 +164,7 @@ internal sealed class JintSuspendableNewExpression : JintExpression
             Throw.TypeError(engine.Realm, $"{_calleeExpression.SourceText} is not a constructor");
         }
 
-        var instance = engine.Construct(constructor, arguments, constructor, _calleeExpression);
+        var instance = engine.Construct(constructor, arguments, constructor, this);
 
         if (rented)
         {

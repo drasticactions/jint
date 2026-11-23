@@ -410,7 +410,7 @@ internal sealed class JintCallStack
 
             sb.Append(loc.SourceFile);
             sb.Append(':');
-            sb.Append(loc.End.Line);
+            sb.Append(loc.Start.Line);
             sb.Append(':');
             sb.Append(loc.Start.Column + 1); // report column number instead of index
 
@@ -430,9 +430,10 @@ internal sealed class JintCallStack
         var element = index >= 0 ? frames[index] : (CallStackElement?) null;
         var shortDescription = element?.ToString() ?? "";
 
+        location = TopFrameLocation(in location, element);
         AppendLocation(ref builder, shortDescription, in location, element, customCallStackBuilder);
 
-        location = element?.Location ?? default;
+        location = CallSiteLocation(element);
         index--;
 
         while (index >= -1)
@@ -442,7 +443,7 @@ internal sealed class JintCallStack
 
             AppendLocation(ref builder, shortDescription, in location, element, customCallStackBuilder);
 
-            location = element?.Location ?? default;
+            location = CallSiteLocation(element);
             index--;
         }
 
@@ -451,6 +452,78 @@ internal sealed class JintCallStack
         builder.Dispose();
 
         return result;
+    }
+
+    /// <summary>
+    /// Where the innermost frame reports itself: the running script's location; but in a function that is not script
+    /// (a built-in or host function) that has run no script since it was called, the running location is still the
+    /// start of the call, and the frame reports the call site as V8 reports it.
+    /// </summary>
+    internal static SourceLocation TopFrameLocation(in SourceLocation location, CallStackElement? element)
+    {
+        if (element is not { Function: not ScriptFunction, Expression._expression: { } site }
+            || location.Start != site.Location.Start
+            || !string.Equals(location.SourceFile, site.Location.SourceFile, StringComparison.Ordinal))
+        {
+            return location;
+        }
+
+        return CallSiteLocation(element);
+    }
+
+    /// <summary>
+    /// The location of the call a frame was made by, at the position V8 reports for it: the start of a <c>new</c>
+    /// expression; for a call, the property name of a member callee (<c>o.m()</c> and <c>o?.m()</c> report <c>m</c>,
+    /// however the member expression is split over lines), the start of an identifier callee, and for any other
+    /// callee (a computed member, a call, a parenthesized function) or an optional call (<c>f?.()</c>) the opening
+    /// parenthesis of the arguments. The end of the location is the end of the call.
+    /// </summary>
+    internal static SourceLocation CallSiteLocation(CallStackElement? element)
+    {
+        if (element is not { } e)
+        {
+            return default;
+        }
+
+        if (e.Expression?._expression is not { } site || site.Location == default)
+        {
+            return e.Location;
+        }
+
+        var callee = CallStackElement.CalleeOf(site);
+        var position = site switch
+        {
+            NewExpression => site.Location.Start,
+            CallExpression { Optional: true } call => ArgumentsStart(call),
+            CallExpression call => callee switch
+            {
+                MemberExpression { Computed: false } member => member.Property.Location.Start,
+                Identifier => callee.Location.Start,
+                _ => ArgumentsStart(call),
+            },
+            MemberExpression { Computed: false } member => member.Property.Location.Start,
+            _ => site.Location.Start,
+        };
+
+        return SourceLocation.From(position, site.Location.End, site.Location.SourceFile);
+    }
+
+    /// <summary>
+    /// Where the arguments of a call open. The AST keeps no position for the parenthesis, so it is taken to be right
+    /// before the first argument, or two characters before the end of a call without arguments; when the first
+    /// argument starts on a later line than the callee ends, the parenthesis is taken to follow the callee.
+    /// </summary>
+    private static Position ArgumentsStart(CallExpression call)
+    {
+        var calleeEnd = call.Callee.Location.End;
+        if (call.Arguments.Count > 0)
+        {
+            var first = call.Arguments[0].Location.Start;
+            return first.Line == calleeEnd.Line && first.Column > calleeEnd.Column ? Position.From(first.Line, first.Column - 1) : calleeEnd;
+        }
+
+        var end = call.Location.End;
+        return end.Column >= 2 && (end.Line > calleeEnd.Line || end.Column - 2 >= calleeEnd.Column) ? Position.From(end.Line, end.Column - 2) : calleeEnd;
     }
 
     private static bool TryInvokeCustomCallStackHandler(
@@ -547,7 +620,7 @@ internal sealed class ErrorStackCapture
     internal List<CallStackFrameInfo> CollectFrames()
     {
         var collected = new List<CallStackFrameInfo>(_frames.Length + 1);
-        var location = _location;
+        var location = _frames.Length > 0 ? JintCallStack.TopFrameLocation(in _location, _frames[_frames.Length - 1]) : _location;
 
         // The stack is one frame behind function-wise when it is processed from expression level, exactly as
         // in BuildCallStackString: each element names the callee whose call the PREVIOUS location sits in.
@@ -557,10 +630,10 @@ internal sealed class ErrorStackCapture
             collected.Add(new CallStackFrameInfo(
                 element?.ToString() ?? string.Empty,
                 location.SourceFile ?? string.Empty,
-                location.End.Line,
+                location.Start.Line,
                 location.Start.Column + 1));
 
-            location = element?.Location ?? default;
+            location = JintCallStack.CallSiteLocation(element);
         }
 
         return collected;

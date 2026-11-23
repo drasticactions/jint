@@ -153,7 +153,7 @@ internal sealed class SamplingProfiler
     private static SourceLocation CallSiteOf(CallStackElement element)
     {
         var expression = element.Expression;
-        return expression is null ? default : expression._expression.Location;
+        return expression is null ? default : CallStackElement.CalleeOf(expression._expression).Location;
     }
 
     private int InternFunc(Function function)

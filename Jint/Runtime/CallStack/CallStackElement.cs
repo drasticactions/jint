@@ -23,7 +23,7 @@ internal readonly struct CallStackElement : IEquatable<CallStackElement>
     {
         get
         {
-            ref readonly var expressionLocation = ref (Expression is not null ? ref Expression._expression.LocationRef : ref AstExtensions.DefaultLocation);
+            ref readonly var expressionLocation = ref (Expression is not null ? ref CalleeOf(Expression._expression).LocationRef : ref AstExtensions.DefaultLocation);
             if (expressionLocation != default)
             {
                 return ref expressionLocation;
@@ -33,6 +33,17 @@ internal readonly struct CallStackElement : IEquatable<CallStackElement>
             return ref (function is not null ? ref function.LocationRef : ref AstExtensions.DefaultLocation);
         }
     }
+
+    /// <summary>
+    /// The callee of a frame's expression: a call or a <c>new</c> pushes its own node, so that where the call was can be
+    /// told from where its callee was (see <see cref="JintCallStack.CallSiteLocation"/>); other frames push the callee.
+    /// </summary>
+    internal static Expression CalleeOf(Expression expression) => expression switch
+    {
+        CallExpression call => call.Callee,
+        NewExpression construct => construct.Callee,
+        _ => expression,
+    };
 
     public NodeList<Node>? Arguments => Function._functionDefinition?.Function.Params;
 
@@ -61,7 +72,7 @@ internal readonly struct CallStackElement : IEquatable<CallStackElement>
 
         if (string.IsNullOrWhiteSpace(name) && Expression is not null)
         {
-            name = JintExpression.ToString(Expression._expression);
+            name = JintExpression.ToString(CalleeOf(Expression._expression));
         }
 
         return string.IsNullOrWhiteSpace(name) ? "(anonymous)" : name!;

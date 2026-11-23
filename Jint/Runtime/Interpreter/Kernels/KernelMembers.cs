@@ -291,7 +291,6 @@ internal sealed class KernelCall : KernelExpression
     internal readonly KernelExpression? _callee;
     internal readonly KernelExpression[] _arguments;
     private JintExpression? _handler;
-    private JintExpression? _calleeHandler;
 
     internal Function? _fastCallee;
     internal FastCallShape _fastShape;
@@ -530,7 +529,7 @@ internal sealed class KernelCall : KernelExpression
         frame.Context.PrepareFor(_expression);
 
         var callStack = engine.CallStack;
-        var recursionDepth = callStack.Push(function, CalleeHandler, engine.ExecutionContext);
+        var recursionDepth = callStack.Push(function, CallHandler, engine.ExecutionContext);
         if (recursionDepth > engine._maxRecursionDepth)
         {
             engine.AbandonImplicitMemoryOperation();
@@ -595,7 +594,7 @@ internal sealed class KernelCall : KernelExpression
         frame.Context.PrepareFor(_expression);
 
         var callStack = engine.CallStack;
-        var recursionDepth = callStack.Push(function, CalleeHandler, engine.ExecutionContext);
+        var recursionDepth = callStack.Push(function, CallHandler, engine.ExecutionContext);
         if (recursionDepth > engine._maxRecursionDepth)
         {
             engine.AbandonImplicitMemoryOperation();
@@ -750,7 +749,7 @@ internal sealed class KernelCall : KernelExpression
         frame.Context.PrepareFor(_expression);
 
         var callStack = engine.CallStack;
-        var recursionDepth = callStack.Push(function, CalleeHandler, engine.ExecutionContext);
+        var recursionDepth = callStack.Push(function, CallHandler, engine.ExecutionContext);
         if (recursionDepth > engine._maxRecursionDepth)
         {
             engine.AbandonImplicitMemoryOperation();
@@ -779,7 +778,7 @@ internal sealed class KernelCall : KernelExpression
         frame.Context.PrepareFor(_expression);
 
         var callStack = engine.CallStack;
-        var recursionDepth = callStack.Push(function, CalleeHandler, engine.ExecutionContext);
+        var recursionDepth = callStack.Push(function, CallHandler, engine.ExecutionContext);
         if (recursionDepth > engine._maxRecursionDepth)
         {
             engine.AbandonImplicitMemoryOperation();
@@ -800,8 +799,8 @@ internal sealed class KernelCall : KernelExpression
         return result;
     }
 
-    // The callee's handler, whose node the call stack frame reports the call at.
-    private JintExpression CalleeHandler => _calleeHandler ??= JintExpression.Build((Expression) ((CallExpression) _expression).Callee);
+    // The call's handler, whose node the call stack frame reports the call at.
+    private JintExpression CallHandler => _handler ??= JintExpression.Build(_expression);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     internal JsValue Interpret(KernelFrame frame) => (_handler ??= JintExpression.Build(_expression)).GetValue(frame.Context);

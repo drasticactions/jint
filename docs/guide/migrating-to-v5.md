@@ -8788,6 +8788,33 @@ calls;
 **What could break:** a host whose check depends on no argument conversion having run. `eval` is unchanged: a string
 argument needs no conversion.
 
+### 4.239 A stack frame reports its call where V8 does
+
+A frame below the top one reported the call that made it at the first column of the callee and on the line where the
+callee ends. So `o.m()` split over lines put the frame on the property's line with the object's column, and
+`this.recursive(x)` reported the `t` of `this`. The frame now reports the position V8 reports: the property name of a
+member call (also `o?.m()`), the start of an identifier callee, the start of a `new` expression, and the opening
+parenthesis of the arguments for any other callee (`f()()`, `o['k']()`, `(function () {})()`) and for an optional call
+(`f?.()`). The innermost frame of a built-in or host function that has run no script since it was called reports its
+call site, where it reported the last expression evaluated before the call:
+
+```js
+function where() { return new Error().stack.split('\n')[1]; }
+var o = { m: where };
+var r =
+  this.o
+    .m();
+r;
+// 5.0: "    at <anonymous>:5:3"    5.x: "    at <anonymous>:5:6"
+```
+
+The AST keeps no position for the parenthesis, so Jint takes it to be right before the first argument, or two
+characters before the end of a call without arguments; a space inside the parentheses, or a first argument on a later
+line, moves it.
+
+**What could break:** a test comparing a stack trace (`error.stack` or `JavaScriptException.JavaScriptStackTrace`)
+against a hard-coded string with the old lines or columns. The debugger's call frames still give the callee's location.
+
 ## 5. New in v5
 
 Everything in the table below is opt-in: nothing in it is installed unless the host asks for it, so

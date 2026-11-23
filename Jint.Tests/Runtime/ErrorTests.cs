@@ -443,10 +443,10 @@ try { thrower(); } catch (err) { typeof err.stack; }").AsString().Should().Be("u
 
         javaScriptException.Message.Should().Be("Cannot read properties of null (reading 'Name')");
         EqualIgnoringNewLineDifferences(@"    at recursive (<anonymous>:6:44)
-    at recursive (<anonymous>:8:32)
-    at recursive (<anonymous>:8:32)
-    at recursive (<anonymous>:8:32)
-    at <anonymous>:12:17", javaScriptException.JavaScriptStackTrace);
+    at recursive (<anonymous>:8:37)
+    at recursive (<anonymous>:8:37)
+    at recursive (<anonymous>:8:37)
+    at <anonymous>:12:22", javaScriptException.JavaScriptStackTrace);
 
         var expected = new List<string>
         {
@@ -509,7 +509,7 @@ var x = b(7);";
         const string expected = @"Error: Cannot read properties of null (reading '5')
     at getItem (get-item.js:2:22)
     at (anonymous) (get-item.js:9:16)
-    at get-item.js:13:2";
+    at get-item.js:13:3";
 
         EqualIgnoringNewLineDifferences(expected, ex.GetJavaScriptErrorString());
 
