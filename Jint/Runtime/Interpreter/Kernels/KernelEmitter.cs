@@ -695,7 +695,7 @@ internal sealed class KernelEmitter
         il.Emit(OpCodes.Brfalse, located);
         il.Emit(OpCodes.Ldloc, _engine);
         il.Emit(OpCodes.Ldloc, _pending);
-        il.Emit(OpCodes.Call, Method(typeof(Engine), nameof(Engine.SetLastSyntaxElement)));
+        il.Emit(OpCodes.Call, SetLastSyntaxElement);
         il.Emit(OpCodes.Ldnull);
         il.Emit(OpCodes.Stloc, _pending);
         il.MarkLabel(located);
@@ -1162,6 +1162,7 @@ internal sealed class KernelEmitter
     /// <see cref="KernelIntrinsics"/>, so that for Number arguments it runs no script, throws nothing and allocates
     /// nothing.
     /// </summary>
+    [RequiresDynamicCode("Part of the emitter.")]
     private sealed class InlineBody
     {
         internal readonly Expression Result;
@@ -2740,6 +2741,10 @@ internal sealed class KernelEmitter
     private static readonly MethodInfo TruthyOfUnion = typeof(KernelCodeRuntime).GetMethod(nameof(KernelCodeRuntime.Truthy), AnyMember, [typeof(JsValue), typeof(double)])!;
     private static readonly MethodInfo TruthyOfNumber = typeof(KernelCodeRuntime).GetMethod(nameof(KernelCodeRuntime.Truthy), AnyMember, [typeof(double)])!;
     private static readonly MethodInfo BoxMethod = Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.Box));
+
+    // Looked up by its own name, not through Method, which would keep every method of the engine for reflection.
+    private static readonly MethodInfo SetLastSyntaxElement = typeof(Engine).GetMethod(nameof(Engine.SetLastSyntaxElement), AnyMember)
+        ?? throw new MissingMethodException(nameof(Engine), nameof(Engine.SetLastSyntaxElement));
 
     // The members compiled code calls, of Jint's own types, each named with typeof and nameof. A member a trimmer
     // removed nonetheless makes the lookup throw MissingMemberException, which KernelCode.TryCompile answers by
