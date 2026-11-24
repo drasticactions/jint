@@ -22,7 +22,7 @@ internal sealed class JintNewExpression : JintExpression
     public JintNewExpression(NewExpression expression) : base(expression)
     {
         _arguments.Initialize(expression.Arguments.AsSpan());
-        _calleeExpression = Build(expression.Callee);
+        _calleeExpression = JintStackProbeExpression.BuildSubscriptBase(expression.Callee, ofMember: false, takesReceiver: false);
         _zeroArgs = expression.Arguments.Count == 0;
     }
 
@@ -120,7 +120,7 @@ internal sealed class JintSuspendableNewExpression : JintExpression
     public JintSuspendableNewExpression(NewExpression expression) : base(expression)
     {
         _arguments.Initialize(expression.Arguments.AsSpan());
-        _calleeExpression = Build(expression.Callee);
+        _calleeExpression = JintStackProbeExpression.BuildSubscriptBase(expression.Callee, ofMember: false, takesReceiver: false);
     }
 
     protected override object EvaluateInternal(EvaluationContext context)

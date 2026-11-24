@@ -61,7 +61,7 @@ internal sealed class KernelInlineBody
         }
 
         var body = new KernelInlineBody(result, parameters);
-        var kind = body.Classify(result);
+        var kind = body.Classify(result, 0);
         if (kind == Invalid)
         {
             return null;
@@ -82,9 +82,21 @@ internal sealed class KernelInlineBody
     internal const int Number = 1;
     internal const int Boolean = 2;
 
+    /// <summary>
+    /// How deep a body computed in place may nest. Classifying and compiling it recurse once per level, with no
+    /// stack probe on the way, and a generated body may be an operator chain thousands of levels deep.
+    /// </summary>
+    private const int MaxDepth = SyntaxNesting.EvaluationProbeInterval;
+
     /// <summary>What <paramref name="expression"/> answers for Number parameters: a Number, a boolean, or something not computed in place.</summary>
-    private int Classify(Expression expression)
+    private int Classify(Expression expression, int depth)
     {
+        if (depth >= MaxDepth)
+        {
+            return Invalid;
+        }
+
+        depth++;
         switch (expression)
         {
             case Literal literal:
@@ -94,10 +106,10 @@ internal sealed class KernelInlineBody
                 return System.Array.IndexOf(Parameters, identifier.Name) >= 0 ? Number : Invalid;
 
             case NonUpdateUnaryExpression { Operator: Operator.UnaryNegation or Operator.UnaryPlus } unary:
-                return Classify(unary.Argument) == Number ? Number : Invalid;
+                return Classify(unary.Argument, depth) == Number ? Number : Invalid;
 
             case NonLogicalBinaryExpression binary when KernelBinary.IsSupported(binary.Operator):
-                if (Classify(binary.Left) != Number || Classify(binary.Right) != Number)
+                if (Classify(binary.Left, depth) != Number || Classify(binary.Right, depth) != Number)
                 {
                     return Invalid;
                 }
@@ -110,7 +122,7 @@ internal sealed class KernelInlineBody
                 Callee: MemberExpression { Computed: false, Optional: false, Object: Identifier { Name: "Math" }, Property: Identifier { Name: var name } },
                 Arguments: { Count: 1 } arguments,
             } when arguments[0] is Expression argument && KernelIntrinsics.Kind(name) is var kind and not KernelIntrinsics.None:
-                if (Classify(argument) != Number)
+                if (Classify(argument, depth) != Number)
                 {
                     return Invalid;
                 }

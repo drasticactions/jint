@@ -152,7 +152,7 @@ internal sealed class JintMemberExpression : JintExpression
     public JintMemberExpression(MemberExpression expression) : base(expression)
     {
         _memberExpression = (MemberExpression) _expression;
-        _objectExpression = Build(_memberExpression.Object);
+        _objectExpression = JintStackProbeExpression.BuildSubscriptBase(_memberExpression.Object, ofMember: true, takesReceiver: false);
         _objectExpressionCanShortCircuit = CanShortCircuit(_memberExpression.Object);
         _objectReadKeepsRawEnvironmentWalk = _objectExpression is JintIdentifierExpression { HasEvalOrArguments: true };
 

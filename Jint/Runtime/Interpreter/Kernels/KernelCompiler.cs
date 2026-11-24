@@ -16,6 +16,16 @@ internal sealed class KernelCompiler
     private readonly Dictionary<Key, int> _nameIndices = [];
     private int _compiled;
 
+    /// <summary>
+    /// How deep the kernel tree may nest, statements and expressions together. Compiling recurses once per level,
+    /// and so does running the tree, with no stack probe on the way; so a construct below that depth runs on the
+    /// interpreter's node for it, which carries the probes a long chain needs (see <see cref="SyntaxNesting"/>).
+    /// A generated loop may hold an operator or call chain thousands of levels deep.
+    /// </summary>
+    private const int MaxDepth = SyntaxNesting.EvaluationProbeInterval;
+
+    private int _depth;
+
     internal Environment.BindingName[] Names => _names.ToArray();
 
     /// <summary>Whether any part of the loop runs on kernel nodes rather than on the interpreter's handlers.</summary>
@@ -77,7 +87,20 @@ internal sealed class KernelCompiler
 
     private KernelStatement CompileStatement(Statement statement, bool blockLevel)
     {
-        var compiled = TryCompileStatement(statement);
+        KernelStatement? compiled = null;
+        if (_depth < MaxDepth)
+        {
+            _depth++;
+            try
+            {
+                compiled = TryCompileStatement(statement);
+            }
+            finally
+            {
+                _depth--;
+            }
+        }
+
         if (compiled is not null)
         {
             _compiled++;
@@ -210,6 +233,24 @@ internal sealed class KernelCompiler
     private KernelExpression CompileTest(Expression expression) => CompileValue(expression);
 
     private KernelExpression? TryCompileEffect(Expression expression)
+    {
+        if (_depth >= MaxDepth)
+        {
+            return null;
+        }
+
+        _depth++;
+        try
+        {
+            return TryCompileEffectCore(expression);
+        }
+        finally
+        {
+            _depth--;
+        }
+    }
+
+    private KernelExpression? TryCompileEffectCore(Expression expression)
     {
         switch (expression)
         {
@@ -370,6 +411,24 @@ internal sealed class KernelCompiler
 
     /// <summary>A pure expression (see <see cref="KernelExpression"/>), or null.</summary>
     private KernelExpression? TryCompilePure(Expression expression)
+    {
+        if (_depth >= MaxDepth)
+        {
+            return null;
+        }
+
+        _depth++;
+        try
+        {
+            return TryCompilePureCore(expression);
+        }
+        finally
+        {
+            _depth--;
+        }
+    }
+
+    private KernelExpression? TryCompilePureCore(Expression expression)
     {
         switch (expression)
         {

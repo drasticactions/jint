@@ -280,47 +280,91 @@ internal sealed class HoistingScope
 
         /// <summary>
         /// Measures an expression, which declares nothing in this scope: the function, arrow, method and static
-        /// block inside one are var scopes of their own, walked when their definitions are built. An operator chain
-        /// is followed down its left operands in a loop, since the parser builds one of any length.
+        /// block inside one are var scopes of their own, walked when their definitions are built. A chain the
+        /// parser builds of any length is followed in a loop: an operator chain down its left operands, a chain of
+        /// member accesses, calls, tagged templates and <c>new</c> expressions down its objects, callees and tags,
+        /// and a chain of conditional operators down its alternates.
         /// </summary>
         private void VisitExpression(Node node, SyntaxNesting.Unprobed nesting)
         {
             EnterLevel(nesting);
 
-            while (node is BinaryExpression binary)
+            while (true)
             {
-                var right = binary.Right;
-                if (!right.ChildNodes.IsEmpty())
+                if (node is ChainExpression chain)
                 {
-                    VisitExpression(right, right is BinaryExpression ? nesting.ContinueChain() : nesting.Enter());
+                    // Built as the link it wraps, so no level of its own.
+                    node = chain.Expression;
                 }
 
-                var left = binary.Left;
-                if (left.ChildNodes.IsEmpty())
+                Node next;
+                if (node is BinaryExpression binary)
                 {
-                    _depth--;
-                    return;
+                    var right = binary.Right;
+                    if (!right.ChildNodes.IsEmpty())
+                    {
+                        VisitExpression(right, right is BinaryExpression ? nesting.ContinueChain() : nesting.Enter());
+                    }
+
+                    next = binary.Left;
+                    if (next.ChildNodes.IsEmpty())
+                    {
+                        break;
+                    }
+
+                    nesting = next is BinaryExpression ? nesting.ContinueChain() : nesting.Enter();
+                }
+                else if (SyntaxNesting.SubscriptBase(node) is { } subscriptBase)
+                {
+                    VisitChildrenExcept(node, subscriptBase, nesting);
+
+                    next = subscriptBase;
+                    if (next.ChildNodes.IsEmpty())
+                    {
+                        break;
+                    }
+
+                    nesting = SyntaxNesting.SubscriptBase(next) is not null
+                        ? nesting.ContinueChain(SyntaxNesting.SubscriptProbeInterval)
+                        : nesting.Enter();
+                }
+                else if (node is ConditionalExpression { Alternate: ConditionalExpression alternate } conditional)
+                {
+                    VisitChildrenExcept(conditional, alternate, nesting);
+                    next = alternate;
+                    nesting = nesting.ContinueChain();
+                }
+                else
+                {
+                    VisitChildrenExcept(node, null, nesting);
+                    break;
                 }
 
-                nesting = left is BinaryExpression ? nesting.ContinueChain() : nesting.Enter();
                 if (nesting.Depth > SyntaxNesting.MaxUnprobedDepth)
                 {
                     SyntaxNesting.ThrowExceedsMaximumDepth();
                 }
 
-                node = left;
+                node = next;
             }
 
+            _depth--;
+        }
+
+        /// <summary>
+        /// Measures the children of an expression one level below it, all but the one a chain continues through.
+        /// </summary>
+        private void VisitChildrenExcept(Node node, Node? skipped, SyntaxNesting.Unprobed nesting)
+        {
             foreach (var child in node.ChildNodes)
             {
-                if (child.Type is not (NodeType.FunctionExpression or NodeType.ArrowFunctionExpression or NodeType.StaticBlock)
+                if (!ReferenceEquals(child, skipped)
+                    && child.Type is not (NodeType.FunctionExpression or NodeType.ArrowFunctionExpression or NodeType.StaticBlock)
                     && !child.ChildNodes.IsEmpty())
                 {
                     VisitExpression(child, nesting.Enter());
                 }
             }
-
-            _depth--;
         }
 
         /// <returns>The <c>else if</c> of an <c>if</c>, which the caller walks next in place of a recursion.</returns>

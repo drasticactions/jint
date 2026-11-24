@@ -4,9 +4,10 @@ using Jint.Native;
 namespace Jint.Runtime.Interpreter.Expressions;
 
 /// <summary>
-/// Probes the native stack, then evaluates the operator node it stands in for. Built only into an operator chain
-/// deeper than <see cref="SyntaxNesting.EvaluationProbeInterval"/>, one per that many levels, so an expression of
-/// ordinary depth never contains one and evaluates exactly as it did.
+/// Probes the native stack, then evaluates the node it stands in for. Built only into a chain deeper than
+/// <see cref="SyntaxNesting.EvaluationProbeInterval"/>, one per that many levels: an operator chain, a chain of
+/// member accesses, calls, tagged templates and <c>new</c> expressions, and a chain of conditional operators down
+/// their alternates. An expression of ordinary depth never contains one and evaluates exactly as it did.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -26,6 +27,13 @@ namespace Jint.Runtime.Interpreter.Expressions;
 /// identifier, a constant, a member read or <c>x % c</c> (<c>ModuloEqualityLane</c>, <c>BoxedNumericOperandLane</c>,
 /// the comparison lanes) still match. <c>SumOfProductsLane</c> follows a sum's left operands and declines a sum
 /// with a probe in it, which takes a sum nested exactly at a multiple of the interval, and costs only that lane.
+/// </para>
+/// <para>
+/// In a chain of member accesses and calls it stands between a link and its base, and hands the base's result on
+/// as it is: a <c>Reference</c>, which a call takes its <c>this</c> value from, and an optional chain's short
+/// circuit, which <see cref="EnableShortCircuitPropagation"/> asks the base to produce. It is never put between a
+/// call and the member access it calls, whose node the call reads the receiver through (see
+/// <see cref="SyntaxNesting.SubscriptProbeInterval"/>).
 /// </para>
 /// <para>
 /// A <c>+</c> chain that <c>JintBinaryExpression</c> flattens into one node evaluates its operands in a loop, not
@@ -81,6 +89,54 @@ internal sealed class JintStackProbeExpression : JintExpression
         Operator.NullishCoalescing => new NullishCoalescingExpression(expression),
         _ => Build(expression),
     };
+
+    /// <summary>
+    /// Builds the object of a member access, or the callee or tag of a call, tagged template or <c>new</c>
+    /// expression, behind a probe where the chain it continues gets one: below a level at a depth the probe
+    /// interval divides, or below a member access one level under that, which takes the probe of a call or tagged
+    /// template that cannot put one around the member access it calls. Only a base the chain continues below gets
+    /// one: a member access, call, tagged template or <c>new</c> expression whose own base is one too.
+    /// </summary>
+    /// <param name="chainBase">The base to build.</param>
+    /// <param name="ofMember">Whether the node being built is a member access, which takes the shifted probe.</param>
+    /// <param name="takesReceiver">Whether the node being built is a call or tagged template, which reads its
+    /// <c>this</c> value through a member access it calls and so cannot have a probe in front of one.</param>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static JintExpression BuildSubscriptBase(Expression chainBase, bool ofMember, bool takesReceiver)
+    {
+        var built = Build(chainBase);
+
+        var probes = SyntaxNesting.IsEvaluationProbeDepth
+            ? !takesReceiver || chainBase is not (MemberExpression or ChainExpression { Expression: MemberExpression })
+            : ofMember && SyntaxNesting.IsShiftedSubscriptProbeDepth;
+
+        if (probes
+            && SyntaxNesting.ContinuesSubscriptChain(chainBase)
+            && built is JintMemberExpression or JintCallExpression or JintTaggedTemplateExpression or JintNewExpression or JintSuspendableNewExpression)
+        {
+            return new JintStackProbeExpression(built);
+        }
+
+        return built;
+    }
+
+    /// <summary>
+    /// Builds the alternate of a conditional operator, behind a probe when the conditional sits at a depth the probe
+    /// interval divides and the alternate continues a chain of conditionals below it (<c>a ? b : c ? d : e ? …</c>).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static JintExpression BuildAlternate(Expression alternate)
+    {
+        var built = Build(alternate);
+        if (SyntaxNesting.IsEvaluationProbeDepth
+            && alternate is ConditionalExpression { Alternate: ConditionalExpression }
+            && built is JintConditionalExpression)
+        {
+            return new JintStackProbeExpression(built);
+        }
+
+        return built;
+    }
 
     /// <summary>
     /// Puts <paramref name="built"/>, the operand just built for the operator being built, behind a probe when the

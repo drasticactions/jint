@@ -15,9 +15,12 @@ namespace Jint;
 /// <para>
 /// Two bounds, for two kinds of nesting. Most nesting is evaluated by a recursion nothing probes, so the hoisting
 /// walk keeps the fixed limit of <see cref="MaxUnprobedDepth"/> levels sebastienros/jint#2340 introduced. An
-/// operator chain (<c>a || b || …</c>, <c>x + y + …</c>) and an <c>else if</c> chain are exempt: they are what
-/// generated code is long in (sebastienros/jint#4356), and both carry an evaluation probe every
-/// <see cref="EvaluationProbeInterval"/> levels, so they are bounded by the stack instead. A flattened <c>+</c> chain
+/// operator chain (<c>a || b || …</c>, <c>x + y + …</c>), an <c>else if</c> chain, a chain of conditional operators
+/// in the alternate (<c>a ? b : c ? d : …</c>) and a chain of member accesses, calls, tagged templates and
+/// <c>new</c> expressions (<c>a.b().c().d</c>, a builder's chain of calls) are exempt: they are what generated code
+/// is long in (sebastienros/jint#4356), and each carries an evaluation probe every
+/// <see cref="EvaluationProbeInterval"/> levels (one more for a member and call chain, see
+/// <see cref="SubscriptProbeInterval"/>), so they are bounded by the stack instead. A flattened <c>+</c> chain
 /// evaluates every operand from its first node, so one whose nested form would have carried a probe carries one of its
 /// own around it (<see cref="SpansEvaluationProbeDepth"/>).
 /// </para>
@@ -59,6 +62,15 @@ internal static class SyntaxNesting
     /// fit the runtime's reserve with room to spare.
     /// </summary>
     internal const int EvaluationProbeInterval = 64;
+
+    /// <summary>
+    /// The most levels of a chain of member accesses, calls, tagged templates and <c>new</c> expressions between two
+    /// evaluation probes. One more than <see cref="EvaluationProbeInterval"/>: a call, or a tagged template, cannot
+    /// put a probe between itself and the member access it calls, since it takes its <c>this</c> value from that
+    /// member's reference and reads it through the member's own lanes. So where such a call sits at a probe depth,
+    /// the member below it puts the probe around its object instead (<see cref="IsShiftedSubscriptProbeDepth"/>).
+    /// </summary>
+    internal const int SubscriptProbeInterval = EvaluationProbeInterval + 1;
 
     /// <summary>
     /// The levels a walk takes before it asks the runtime for stack at all.
@@ -108,6 +120,51 @@ internal static class SyntaxNesting
             return depth > 0 && depth % EvaluationProbeInterval == 0;
         }
     }
+
+    /// <summary>
+    /// Whether the member access being built sits one level below a depth <see cref="EvaluationProbeInterval"/>
+    /// divides, where it takes the probe of a call or tagged template above it that could not place one (see
+    /// <see cref="SubscriptProbeInterval"/>). A member below a level that did place one adds a second probe, which
+    /// costs a stack check and changes nothing else.
+    /// </summary>
+    internal static bool IsShiftedSubscriptProbeDepth
+    {
+        get
+        {
+            var depth = ProbeDepth;
+            return depth > EvaluationProbeInterval && depth % EvaluationProbeInterval == 1;
+        }
+    }
+
+    /// <summary>
+    /// The node a member access, call, tagged template or <c>new</c> expression evaluates first, and whose
+    /// evaluation it recurses into: its object, callee or tag. Null for any other node. A
+    /// <see cref="ChainExpression"/>, which is built as the link it wraps and adds no level, is looked through.
+    /// </summary>
+    internal static Expression? SubscriptBase(Node node)
+    {
+        if (node is ChainExpression chain)
+        {
+            node = chain.Expression;
+        }
+
+        return node switch
+        {
+            MemberExpression member => member.Object,
+            CallExpression call => call.Callee,
+            TaggedTemplateExpression tagged => tagged.Tag,
+            NewExpression newExpression => newExpression.Callee,
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// Whether <paramref name="node"/> is a member access, call, tagged template or <c>new</c> expression whose
+    /// base is one too: a level of a chain that the chain continues below, and so one an evaluation probe may sit
+    /// above.
+    /// </summary>
+    internal static bool ContinuesSubscriptChain(Node node)
+        => SubscriptBase(node) is { } chainBase && SubscriptBase(chainBase) is not null;
 
     /// <summary>
     /// Whether the node being built, or one of the <paramref name="levels"/> levels below it, sits where
@@ -310,14 +367,22 @@ internal static class SyntaxNesting
         internal Unprobed Enter() => new(Depth + 1, 0, -1);
 
         /// <summary>
-        /// The next level of a chain: an operator's operand that is itself an operator, or an <c>if</c>'s
-        /// <c>else if</c>. A node that was not already in a chain is the chain's first level.
+        /// The next level of a chain: an operator's operand that is itself an operator, an <c>if</c>'s
+        /// <c>else if</c>, or a conditional operator's alternate that is itself one. A node that was not already in
+        /// a chain is the chain's first level.
         /// </summary>
-        internal Unprobed ContinueChain()
+        internal Unprobed ContinueChain() => ContinueChain(EvaluationProbeInterval);
+
+        /// <summary>
+        /// The next level of a chain whose probes are at most <paramref name="interval"/> levels apart: the base of
+        /// a member access, call, tagged template or <c>new</c> expression that is itself one, with
+        /// <see cref="SubscriptProbeInterval"/>.
+        /// </summary>
+        internal Unprobed ContinueChain(int interval)
         {
             var runEntry = RunDepth < 0 ? Depth : RunEntry;
             var runDepth = RunDepth < 0 ? 1 : RunDepth + 1;
-            var depth = runDepth <= EvaluationProbeInterval ? runEntry + runDepth : EvaluationProbeInterval + 1;
+            var depth = runDepth <= interval ? runEntry + runDepth : interval + 1;
             return new Unprobed(depth, runEntry, runDepth);
         }
     }

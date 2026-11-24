@@ -121,7 +121,7 @@ internal sealed class JintCallExpression : JintExpression
     public JintCallExpression(CallExpression expression) : base(expression)
     {
         _arguments.Initialize(expression.Arguments.AsSpan());
-        _calleeExpression = Build(expression.Callee);
+        _calleeExpression = JintStackProbeExpression.BuildSubscriptBase(expression.Callee, ofMember: false, takesReceiver: true);
         _calleeIsSuper = _calleeExpression._expression.Type == NodeType.Super;
         _calleeMember = _calleeExpression as JintMemberExpression;
         _calleeMember?.HandsOnBaseAsReceiver();

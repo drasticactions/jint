@@ -569,9 +569,23 @@ internal sealed class JintCallStack
             return identifier.Name ?? "";
         }
 
-        if (expression is MemberExpression { Computed: false } staticMemberExpression)
+        if (expression is MemberExpression { Computed: false })
         {
-            return $"{GetPropertyKey(staticMemberExpression.Object)}.{GetPropertyKey(staticMemberExpression.Property)}";
+            // Followed down its objects in a loop, since a chain of member accesses may be thousands of links long.
+            var properties = new List<string>();
+            while (expression is MemberExpression { Computed: false } staticMemberExpression)
+            {
+                properties.Add(GetPropertyKey(staticMemberExpression.Property));
+                expression = staticMemberExpression.Object;
+            }
+
+            var builder = new System.Text.StringBuilder(GetPropertyKey(expression));
+            for (var i = properties.Count - 1; i >= 0; i--)
+            {
+                builder.Append('.').Append(properties[i]);
+            }
+
+            return builder.ToString();
         }
 
         return "?";

@@ -12,7 +12,7 @@ internal sealed class JintConditionalExpression : JintExpression
     {
         _test = Build(expression.Test);
         _consequent = Build(expression.Consequent);
-        _alternate = Build(expression.Alternate);
+        _alternate = JintStackProbeExpression.BuildAlternate(expression.Alternate);
     }
 
     protected override object EvaluateInternal(EvaluationContext context)

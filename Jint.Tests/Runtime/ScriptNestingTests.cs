@@ -8,15 +8,15 @@ namespace Jint.Tests.Runtime;
 
 /// <summary>
 /// How deep a script's syntax tree may nest (sebastienros/jint#4356). Generated code is deep without being
-/// malformed: a proxy auto-config file is one long <c>||</c> chain or one long <c>else if</c> chain, and the
-/// parser builds a left-associative chain in a loop, one level of tree per operand. Those two chains are bounded by
-/// the stack — probed where the tree is walked and built, and every 64 levels where it runs — and no longer count
-/// against the 256-level limit, which still bounds every other kind of nesting. A tree too deep for the stack
+/// malformed: a proxy auto-config file is one long <c>||</c> chain or one long <c>else if</c> chain, a bundle holds
+/// builder chains of hundreds of calls, and the parser builds such a chain in a loop, one level of tree per link.
+/// Those chains are bounded by the stack — probed where the tree is walked and built, and every 64 levels where it
+/// runs — and no longer count against the 256-level limit, which still bounds every other kind of nesting. A tree too deep for the stack
 /// fails with a <see cref="ScriptPreparationException"/>, a <c>RangeError</c> or the parser's own
 /// <see cref="InsufficientExecutionStackException"/>, never with a native stack overflow, which ends the process
 /// and which no <c>catch</c> survives: a regression here is a dead test host, not a red test.
 /// </summary>
-public class ScriptNestingTests
+public partial class ScriptNestingTests
 {
     // Every operator the chains below are made of, the three places a chain can stand, and the three entries
     // that run a script.
@@ -380,16 +380,13 @@ public class ScriptNestingTests
         exception.Should().BeOfType<ScriptPreparationException>().Which.Message.Should().Contain("maximum depth of 256 levels");
     });
 
-    // Nesting with no evaluation probe — member, call, optional and tagged-template chains, unary operators,
-    // literals, call arguments, nested blocks — evaluates by a recursion nothing probes, so it keeps the limit of
+    // Nesting with no evaluation probe — unary operators, literals, call arguments, conditionals nested in their
+    // consequents, nested blocks — evaluates by a recursion nothing probes, so it keeps the limit of
     // sebastienros/jint#2340 exactly as it was: what ran before runs, and what was refused is refused, never left
     // to overflow the native stack from the bottom of a deep recursion.
     // An object literal and an if-block each nest two tree levels at a time.
-    [TestCase("o.b", 200, 300)]
-    [TestCase("c()", 200, 300)]
-    [TestCase("o?.b", 200, 300)]
-    [TestCase("t``", 200, 300)]
     [TestCase("~", 200, 300)]
+    [TestCase("1?", 200, 300)]
     [TestCase("[", 200, 300)]
     [TestCase("g(", 200, 300)]
     [TestCase("{a:", 100, 150)]
@@ -567,16 +564,17 @@ public class ScriptNestingTests
     }, maxStackSize: SmallStackSize);
 
     // The probe that ends a chain's first interval is not placed when that level is the chain's last, so the walk
-    // counts all of the first interval as unprobed. Here the chain's last level is exactly the 64th, under and over
-    // 150 levels of member reads, at every alignment the build depth can give it: what main refused is refused.
+    // counts all of the first interval as unprobed. Here the chain's last level is exactly the 64th, under 150 levels
+    // of unary operators and over 150 levels of call arguments, at every alignment the build depth can give it: what
+    // main refused is refused.
     [Test]
     public void AChainEndingOnItsFirstProbePositionCountsItsWholeFirstInterval() => DedicatedThread.Run(() =>
     {
-        var below = "o" + string.Concat(Enumerable.Repeat(".b", 150));
+        var below = new string('~', 150) + "0";
         for (var above = 150; above < 150 + SyntaxNestingProbeInterval; above++)
         {
             var chain = below + string.Concat(Enumerable.Repeat(" || 0", SyntaxNestingProbeInterval + 1));
-            var script = "var o = {}; o.b = o; var r = (" + chain + ")" + string.Concat(Enumerable.Repeat(".b", above)) + ";";
+            var script = "function g(x) { return x; } var r = " + UnprobedCalls(above, "(" + chain + ")") + ";";
 
             var exception = Caught.Exception(() => new Engine().Execute(script));
             exception.Should().BeOfType<ScriptPreparationException>().Which.Message.Should().Contain("maximum depth of 256 levels");
@@ -592,9 +590,9 @@ public class ScriptNestingTests
     [Test]
     public void ALongFlattenedConcatenationKeepsEveryRunOfUnprobedNodesWithinTheLimit() => DedicatedThread.Run(() =>
     {
-        var deepOperand = "o" + string.Concat(Enumerable.Repeat(".b", 185)) + ".s";
+        var deepOperand = UnprobedCalls(185, "o.s");
         var concat = ChainWithOperandNear("+", 100, deepOperand, atOperand: 5).Replace("1 + ", "s + ").Replace(" + 1", " + s");
-        var nested = string.Concat(Enumerable.Repeat("0 ? 0 : ", 180)) + "(" + concat + ")";
+        var nested = UnprobedConditionals(180, "(" + concat + ")");
 
         var (result, longestUnprobedRun) = RunAndMeasureTheDeepOperand(nested);
 
@@ -610,11 +608,11 @@ public class ScriptNestingTests
     [Test]
     public void AShortFlattenedConcatenationEndingALongerChainKeepsEveryRunOfUnprobedNodesWithinTheLimit() => DedicatedThread.Run(() =>
     {
-        var deepOperand = "o" + string.Concat(Enumerable.Repeat(".b", 185)) + ".s";
+        var deepOperand = UnprobedCalls(185, "o.s");
         var run = deepOperand + string.Concat(Enumerable.Repeat(" + s", 39)) + string.Concat(Enumerable.Repeat(" || 0", 30));
         for (var conditionals = 120; conditionals < 120 + SyntaxNestingProbeInterval; conditionals++)
         {
-            var nested = string.Concat(Enumerable.Repeat("0 ? 0 : ", conditionals)) + "(" + run + ")";
+            var nested = UnprobedConditionals(conditionals, "(" + run + ")");
 
             var (result, longestUnprobedRun) = RunAndMeasureTheDeepOperand(nested);
 
@@ -631,11 +629,11 @@ public class ScriptNestingTests
     [Test]
     public void AFlattenedConcatenationWhoseFirstOperandIsAnOperatorChainKeepsEveryRunOfUnprobedNodesWithinTheLimit() => DedicatedThread.Run(() =>
     {
-        var operatorChain = "(o" + string.Concat(Enumerable.Repeat(".b", 185)) + ".s" + string.Concat(Enumerable.Repeat(" || 0", 30)) + ")";
+        var operatorChain = "(" + UnprobedCalls(185, "o.s") + string.Concat(Enumerable.Repeat(" || 0", 30)) + ")";
         var concat = operatorChain + string.Concat(Enumerable.Repeat(" + s", 39));
         for (var conditionals = 120; conditionals < 120 + SyntaxNestingProbeInterval; conditionals++)
         {
-            var nested = string.Concat(Enumerable.Repeat("0 ? 0 : ", conditionals)) + "(" + concat + ")";
+            var nested = UnprobedConditionals(conditionals, "(" + concat + ")");
 
             var (result, longestUnprobedRun) = RunAndMeasureTheDeepOperand(nested);
 
@@ -654,7 +652,9 @@ public class ScriptNestingTests
     {
         var engine = new Engine();
         engine.Execute($$"""
-            var s = "x"; var o = { s: "y" }; o.b = o;
+            var s = "x"; var o = { s: "y" }; o.b = o; o.c = function () { return this; };
+            o.t = function t() { return t; }; o.t.s = "y";
+            function g(x) { return x; }
             function f() { return {{expression}}; }
             var r = f();
             """);
@@ -692,9 +692,11 @@ public class ScriptNestingTests
         longestSoFar = Math.Max(longestSoFar, unprobed);
         var longest = node is Jint.Runtime.Interpreter.Expressions.JintExpression { _expression: Identifier { Name: "o" } } ? longestSoFar : -1;
 
+        // Distinct: a node may hold one child in two fields, as a call holds the member access it calls, and a
+        // chain of such nodes would otherwise be taken once per combination of them.
         var children = new List<object>();
         CollectInterpreterNodes(node, children, structDepth: 0);
-        foreach (var child in children)
+        foreach (var child in children.Distinct(new ReferenceIdentity()))
         {
             longest = Math.Max(longest, LongestUnprobedRun(child, unprobed, longestSoFar, onPath, withoutRead));
         }
@@ -770,6 +772,20 @@ public class ScriptNestingTests
     private static readonly string FuzzedUnaryChain = FuzzedUnaryChainPrefix + new string('~', 24_600) + "10;;}";
 
     /// <summary>
+    /// <paramref name="levels"/> calls of <c>g</c>, the identity, each the argument of the next, around
+    /// <paramref name="value"/>: nesting that no evaluation probe covers, one level of tree per call.
+    /// </summary>
+    private static string UnprobedCalls(int levels, string value)
+        => string.Concat(Enumerable.Repeat("g(", levels)) + value + new string(')', levels);
+
+    /// <summary>
+    /// <paramref name="levels"/> conditionals, each the consequent of the one before, around <paramref name="value"/>:
+    /// nesting that no evaluation probe covers, one level of tree per conditional.
+    /// </summary>
+    private static string UnprobedConditionals(int levels, string value)
+        => string.Concat(Enumerable.Repeat("1 ? ", levels)) + value + string.Concat(Enumerable.Repeat(" : 0", levels));
+
+    /// <summary>
     /// <paramref name="levels"/> levels of one kind of nesting no evaluation probe covers, around a value.
     /// </summary>
     private static string UnprobedNesting(string level, int levels)
@@ -778,15 +794,8 @@ public class ScriptNestingTests
         var builder = new StringBuilder(prelude);
         switch (level)
         {
-            case "o.b" or "c()" or "o?.b" or "t``":
-                var root = level.Substring(0, 1);
-                builder.Append(root);
-                for (var i = 0; i < levels; i++)
-                {
-                    builder.Append(level, 1, level.Length - 1);
-                }
-
-                builder.Append(';');
+            case "1?":
+                builder.Append(UnprobedConditionals(levels, "1")).Append(';');
                 break;
             case "~":
                 builder.Append('~', levels).Append("1;");

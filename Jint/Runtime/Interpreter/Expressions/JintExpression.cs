@@ -52,18 +52,26 @@ internal abstract class JintExpression
     /// </summary>
     private protected static bool CanShortCircuit(Expression expression)
     {
-        if (expression.IsOptional())
+        // A loop rather than a recursion: a chain of member accesses and calls may be thousands of links long.
+        while (!expression.IsOptional())
         {
-            return true;
+            switch (expression)
+            {
+                case ChainExpression chainExpression:
+                    expression = chainExpression.Expression;
+                    break;
+                case CallExpression callExpression:
+                    expression = callExpression.Callee;
+                    break;
+                case MemberExpression memberExpression:
+                    expression = memberExpression.Object;
+                    break;
+                default:
+                    return false;
+            }
         }
 
-        return expression switch
-        {
-            ChainExpression chainExpression => CanShortCircuit(chainExpression.Expression),
-            CallExpression callExpression => CanShortCircuit(callExpression.Callee),
-            MemberExpression memberExpression => CanShortCircuit(memberExpression.Object),
-            _ => false
-        };
+        return true;
     }
 
     /// <summary>
@@ -202,21 +210,29 @@ internal abstract class JintExpression
 
     internal static string? ToString(Expression expression)
     {
+        // The properties of the member accesses passed on the way down, the outermost first: a chain of member
+        // accesses and calls is followed in a loop, since it may be thousands of links long.
+        List<string?>? properties = null;
+        string? text;
         while (true)
         {
             if (expression is Literal literal)
             {
-                return AstExtensions.LiteralKeyToString(literal);
+                text = AstExtensions.LiteralKeyToString(literal);
+                break;
             }
 
             if (expression is Identifier identifier)
             {
-                return identifier.Name;
+                text = identifier.Name;
+                break;
             }
 
             if (expression is MemberExpression memberExpression)
             {
-                return ToString(memberExpression.Object) + "." + ToString(memberExpression.Property);
+                (properties ??= []).Add(ToString(memberExpression.Property));
+                expression = memberExpression.Object;
+                continue;
             }
 
             if (expression is CallExpression callExpression)
@@ -225,8 +241,22 @@ internal abstract class JintExpression
                 continue;
             }
 
-            return null;
+            text = null;
+            break;
         }
+
+        if (properties is null)
+        {
+            return text;
+        }
+
+        var builder = new System.Text.StringBuilder(text);
+        for (var i = properties.Count - 1; i >= 0; i--)
+        {
+            builder.Append('.').Append(properties[i]);
+        }
+
+        return builder.ToString();
     }
 
     protected internal static JintExpression Build(Expression expression)
