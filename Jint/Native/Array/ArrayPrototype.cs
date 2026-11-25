@@ -25,13 +25,6 @@ namespace Jint.Native.Array;
 [JsObject(UseShape = true)]
 public sealed partial class ArrayPrototype : ArrayInstance
 {
-    // This built-in's symbol-keyed own properties; see ObjectInstance._symbols.
-    private SymbolDictionary? _ownSymbols;
-
-    private protected override SymbolDictionary? GetOwnSymbols() => _ownSymbols;
-
-    private protected override void StoreOwnSymbols(SymbolDictionary? symbols) => _ownSymbols = symbols;
-
     private const int ConstraintCheckInterval = Engine.ConstraintCheckInterval;
 
     private readonly Realm _realm;

@@ -11,6 +11,13 @@ namespace Jint.Native.Array;
 
 public class ArrayInstance : ObjectInstance, IEnumerable<JsValue>
 {
+    // The symbol-keyed own properties: scripts tag arrays with symbols, too many for the engine's weak table.
+    private SymbolDictionary? _ownSymbols;
+
+    private protected sealed override SymbolDictionary? GetOwnSymbols() => _ownSymbols;
+
+    private protected sealed override void StoreOwnSymbols(SymbolDictionary? symbols) => _ownSymbols = symbols;
+
     // The "length" own property. To avoid a per-array PropertyDescriptor allocation in the common case,
     // the value is stored inline in _lengthValue and a descriptor (_lengthDescriptor) is materialized and
     // cached only when a caller needs the object: [[GetOwnProperty]], [[DefineOwnProperty]] (incl. making
