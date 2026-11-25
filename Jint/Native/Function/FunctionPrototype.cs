@@ -184,9 +184,12 @@ internal sealed partial class FunctionPrototype : Function
             return thisObject.Call(thisArg, Arguments.Empty);
         }
 
-        var argList = _engine._hasMaxArraySize
-            ? CreateListFromArrayLikeWithinLimit(_realm, argArray, AnyElementType)
-            : CreateListFromArrayLike(_realm, argArray);
+        var argList = argArray is JsArguments arguments && arguments.CopyVirtualValues() is { } values
+            && (!_engine._hasMaxArraySize || values.Length <= _engine.Options.Constraints.MaxArraySize)
+            ? values
+            : _engine._hasMaxArraySize
+                ? CreateListFromArrayLikeWithinLimit(_realm, argArray, AnyElementType)
+                : CreateListFromArrayLike(_realm, argArray);
 
         var result = thisObject.Call(thisArg, argList);
 

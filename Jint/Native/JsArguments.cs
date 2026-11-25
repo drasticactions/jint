@@ -212,6 +212,25 @@ public sealed class JsArguments : ObjectInstance
         return base.Get(property, receiver);
     }
 
+    /// <summary>The argument values as [[Get]] reads them while no property was materialized, or null after.</summary>
+    internal JsValue[]? CopyVirtualValues()
+    {
+        if (!_virtualMode)
+        {
+            return null;
+        }
+
+        var args = _args;
+        var values = new JsValue[args.Length];
+        var mapped = _func is not null && !_mapDetached;
+        for (uint i = 0; i < (uint) args.Length; i++)
+        {
+            values[i] = mapped && TryGetMappedName(i, out var name) ? _env.GetBindingValue(name, strict: false) : args[i];
+        }
+
+        return values;
+    }
+
     private bool TryGetMappedName(uint index, out Key name)
     {
         var names = _names;

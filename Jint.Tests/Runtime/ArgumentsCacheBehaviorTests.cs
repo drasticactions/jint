@@ -5,6 +5,24 @@ namespace Jint.Tests.Runtime;
 public class ArgumentsCacheBehaviorTests
 {
     [Test]
+    public void ApplyForwardsTheCurrentArgumentValues()
+    {
+        // apply reads a mapped index through its parameter binding, and an unmapped or materialized one from the object.
+        var engine = new Engine();
+        engine.Evaluate("(function(){ function g(){ return [].join.call(arguments, ','); } function f(a, b){ a = 5; return g.apply(null, arguments); } return f(1, 2, 3); })()").AsString().Should().Be("5,2,3");
+        engine.Evaluate("(function(){ 'use strict'; function g(){ return [].join.call(arguments, ','); } function f(a){ a = 5; return g.apply(null, arguments); } return f(1, 2); })()").AsString().Should().Be("1,2");
+        engine.Evaluate("(function(){ function g(){ return [].join.call(arguments, ','); } function f(a){ arguments[1] = 7; delete arguments[0]; return g.apply(null, arguments); } return f(1, 2); })()").AsString().Should().Be(",7");
+    }
+
+    [Test]
+    public void RecursiveFunctionExpressionsKeepTheirOwnBindings()
+    {
+        // A function that calls itself through the variable it was assigned to has one environment per active call.
+        var engine = new Engine();
+        engine.Evaluate("(function(){ var f = function(n){ var a = n; if (n > 0) { f(n - 1); } return a; }; var s = 0; for (var i = 0; i < 5; i++) { s += f(3); } return s; })()").AsNumber().Should().Be(15);
+    }
+
+    [Test]
     public void MappedArgumentWriteSurvivesFunctionReturn()
     {
         // Regression: a mapped arguments[i] = v write updates only the parameter binding while the
