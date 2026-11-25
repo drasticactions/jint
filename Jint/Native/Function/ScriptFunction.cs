@@ -177,7 +177,14 @@ public sealed class ScriptFunction : Function, IConstructor
             return rareEnvironment;
         }
 
-        return null;
+        return TakePooledEnvironment(held);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static FunctionEnvironment? TakePooledEnvironment(object? held)
+    {
+        var pool = held as RecursiveEnvPool ?? (held as FunctionRareData)?.EnvReuse as RecursiveEnvPool;
+        return pool?.TryRent();
     }
 
     // Whether a call of this instance has returned its environment. The first one is not kept: a closure made for
@@ -622,8 +629,24 @@ public sealed class ScriptFunction : Function, IConstructor
             }
             else if (_returnedEnvironment)
             {
-                // Cache the env itself so the next call to this function avoids the allocation.
-                _envReuse = funcEnv;
+                // Cache the env itself so the next call to this function avoids the allocation; one already held means
+                // a nested call of this function returned during this one, so recursion gets a pool.
+                var held = _envReuse;
+                if (held is RecursiveEnvPool pool)
+                {
+                    pool.Return(funcEnv);
+                }
+                else if (held is FunctionEnvironment nested && !ReferenceEquals(nested, funcEnv))
+                {
+                    pool = new RecursiveEnvPool();
+                    pool.Return(nested);
+                    pool.Return(funcEnv);
+                    _envReuse = pool;
+                }
+                else
+                {
+                    _envReuse = funcEnv;
+                }
             }
             else
             {
