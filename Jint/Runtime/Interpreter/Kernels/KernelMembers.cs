@@ -661,7 +661,15 @@ internal sealed class KernelCall : KernelExpression
             }
         }
 
+        return CallWithArgumentList(frame, function, thisValue);
+    }
 
+    /// <summary>The call of an interpreted function with its arguments in a pooled list.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private JsValue CallWithArgumentList(KernelFrame frame, ScriptFunction function, JsValue thisValue)
+    {
+        var engine = frame.Engine;
+        var arguments = _arguments;
         var values = arguments.Length == 0 ? [] : engine._jsValueArrayPool.RentArray(arguments.Length);
         for (var i = 0; i < arguments.Length; i++)
         {
@@ -800,6 +808,7 @@ internal sealed class KernelCall : KernelExpression
     }
 
     /// <summary>JintCallExpression.RegisterLaneCall: the arguments in locals, the callee's own register entry.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
     private JsValue CallRegisters(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state)
     {
         var arguments = _arguments;
@@ -825,6 +834,19 @@ internal sealed class KernelCall : KernelExpression
     }
 
     private JsValue? CallKernel(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, FunctionKernel kernel, in NumberArguments arguments, out double number)
+    {
+        var engine = frame.Engine;
+        if (engine.CanPushCallFrame && !state.EnvironmentMayEscape && !frame.Context.CompletionValuesObservable && engine._stackGuard.HasVerifiedHeadroom())
+        {
+            return function.CallKernelInFrame(this, thisValue, in arguments, state, kernel, out number);
+        }
+
+        return CallKernelWithStackFrame(frame, function, thisValue, state, kernel, in arguments, out number);
+    }
+
+    /// <summary>The call of a function whose body runs on a kernel, with its call stack frame and execution context pushed.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private JsValue? CallKernelWithStackFrame(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, FunctionKernel kernel, in NumberArguments arguments, out double number)
     {
         var engine = frame.Engine;
         var oldSyntaxElement = engine.MarkLastSyntaxElement();
@@ -923,7 +945,7 @@ internal sealed class KernelCall : KernelExpression
     }
 
     // The call's handler, whose node the call stack frame reports the call at.
-    private JintExpression CallHandler => _handler ??= JintExpression.Build(_expression);
+    internal JintExpression CallHandler => _handler ??= JintExpression.Build(_expression);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     internal JsValue Interpret(KernelFrame frame) => (_handler ??= JintExpression.Build(_expression)).GetValue(frame.Context);

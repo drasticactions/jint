@@ -209,6 +209,25 @@ public class FunctionKernelTests
           return out.join(",");
         }
         """,
+        // stacks taken inside kernel calls of kernels, from the callee, an interpreted closure and a caught error
+        """
+        var stacks = [];
+        function leaf(n) { if (n === 3) { stacks.push(new Error("at " + n).stack); } return n + 1; }
+        function mid(n) { var r = leaf(n) * 2; return r; }
+        function top(n) { return n < 1 ? mid(n) + 0 : top(n - 1) + mid(n); }
+        function closure(n) { var f = function () { return new Error("c" + n).stack; }; return f(); }
+        function viaClosure(n) { var s = closure(n); stacks.push(s); return n; }
+        function deep(n) { return n > 0 ? deep(n - 1) + 1 : viaClosure(n) + 0; }
+        function bad(n) { var o = n > 2 ? null : { x: n }; return o.x; }
+        function tryBad(n) { try { return bad(n); } catch (e) { return e.message + e.stack; } }
+        function catcher(n) { var r = ""; r = r + tryBad(n); return r; }
+        function test() {
+          stacks = [];
+          var out = [top(4), deep(3)];
+          for (var i = 0; i < 5; i++) { out.push(catcher(i)); }
+          return out.join(",") + stacks.join("~");
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()
@@ -253,6 +272,39 @@ public class FunctionKernelTests
 
         // Without an exact constraint.
         Run(script, call, mode, exact: false).Should().Be(Run(script, call, Mode.Interpreter, exact: false));
+    }
+
+    [Test]
+    public void HostCallbacksSeeTheFramesOfKernelCalls()
+    {
+        const string Script = """
+            var seen = [];
+            function inner(n) { var t = n + 1; if (n === 0) { seen.push(trace() + "|" + depth()); } return t; }
+            function outer(n) { return n > 0 ? outer(n - 1) + n : inner(n) + 0; }
+            function test() { seen = []; var r = outer(4) + outer(3); return r + seen.join("~"); }
+            """;
+
+        string RunWith(Mode mode)
+        {
+            var engine = new Engine();
+            Configure(engine, mode);
+            engine.SetValue("trace", new Func<string>(() => engine.Diagnostics.StackTrace));
+            engine.SetValue("depth", new Func<int>(() => engine.CallStack.Count));
+            engine.Execute(Script);
+            var results = new List<string>();
+            for (var i = 0; i < 12; i++)
+            {
+                results.Add(engine.Evaluate("test()").ToString());
+            }
+
+            return string.Join("|", results);
+        }
+
+        var interpreted = RunWith(Mode.Interpreter);
+        foreach (var mode in CodeModes)
+        {
+            RunWith(mode).Should().Be(interpreted, mode.ToString());
+        }
     }
 
     [TestCase("function f(a) { var b = a + 1; return b; }", true)]

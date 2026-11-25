@@ -22,7 +22,7 @@ public partial class Engine
     /// </summary>
     internal IScriptOrModule? GetActiveScriptOrModule()
     {
-        return _executionContexts?.GetActiveScriptOrModule();
+        return ExecutionContextsIfAny?.GetActiveScriptOrModule();
     }
 
     // Cache key for the per-engine module map. Per the import-attributes spec,

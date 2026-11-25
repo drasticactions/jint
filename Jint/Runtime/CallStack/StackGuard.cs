@@ -115,31 +115,48 @@ internal sealed class StackGuard
     /// </para>
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void EnsureStackHeadroom()
+    public unsafe void EnsureStackHeadroom()
     {
-        if (_backstopEnabled && !IsAtOrAboveVerifiedDepth())
+        if (_backstopEnabled)
         {
-            ProbeStackHeadroom();
+            // A frame between two frames of one thread's stack at which the reserve was available has it too.
+            byte marker = 0;
+            var here = (nuint) (&marker);
+            if (here < _verifiedLow || here > _verifiedHigh)
+            {
+                ProbeStackHeadroom(here);
+            }
         }
     }
 
-    /// <summary>
-    /// The deepest stack address on this thread at which <see cref="ProbeStackHeadroom"/> has found the reserve
-    /// available, or zero before the first probe. The stack's limit is fixed for a thread's lifetime, so a frame at
-    /// or above that address has the reserve as well, and the runtime need not be asked again: a recursion asks it
-    /// once per new depth, and a call that returns to a depth it reached before pays one comparison. The answer at
-    /// any depth is the runtime's, so the depth at which the <c>RangeError</c> is thrown does not change.
-    /// </summary>
-    [ThreadStatic]
-    private static nuint t_verifiedStackAddress;
-
+    /// <summary>Whether <see cref="EnsureStackHeadroom"/> would pass here without asking the runtime.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static unsafe bool IsAtOrAboveVerifiedDepth()
+    internal unsafe bool HasVerifiedHeadroom()
     {
+        if (!_backstopEnabled)
+        {
+            return true;
+        }
+
         byte marker = 0;
         var here = (nuint) (&marker);
-        var verified = t_verifiedStackAddress;
-        return here >= verified && verified != 0;
+        return here >= _verifiedLow && here <= _verifiedHigh;
+    }
+
+    // The stack addresses between which the reserve was found available, on the stack of _verifiedThread.
+    private nuint _verifiedLow;
+    private nuint _verifiedHigh;
+    private Thread? _verifiedThread;
+
+    /// <summary>Forgets the verified stack range when a thread other than the one it was verified on takes the engine over.</summary>
+    internal void ForgetVerifiedRangeOfOtherThread()
+    {
+        if (_verifiedThread is not null && !ReferenceEquals(_verifiedThread, Thread.CurrentThread))
+        {
+            _verifiedLow = 0;
+            _verifiedHigh = 0;
+            _verifiedThread = null;
+        }
     }
 
     /// <summary>
@@ -186,20 +203,40 @@ internal sealed class StackGuard
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private unsafe void ProbeStackHeadroom()
+    private void ProbeStackHeadroom()
     {
         if (!RuntimeHelpers.TryEnsureSufficientExecutionStack())
         {
             ThrowMaximumCallStackSizeExceeded();
         }
+    }
 
-        // This frame is below its caller's, so the caller's own test passes at the depth just verified.
+    /// <summary>Probes below the frame at <paramref name="caller"/> and widens the verified range to both frames.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private unsafe void ProbeStackHeadroom(nuint caller)
+    {
+        ProbeStackHeadroom();
+
+        // Stacks of threads do not overlap, so a range on the stack of one thread holds no frame of another.
         byte marker = 0;
         var here = (nuint) (&marker);
-        var verified = t_verifiedStackAddress;
-        if (verified == 0 || here < verified)
+        var thread = Thread.CurrentThread;
+        if (!ReferenceEquals(thread, _verifiedThread) || _verifiedHigh == 0)
         {
-            t_verifiedStackAddress = here;
+            _verifiedThread = thread;
+            _verifiedLow = here;
+            _verifiedHigh = caller;
+            return;
+        }
+
+        if (here < _verifiedLow)
+        {
+            _verifiedLow = here;
+        }
+
+        if (caller > _verifiedHigh)
+        {
+            _verifiedHigh = caller;
         }
     }
 

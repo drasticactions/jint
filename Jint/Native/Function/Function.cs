@@ -888,6 +888,10 @@ public abstract partial class Function : ObjectInstance, ICallable
     /// https://tc39.es/ecma262/#sec-ordinarycallbindthis
     /// </summary>
     internal void OrdinaryCallBindThis(in ExecutionContext calleeContext, JsValue thisArgument)
+        => OrdinaryCallBindThis((FunctionEnvironment) calleeContext.LexicalEnvironment, thisArgument);
+
+    /// <summary>OrdinaryCallBindThis of the call whose environment is <paramref name="localEnv"/>.</summary>
+    internal void OrdinaryCallBindThis(FunctionEnvironment localEnv, JsValue thisArgument)
     {
         if (_thisMode == FunctionThisMode.Lexical)
         {
@@ -896,7 +900,6 @@ public abstract partial class Function : ObjectInstance, ICallable
 
         var calleeRealm = _realm;
 
-        var localEnv = (FunctionEnvironment) calleeContext.LexicalEnvironment;
         JsValue thisValue;
         if (_thisMode == FunctionThisMode.Strict)
         {

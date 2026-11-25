@@ -849,6 +849,85 @@ public sealed class ScriptFunction : Function, IConstructor
         }
     }
 
+    /// <summary>The environment of a call that cannot escape it: one a previous call left, reset, or a new one.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private FunctionEnvironment TakeCallEnvironment(JintFunctionDefinition.State state)
+    {
+        var held = _ownDescriptors;
+        FunctionEnvironment? environment;
+        if (held is RecursiveEnvPool pool)
+        {
+            environment = pool.TryRent();
+        }
+        else if (held is FunctionEnvironment kept)
+        {
+            _ownDescriptors = null;
+            environment = kept;
+        }
+        else
+        {
+            environment = null;
+        }
+
+        if (environment is null || environment._slots is null)
+        {
+            return NewCallEnvironment(environment, state);
+        }
+
+        environment.Reset(this, Undefined, _environment);
+        return environment;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private FunctionEnvironment NewCallEnvironment(FunctionEnvironment? taken, JintFunctionDefinition.State state)
+    {
+        if (taken is null)
+        {
+            return JintEnvironment.NewFunctionEnvironment(_engine, this, Undefined, state);
+        }
+
+        // A kept environment whose slot array went to the State, as NewFunctionEnvironment gives it one.
+        taken.Reset(this, Undefined, _environment);
+        taken._slotNames = state.SlotNames;
+        taken._slots = Interlocked.Exchange(ref state._cachedSlots, null) ?? new Binding[state.SlotNames!.Length];
+        return taken;
+    }
+
+    /// <summary>
+    /// <see cref="CallKernel"/> made from a kernel at <paramref name="site"/> with one frame for the call, from which the
+    /// call stack frame and execution context are pushed only when something reads either stack.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal JsValue? CallKernelInFrame(KernelCall site, JsValue thisObject, in NumberArguments arguments, JintFunctionDefinition.State state, FunctionKernel kernel, out double number)
+    {
+        var engine = _engine;
+        var oldPositions = engine.MarkLastSyntaxPositions();
+        var oldSource = engine._lastSyntaxLocation.SourceFile;
+        var funcEnv = TakeCallEnvironment(state);
+        if (!state.CanSkipThisBinding)
+        {
+            OrdinaryCallBindThis(funcEnv, thisObject);
+        }
+
+        Engine.FunctionDeclarationInstantiationInto(funcEnv, state, in arguments);
+        var frame = kernel.EnterCall(engine._evaluationContext, funcEnv);
+        engine.PushCallFrame(funcEnv, site);
+        JsValue? result;
+        try
+        {
+            result = kernel.RunBody(frame, out number);
+        }
+        finally
+        {
+            kernel.LeaveCall(frame);
+            engine.PopCallFrame();
+            ReturnEnvironment(funcEnv, state);
+        }
+
+        engine.RestoreLastSyntaxElement(oldPositions, oldSource);
+        return result;
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static bool CanPrepareTailCall(EvaluationContext context, bool isTailPosition)
     {

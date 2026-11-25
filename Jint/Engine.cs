@@ -1149,6 +1149,11 @@ public sealed partial class Engine : IDisposable
             _memorySegment = default;
             _hasMemorySegment = false;
             _isEntryRoot = isEntryRoot;
+            if (isEntryRoot)
+            {
+                // The claiming thread may run on a stack a thread that has ended left behind.
+                engine._stackGuard?.ForgetVerifiedRangeOfOtherThread();
+            }
         }
 
         /// <summary>
@@ -1319,7 +1324,7 @@ public sealed partial class Engine : IDisposable
     /// <see cref="HasPendingAsyncOperations"/>.
     /// </para>
     /// </summary>
-    internal bool IsEvaluationInProgress => _hostEntryDepth > 0 || _executionContexts.Count > 1;
+    internal bool IsEvaluationInProgress => _hostEntryDepth > 0 || ExecutionContexts.Count > 1;
 
     // set by DebugHandler.Evaluate around watch/breakpoint-condition expression evaluation so the
     // host-boundary constraint checks can exempt it (see CheckAmortizedConstraintsAtHostBoundary)
@@ -1866,7 +1871,7 @@ public sealed partial class Engine : IDisposable
     internal long _arrayLiveViewConversions;
     internal long _arrayCopyConversions;
 
-    internal readonly JintCallStack CallStack;
+    internal readonly JintCallStack _callStack;
     internal readonly StackGuard _stackGuard;
 
     /// <summary>
@@ -2059,7 +2064,8 @@ public sealed partial class Engine : IDisposable
             Options.Interop.ObjectWrapperReportedMethodBindingFlags,
             _extensionMethods);
 
-        CallStack = new JintCallStack(_maxRecursionDepth >= 0, recordsCallingContext: _isDebugMode);
+        _callStack = new JintCallStack(_maxRecursionDepth >= 0, recordsCallingContext: _isDebugMode);
+        _pushesCallFrames = !_isDebugMode && _maxRecursionDepth < 0 && _memoryLimitConstraint is null;
         _stackGuard = new StackGuard(this);
 
         var scriptParsingDefaults = Options.RetainFunctionSourceText
@@ -2226,7 +2232,7 @@ public sealed partial class Engine : IDisposable
     internal ref readonly ExecutionContext ExecutionContext
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => ref _executionContexts.Peek();
+        get => ref ExecutionContexts.Peek();
     }
 
     // temporary state for realm so that we can easily pass it to functions while still not
@@ -2479,8 +2485,8 @@ public sealed partial class Engine : IDisposable
     internal ParserOptions GetActiveParserOptions()
     {
         return _parserOptionsOverride
-               ?? _executionContexts?.GetActiveScriptOrModule()?.ParserOptions
-               ?? _executionContexts?.GetActiveParserOptions()
+               ?? ExecutionContextsIfAny?.GetActiveScriptOrModule()?.ParserOptions
+               ?? ExecutionContextsIfAny?.GetActiveParserOptions()
                ?? _defaultParserOptions;
     }
 
@@ -2491,7 +2497,7 @@ public sealed partial class Engine : IDisposable
             return parsingConstraintsOverride;
         }
 
-        return _executionContexts?.GetActiveScriptOrModule() is { } owner
+        return ExecutionContextsIfAny?.GetActiveScriptOrModule() is { } owner
             ? _parsingConstraints.Combine(owner.ParsingConstraints)
             : _parsingConstraints;
     }
@@ -2547,7 +2553,7 @@ public sealed partial class Engine : IDisposable
             null,
             strict: strict);
 
-        _executionContexts.Push(in context);
+        ExecutionContexts.Push(in context);
         if (_memoryLimitConstraint is not null)
         {
             BeginImplicitMemoryOperation();
@@ -2556,7 +2562,7 @@ public sealed partial class Engine : IDisposable
 
     internal void EnterExecutionContext(in ExecutionContext context)
     {
-        _executionContexts.Push(in context);
+        ExecutionContexts.Push(in context);
         if (_memoryLimitConstraint is not null)
         {
             BeginImplicitMemoryOperation();
@@ -2592,7 +2598,7 @@ public sealed partial class Engine : IDisposable
         Native.Function.Function function,
         bool strict)
     {
-        ref readonly var context = ref _executionContexts.PushFunctionContext(scriptOrModule, environment, privateEnvironment, realm, function, strict);
+        ref readonly var context = ref ExecutionContexts.PushFunctionContext(scriptOrModule, environment, privateEnvironment, realm, function, strict);
         if (_memoryLimitConstraint is not null)
         {
             BeginImplicitMemoryOperation();
@@ -3028,7 +3034,7 @@ public sealed partial class Engine : IDisposable
 
         // Jobs run only once the execution context stack is empty (HTML's clean up after running script): a script that a
         // host callback evaluates while other script is on the stack leaves the queue to the drain of the outermost run.
-        var drainsJobs = _executionContexts.Count <= _emptyStackContextDepth;
+        var drainsJobs = ExecutionContexts.Count <= _emptyStackContextDepth;
         EnterExecutionContext(in scriptContext);
 
         // Depth of the call stack when THIS evaluation began. A nested evaluation (a host callback
@@ -3293,7 +3299,7 @@ public sealed partial class Engine : IDisposable
         // host pump; recording it is what lets CleanUpAfterRunningScript tell "a script is on the stack"
         // from "a job is running", which a bare comparison against the base frame cannot.
         var previousEmptyStackDepth = _emptyStackContextDepth;
-        _emptyStackContextDepth = _executionContexts.Count;
+        _emptyStackContextDepth = ExecutionContexts.Count;
         try
         {
             RunEventLoopJobCore(in job);
@@ -3625,7 +3631,7 @@ public sealed partial class Engine : IDisposable
     internal void CleanUpAfterRunningScript()
     {
         // Step 4's condition.
-        if (_executionContexts.Count > _emptyStackContextDepth)
+        if (ExecutionContexts.Count > _emptyStackContextDepth)
         {
             return;
         }
@@ -4030,7 +4036,7 @@ public sealed partial class Engine : IDisposable
     {
         _memoryLimitConstraint?.Check();
 
-        if (_executionContexts.Count > 1)
+        if (ExecutionContexts.Count > 1)
         {
             CheckAmortizedConstraints();
             return;
@@ -4095,7 +4101,7 @@ public sealed partial class Engine : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void CheckAmortizedConstraintsAtHostBoundary()
     {
-        if (_executionContexts.Count > 1 && !_debuggerEvaluating)
+        if (ExecutionContexts.Count > 1 && !_debuggerEvaluating)
         {
             _memoryLimitConstraint?.CheckOnEngineThread();
             CheckAmortizedConstraints();
@@ -4553,7 +4559,7 @@ public sealed partial class Engine : IDisposable
         // where the callback re-enters the engine would reset the timeout on every iteration and
         // run forever. Host-entry depth covers callbacks that push no interpreter frame; execution-context
         // depth covers async and generator resumes that have no host entry.
-        var isNested = _hostEntryDepth > 0 || _executionContexts.Count > 1;
+        var isNested = _hostEntryDepth > 0 || ExecutionContexts.Count > 1;
         if (!isNested)
         {
             ThrowIfRetired();
@@ -4805,7 +4811,7 @@ public sealed partial class Engine : IDisposable
     internal void SetLastSyntaxElement(Node node) => RestoreLastSyntaxElement(in node.LocationRef);
 
     /// <summary>
-    /// The last syntax element as it is now, for <see cref="RestoreLastSyntaxElement"/> to put back.
+    /// The last syntax element as it is now, for <see cref="RestoreLastSyntaxElement(in SourceLocation)"/> to put back.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal SourceLocation MarkLastSyntaxElement() => _lastSyntaxLocation;
@@ -4825,6 +4831,22 @@ public sealed partial class Engine : IDisposable
         // Start and End move as one 16-byte store, so the next 16-byte read of them is forwarded from it.
         Unsafe.As<Position, PositionPair>(ref Unsafe.AsRef(in target.Start)) = Unsafe.As<Position, PositionPair>(ref Unsafe.AsRef(in location.Start));
         var source = location.SourceFile;
+        if (!ReferenceEquals(source, target.SourceFile))
+        {
+            Unsafe.AsRef(in target.SourceFile) = source;
+        }
+    }
+
+    /// <summary>The start and end of the last syntax element, for <see cref="RestoreLastSyntaxElement(PositionPair, string?)"/>.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal PositionPair MarkLastSyntaxPositions() => Unsafe.As<Position, PositionPair>(ref Unsafe.AsRef(in _lastSyntaxLocation.Start));
+
+    /// <summary>Makes the last syntax element the one of <paramref name="positions"/> in <paramref name="source"/>.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal void RestoreLastSyntaxElement(PositionPair positions, string? source)
+    {
+        ref var target = ref _lastSyntaxLocation;
+        Unsafe.As<Position, PositionPair>(ref Unsafe.AsRef(in target.Start)) = positions;
         if (!ReferenceEquals(source, target.SourceFile))
         {
             Unsafe.AsRef(in target.SourceFile) = source;
@@ -5134,8 +5156,13 @@ public sealed partial class Engine : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void FunctionDeclarationInstantiationFast<TArgs>(JintFunctionDefinition.State configuration, in TArgs argumentsList)
         where TArgs : struct, IArgumentSource
+        => FunctionDeclarationInstantiationInto((FunctionEnvironment) ExecutionContext.LexicalEnvironment, configuration, in argumentsList);
+
+    /// <summary><see cref="FunctionDeclarationInstantiationFast{TArgs}(JintFunctionDefinition.State, in TArgs)"/> into <paramref name="fastEnv"/>.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static void FunctionDeclarationInstantiationInto<TArgs>(FunctionEnvironment fastEnv, JintFunctionDefinition.State configuration, in TArgs argumentsList)
+        where TArgs : struct, IArgumentSource
     {
-        var fastEnv = (FunctionEnvironment) ExecutionContext.LexicalEnvironment;
         if (configuration.RestParameterSlot < 0)
         {
             fastEnv.InitializeParametersFast(configuration.ParameterNames, in argumentsList);
@@ -5728,19 +5755,19 @@ public sealed partial class Engine : IDisposable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void UpdateLexicalEnvironment(Environment newEnv)
     {
-        _executionContexts.ReplaceTopLexicalEnvironment(newEnv);
+        ExecutionContexts.ReplaceTopLexicalEnvironment(newEnv);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void UpdateVariableEnvironment(Environment newEnv)
     {
-        _executionContexts.ReplaceTopVariableEnvironment(newEnv);
+        ExecutionContexts.ReplaceTopVariableEnvironment(newEnv);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void UpdatePrivateEnvironment(PrivateEnvironment? newEnv)
     {
-        _executionContexts.ReplaceTopPrivateEnvironment(newEnv);
+        ExecutionContexts.ReplaceTopPrivateEnvironment(newEnv);
     }
 
     /// <summary>
@@ -5751,19 +5778,19 @@ public sealed partial class Engine : IDisposable
     /// </summary>
     internal bool ReplaceTopStrict(bool strict)
     {
-        return _executionContexts.ReplaceTopStrict(strict);
+        return ExecutionContexts.ReplaceTopStrict(strict);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal ref readonly ExecutionContext UpdateGenerator(GeneratorInstance generator)
     {
-        return ref _executionContexts.ReplaceTopGenerator(generator);
+        return ref ExecutionContexts.ReplaceTopGenerator(generator);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal ref readonly ExecutionContext UpdateAsyncGenerator(Native.AsyncGenerator.AsyncGeneratorInstance asyncGenerator)
     {
-        return ref _executionContexts.ReplaceTopAsyncGenerator(asyncGenerator);
+        return ref ExecutionContexts.ReplaceTopAsyncGenerator(asyncGenerator);
     }
 
     /// <summary>
@@ -5974,7 +6001,7 @@ public sealed partial class Engine : IDisposable
 
     internal ref readonly ExecutionContext GetExecutionContext(int fromTop)
     {
-        return ref _executionContexts.Peek(fromTop);
+        return ref ExecutionContexts.Peek(fromTop);
     }
 
     /// <summary>

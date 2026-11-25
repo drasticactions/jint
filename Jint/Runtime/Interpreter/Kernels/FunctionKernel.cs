@@ -213,7 +213,6 @@ internal sealed class FunctionKernel : KernelProgram
             context.CompletionValuesObservable = false;
         }
 
-        Completion completion;
         try
         {
             var code = _code ?? CodeWhenWorthIt(engine);
@@ -238,13 +237,14 @@ internal sealed class FunctionKernel : KernelProgram
                 }
             }
 
-            completion = frame.Abrupt;
-            if (completion.Type == CompletionType.Normal)
+            if (frame.Abrupt.Type != CompletionType.Normal)
             {
-                // A return statement of the body left its value in the frame.
-                number = frame.ReturnNumber;
-                return frame.ReturnValue;
+                return CompleteAbruptly(frame, out number);
             }
+
+            // A return statement of the body left its value in the frame.
+            number = frame.ReturnNumber;
+            return frame.ReturnValue;
         }
         finally
         {
@@ -262,11 +262,66 @@ internal sealed class FunctionKernel : KernelProgram
                 Leave(frame);
             }
         }
+    }
 
+    /// <summary>Enters a run of the body in <paramref name="environment"/>, a call's own environment, for <see cref="RunBody"/>.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    internal KernelFrame EnterCall(EvaluationContext context, FunctionEnvironment environment)
+    {
+        var frame = EnterKept(context, environment);
+        frame.CodeThreshold = -1;
+        frame.Engine._functionKernelRuns++;
+        return frame;
+    }
+
+    /// <summary>Ends a run <see cref="EnterCall"/> entered.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    internal void LeaveCall(KernelFrame frame) => LeaveKept(frame);
+
+    /// <summary>The body run in <paramref name="frame"/>, where completion values are not observable: <see cref="RunUnboxed"/> without entering.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    internal JsValue? RunBody(KernelFrame frame, out double number)
+    {
+        var code = _code ?? CodeWhenWorthIt(frame.Engine);
+        if (code is not null)
+        {
+            frame.Engine._functionKernelCodeRuns++;
+            if (code.RunFunction(frame) is { } value)
+            {
+                number = 0;
+                return value;
+            }
+        }
+        else
+        {
+            _calls++;
+            var result = _body.Execute(frame);
+            _work += frame.Work;
+            if (result == KernelStatement.Normal)
+            {
+                number = 0;
+                return JsValue.Undefined;
+            }
+        }
+
+        if (frame.Abrupt.Type != CompletionType.Normal)
+        {
+            return CompleteAbruptly(frame, out number);
+        }
+
+        number = frame.ReturnNumber;
+        return frame.ReturnValue;
+    }
+
+    /// <summary>The value of a body that completed with a <c>return</c> it did not leave in the frame, or its throw.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static JsValue CompleteAbruptly(KernelFrame frame, out double number)
+    {
         number = 0;
+        var completion = frame.Abrupt;
         if (completion.Type == CompletionType.Throw)
         {
-            Throw.JavaScriptException(engine, completion.Value, in completion);
+            Throw.JavaScriptException(frame.Engine, completion.Value, in completion);
         }
 
         return completion.Type == CompletionType.Return ? completion.Value : JsValue.Undefined;
