@@ -19,8 +19,12 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
     // on the ScriptFunction instance, so it is always re-bound to the same function).
     internal Function _functionObject;
 
-    // The frame a function kernel runs this environment's calls in, kept with it so names stay resolved.
-    internal Interpreter.Kernels.KernelFrame? _kernelFrame;
+    /// <summary>The frame a function kernel runs this environment's calls in, kept with it so names stay resolved.</summary>
+    internal Interpreter.Kernels.KernelFrame? KernelFrame
+    {
+        get => _disposeCapabilityOrFrame as Interpreter.Kernels.KernelFrame;
+        set => _disposeCapabilityOrFrame = value;
+    }
 
     public FunctionEnvironment(
         Engine engine,
@@ -87,7 +91,7 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
         _functionObject = null!;
         _thisValue = null;
         _outerEnv = null;
-        _kernelFrame?.Forget();
+        KernelFrame?.Forget();
         _dictionary?.ClearPreservingCapacity();
     }
 

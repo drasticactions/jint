@@ -14,7 +14,10 @@ namespace Jint.Runtime.Environments;
 internal class DeclarativeEnvironment : Environment
 {
     internal HybridDictionary<Binding>? _dictionary;
-    private DisposeCapability? _disposeCapability;
+    // The disposable resources of the environment, or in a function environment that has none, its kernel frame.
+    private protected object? _disposeCapabilityOrFrame;
+
+    private DisposeCapability? Capability => _disposeCapabilityOrFrame as DisposeCapability;
 
     // Fixed-slot binding storage for qualifying functions
     internal Binding[]? _slots;
@@ -638,11 +641,11 @@ internal class DeclarativeEnvironment : Environment
 
     internal override JsValue GetThisBinding() => Undefined;
 
-    internal sealed override Completion DisposeResources(Completion c) => _disposeCapability?.DisposeResources(c) ?? c;
+    internal sealed override Completion DisposeResources(Completion c) => Capability?.DisposeResources(c) ?? c;
 
-    internal sealed override Completion DisposeResources(Completion c, Realm realm) => _disposeCapability?.DisposeResources(c, realm) ?? c;
+    internal sealed override Completion DisposeResources(Completion c, Realm realm) => Capability?.DisposeResources(c, realm) ?? c;
 
-    internal sealed override bool HasDisposeResources => _disposeCapability?.HasResources == true;
+    internal sealed override bool HasDisposeResources => Capability?.HasResources == true;
 
     /// <summary>
     /// Begin dispose via the state machine. Returns either Done with the final Completion,
@@ -651,16 +654,16 @@ internal class DeclarativeEnvironment : Environment
     /// Done immediately.
     /// </summary>
     internal sealed override DisposeStepResult BeginDisposeResources(Completion c)
-        => _disposeCapability?.BeginDispose(c) ?? DisposeStepResult.Done(c);
+        => Capability?.BeginDispose(c) ?? DisposeStepResult.Done(c);
 
     internal sealed override DisposeStepResult BeginDisposeResources(Completion c, Realm realm)
-        => _disposeCapability?.BeginDispose(c, realm) ?? DisposeStepResult.Done(c);
+        => Capability?.BeginDispose(c, realm) ?? DisposeStepResult.Done(c);
 
     /// <summary>
     /// Continue dispose after a suspended Await settles. Returns either Done or the next Suspend.
     /// </summary>
     internal sealed override DisposeStepResult ContinueDisposeResources(JsValue awaitResult, bool awaitThrew)
-        => _disposeCapability!.ContinueDispose(awaitResult, awaitThrew);
+        => Capability!.ContinueDispose(awaitResult, awaitThrew);
 
     public void Clear()
     {
@@ -672,7 +675,10 @@ internal class DeclarativeEnvironment : Environment
     /// </summary>
     internal void ClearDisposeCapability()
     {
-        _disposeCapability = null;
+        if (_disposeCapabilityOrFrame is DisposeCapability)
+        {
+            _disposeCapabilityOrFrame = null;
+        }
     }
 
     internal void TransferTo(List<Key> names, DeclarativeEnvironment env)
@@ -690,8 +696,12 @@ internal class DeclarativeEnvironment : Environment
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void HandleDisposal(JsValue value, DisposeHint hint)
     {
-        _disposeCapability ??= new DisposeCapability(_engine);
-        _disposeCapability.AddDisposableResource(value, hint);
+        if (_disposeCapabilityOrFrame is not DisposeCapability capability)
+        {
+            _disposeCapabilityOrFrame = capability = new DisposeCapability(_engine);
+        }
+
+        capability.AddDisposableResource(value, hint);
     }
 }
 

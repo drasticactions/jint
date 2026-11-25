@@ -351,7 +351,7 @@ internal abstract class KernelProgram
     /// </summary>
     private protected KernelFrame EnterKept(EvaluationContext context, FunctionEnvironment environment)
     {
-        var frame = environment._kernelFrame;
+        var frame = environment.KernelFrame;
         if (frame is null || frame.InUse || !ReferenceEquals(frame.Names, _names) || !ReferenceEquals(frame.Context, context))
         {
             return Attach(context, environment);
@@ -388,9 +388,9 @@ internal abstract class KernelProgram
         frame.Layout = _layout;
         frame.LayoutIndices = _layoutIndices;
         frame.ResolveLayout();
-        if (environment._kernelFrame is not { InUse: true })
+        if (environment.KernelFrame is not { InUse: true })
         {
-            environment._kernelFrame = frame;
+            environment.KernelFrame = frame;
         }
 
         return frame;
@@ -399,7 +399,7 @@ internal abstract class KernelProgram
     /// <summary>Ends a run in a frame <see cref="EnterKept"/> gave, which keeps its resolved names.</summary>
     private protected void LeaveKept(KernelFrame frame)
     {
-        if (!ReferenceEquals(((FunctionEnvironment) frame.Start)._kernelFrame, frame))
+        if (!ReferenceEquals(((FunctionEnvironment) frame.Start).KernelFrame, frame))
         {
             Leave(frame);
             return;
