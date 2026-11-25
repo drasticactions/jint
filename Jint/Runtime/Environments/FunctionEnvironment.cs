@@ -19,6 +19,9 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
     // on the ScriptFunction instance, so it is always re-bound to the same function).
     internal Function _functionObject;
 
+    // The frame a function kernel runs this environment's calls in, kept with it so names stay resolved.
+    internal Interpreter.Kernels.KernelFrame? _kernelFrame;
+
     public FunctionEnvironment(
         Engine engine,
         Function functionObject,
@@ -84,6 +87,7 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
         _functionObject = null!;
         _thisValue = null;
         _outerEnv = null;
+        _kernelFrame = null;
         _dictionary?.ClearPreservingCapacity();
     }
 
@@ -186,11 +190,7 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
     internal void InitializeParametersFast<TArgs>(Key[] parameterNames, in TArgs arguments)
         where TArgs : struct, IArgumentSource
     {
-        var slots = _slots!;
-        for (var i = 0; i < parameterNames.Length; i++)
-        {
-            slots[i] = new Binding(arguments.At(i), canBeDeleted: false, mutable: true, strict: false);
-        }
+        arguments.StoreParameters(_slots!, parameterNames.Length);
     }
 
     /// <summary>

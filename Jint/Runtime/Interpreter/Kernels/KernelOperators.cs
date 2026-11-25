@@ -299,6 +299,70 @@ internal sealed class KernelNotEffect : KernelExpression
     internal override int Test(KernelFrame frame) => 1 - _argument.Test(frame);
 }
 
+/// <summary>
+/// An arithmetic or bitwise operator with an operand that is not pure, a call above all: each operand once, in order;
+/// two Numbers are combined directly, any other pair as the interpreter combines evaluated operands.
+/// </summary>
+internal sealed class KernelArithmeticEffect : KernelExpression
+{
+    internal readonly Operator _operator;
+    internal readonly KernelExpression _left;
+    internal readonly KernelExpression _right;
+    private readonly Node _location;
+
+    public KernelArithmeticEffect(NonLogicalBinaryExpression expression, KernelExpression left, KernelExpression right) : base(expression)
+    {
+        _operator = expression.Operator;
+        _left = left;
+        _right = right;
+        _location = expression.Left;
+    }
+
+    internal static bool IsSupported(Operator op) => KernelBinary.IsSupported(op) && !KernelBinary.IsComparison(op);
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        var left = _left.Evaluate(frame, out var leftNumber);
+        var right = _right.Evaluate(frame, out var rightNumber);
+        if (IsNumber(left, ref leftNumber) && IsNumber(right, ref rightNumber))
+        {
+            number = KernelBinary.Apply(_operator, leftNumber, rightNumber);
+            return null;
+        }
+
+        number = 0;
+        return ApplyValues(frame, Box(left, leftNumber), Box(right, rightNumber));
+    }
+
+    /// <summary>The operator applied to evaluated operands that are not both Numbers.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal JsValue ApplyValues(KernelFrame frame, JsValue left, JsValue right)
+    {
+        frame.Context.PrepareFor(_expression);
+        return JintAssignmentExpression.ComputeCompound(frame.Context, KernelCompoundSlot.CompoundOperator(_operator), left, right, _location);
+    }
+}
+
+/// <summary><c>test ? consequent : alternate</c> with an operand that is not pure: the test, then one branch, once each.</summary>
+internal sealed class KernelConditionalEffect : KernelExpression
+{
+    internal readonly KernelExpression _test;
+    internal readonly KernelExpression _consequent;
+    internal readonly KernelExpression _alternate;
+
+    public KernelConditionalEffect(Expression expression, KernelExpression test, KernelExpression consequent, KernelExpression alternate) : base(expression)
+    {
+        _test = test;
+        _consequent = consequent;
+        _alternate = alternate;
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+        => _test.Test(frame) == 1 ? _consequent.Evaluate(frame, out number) : _alternate.Evaluate(frame, out number);
+
+    internal override int Test(KernelFrame frame) => _test.Test(frame) == 1 ? _consequent.Test(frame) : _alternate.Test(frame);
+}
+
 /// <summary><c>test ? consequent : alternate</c> over pure operands.</summary>
 internal sealed class KernelConditional : KernelExpression
 {

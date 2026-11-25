@@ -1,4 +1,5 @@
 using Jint.Native;
+using Jint.Runtime.Environments;
 
 namespace Jint.Runtime.Interpreter.Kernels;
 
@@ -40,14 +41,14 @@ internal sealed class FunctionKernel : KernelProgram
 
     /// <summary>
     /// The kernel of a body that runs on one, or null where the body stays on the interpreter, as a single
-    /// <c>return</c> does: the interpreter runs one about as fast as a kernel is entered.
+    /// <c>return</c> without a call does: the interpreter runs one about as fast as a kernel is entered.
     /// </summary>
     internal static FunctionKernel? TryCreate(JintFunctionDefinition definition, JintFunctionDefinition.State state)
     {
         if (definition.Function.Body is not FunctionBody body
             || definition.IsAsync
             || definition.IsGenerator
-            || body.Body is [ReturnStatement]
+            || body.Body is [ReturnStatement { Argument: var argument }] && (argument is null || !HasCall(argument))
             || !CanCompile(body))
         {
             return null;
@@ -129,6 +130,24 @@ internal sealed class FunctionKernel : KernelProgram
         return true;
     }
 
+    private static bool HasCall(Node node)
+    {
+        if (node is CallExpression)
+        {
+            return true;
+        }
+
+        foreach (var child in node.ChildNodes)
+        {
+            if (HasCall(child))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Whether a statement of the body other than a <c>throw</c> is run by the interpreter as a whole, which code would
     /// only enter and leave again: such a body stays on the interpreter.
@@ -147,12 +166,12 @@ internal sealed class FunctionKernel : KernelProgram
     };
 
     /// <summary>
-    /// The body run in the current execution context, whose environment holds the instantiated declarations: the value
-    /// it returns, or undefined; a throw completion is thrown as the statement list's caller throws it.
+    /// The body run in the current execution context: the value it returns, or undefined; <paramref name="environment"/>
+    /// is the call's own environment, whose frame keeps its names, or null.
     /// </summary>
-    internal JsValue Run(EvaluationContext context)
+    internal JsValue Run(EvaluationContext context, FunctionEnvironment? environment)
     {
-        var frame = Enter(context, resolveLayout: false);
+        var frame = environment is not null ? EnterKept(context, environment) : Enter(context);
         var engine = frame.Engine;
         frame.CodeThreshold = -1;
         engine._functionKernelRuns++;
@@ -195,7 +214,14 @@ internal sealed class FunctionKernel : KernelProgram
                 context.CompletionValuesObservable = true;
             }
 
-            Leave(frame);
+            if (environment is not null)
+            {
+                LeaveKept(frame);
+            }
+            else
+            {
+                Leave(frame);
+            }
         }
 
         if (completion.Type == CompletionType.Throw)

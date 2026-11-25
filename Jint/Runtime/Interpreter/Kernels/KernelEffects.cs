@@ -284,6 +284,22 @@ internal sealed class KernelCompoundSlot : KernelEffect
         _ => null,
     };
 
+    /// <summary>The compound assignment operator of binary operator <paramref name="op"/>.</summary>
+    internal static Operator CompoundOperator(Operator op) => op switch
+    {
+        Operator.Addition => Operator.AdditionAssignment,
+        Operator.Subtraction => Operator.SubtractionAssignment,
+        Operator.Multiplication => Operator.MultiplicationAssignment,
+        Operator.Division => Operator.DivisionAssignment,
+        Operator.Remainder => Operator.RemainderAssignment,
+        Operator.BitwiseAnd => Operator.BitwiseAndAssignment,
+        Operator.BitwiseOr => Operator.BitwiseOrAssignment,
+        Operator.BitwiseXor => Operator.BitwiseXorAssignment,
+        Operator.LeftShift => Operator.LeftShiftAssignment,
+        Operator.RightShift => Operator.RightShiftAssignment,
+        _ => Operator.UnsignedRightShiftAssignment,
+    };
+
     internal override JsValue? Evaluate(KernelFrame frame, out double number) => TryRun(frame, out number) ? null : Interpret(frame);
 
     internal override void EvaluateDiscarded(KernelFrame frame)
@@ -310,6 +326,78 @@ internal sealed class KernelCompoundSlot : KernelEffect
 
         number = 0;
         return false;
+    }
+}
+
+/// <summary>
+/// <c>name op= value</c> with a right-hand side that is not pure, a call above all, on a slot holding a Number; anything
+/// else is left to the interpreter before the right-hand side runs.
+/// </summary>
+internal sealed class KernelCompoundEffect : KernelEffect
+{
+    internal readonly KernelName _target;
+    internal readonly Operator _operator;
+    internal readonly KernelExpression _value;
+    private readonly Operator _compoundOperator;
+    private readonly Node _location;
+
+    public KernelCompoundEffect(AssignmentExpression expression, KernelName target, Operator op, KernelExpression value) : base(expression)
+    {
+        _target = target;
+        _operator = op;
+        _value = value;
+        _compoundOperator = expression.Operator;
+        _location = expression.Left;
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        ref var binding = ref KernelSlots.Find(frame, _target._binding, out var environment);
+        if (Unsafe.IsNullRef(ref binding) || !binding.TryGetMutableNumber(out var left))
+        {
+            number = 0;
+            return Interpret(frame);
+        }
+
+        var right = _value.Evaluate(frame, out var rightNumber);
+        JsValue? result = null;
+        if (IsNumber(right, ref rightNumber))
+        {
+            number = KernelBinary.Apply(_operator, left, rightNumber);
+        }
+        else
+        {
+            number = 0;
+            result = ApplyValues(frame, left, right!);
+        }
+
+        if (binding.IsAssignable)
+        {
+            if (result is null)
+            {
+                Binding.StoreUnboxedNumber(ref binding, number);
+            }
+            else
+            {
+                binding = binding.ChangeMutableValue(result);
+            }
+        }
+        else
+        {
+            environment!.SetMutableBinding(_target._name, Box(result, number), frame.Engine.ExecutionContext.Strict);
+        }
+
+        return result;
+    }
+
+    internal override void EvaluateDiscarded(KernelFrame frame) => Evaluate(frame, out _);
+
+    /// <summary>The operator applied to the binding's Number and a right-hand side that is not one.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private JsValue ApplyValues(KernelFrame frame, double left, JsValue right)
+    {
+        frame.Context.PrepareFor(_expression);
+        return JintAssignmentExpression.ComputeCompound(frame.Context, _compoundOperator, JsNumber.Create(left), right, _location);
     }
 }
 

@@ -575,6 +575,34 @@ public class LoopKernelTests
           return out.join(",");
         }
         """,
+        // operators whose operands are calls, each operand once and in order, over values of every kind
+        """
+        var log = [];
+        function n(x) { log.push("n" + x); return x; }
+        function s(x) { log.push("s"); return "" + x; }
+        var o = { valueOf: function () { log.push("v"); return 4; } };
+        function obj() { log.push("o"); return o; }
+        function mixBig(k) { var e = 0; for (var j = 0; j < 3; j++) { e += j < k ? n(1) : BigInt(1); } return e; }
+        function test() {
+          log = [];
+          var out = [], t = 0, u = 1, w = 0, str = "", b = 0;
+          for (var i = 0; i < 6; i++) {
+            t += n(i);
+            u *= n(i) + 1;
+            w -= (t = 2, n(3));
+            t += (t = 100, n(1));
+            str += s(i);
+            b += i % 2 ? n(1) : obj();
+            var c = n(i) * n(2) - n(1) + (i > 2 ? n(i) : s(i));
+            var d = n(i) < 3 ? n(10) : n(20) / n(i - 3);
+            var e = (i & 1 ? obj() : n(i)) - n(1) * (n(i) || n(7));
+            out.push(t, u, w, str, b, c, d, e);
+          }
+          out.push(mixBig(3));
+          try { mixBig(1); } catch (err) { out.push(err.constructor.name + ":" + err.message + err.stack); }
+          return out.join(",") + log.join("");
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()

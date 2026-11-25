@@ -514,8 +514,12 @@ internal sealed class JintAssignmentExpression : JintExpression
     /// Operands are fully evaluated; shared by the materialized and discard-mode lanes.
     /// </summary>
     private JsValue ComputeCompound(EvaluationContext context, JsValue originalLeftValue, JsValue rval)
+        => ComputeCompound(context, _operator, originalLeftValue, rval, _left._expression);
+
+    /// <summary>The value of compound assignment operator <paramref name="op"/> applied to evaluated operands.</summary>
+    internal static JsValue ComputeCompound(EvaluationContext context, Operator op, JsValue originalLeftValue, JsValue rval, Node location)
     {
-        switch (_operator)
+        switch (op)
         {
             case Operator.AdditionAssignment:
                 {
@@ -604,22 +608,22 @@ internal sealed class JintAssignmentExpression : JintExpression
                 return Remainder(context, originalLeftValue, rval);
 
             case Operator.BitwiseAndAssignment:
-                return JintBinaryExpression.EvaluateBitwiseOperation(context.Engine, Operator.BitwiseAnd, TypeConverter.ToNumeric(originalLeftValue), TypeConverter.ToNumeric(rval), _left._expression);
+                return JintBinaryExpression.EvaluateBitwiseOperation(context.Engine, Operator.BitwiseAnd, TypeConverter.ToNumeric(originalLeftValue), TypeConverter.ToNumeric(rval), location);
 
             case Operator.BitwiseOrAssignment:
-                return JintBinaryExpression.EvaluateBitwiseOperation(context.Engine, Operator.BitwiseOr, TypeConverter.ToNumeric(originalLeftValue), TypeConverter.ToNumeric(rval), _left._expression);
+                return JintBinaryExpression.EvaluateBitwiseOperation(context.Engine, Operator.BitwiseOr, TypeConverter.ToNumeric(originalLeftValue), TypeConverter.ToNumeric(rval), location);
 
             case Operator.BitwiseXorAssignment:
-                return JintBinaryExpression.EvaluateBitwiseOperation(context.Engine, Operator.BitwiseXor, TypeConverter.ToNumeric(originalLeftValue), TypeConverter.ToNumeric(rval), _left._expression);
+                return JintBinaryExpression.EvaluateBitwiseOperation(context.Engine, Operator.BitwiseXor, TypeConverter.ToNumeric(originalLeftValue), TypeConverter.ToNumeric(rval), location);
 
             case Operator.LeftShiftAssignment:
-                return JintBinaryExpression.EvaluateBitwiseOperation(context.Engine, Operator.LeftShift, TypeConverter.ToNumeric(originalLeftValue), TypeConverter.ToNumeric(rval), _left._expression);
+                return JintBinaryExpression.EvaluateBitwiseOperation(context.Engine, Operator.LeftShift, TypeConverter.ToNumeric(originalLeftValue), TypeConverter.ToNumeric(rval), location);
 
             case Operator.RightShiftAssignment:
-                return JintBinaryExpression.EvaluateBitwiseOperation(context.Engine, Operator.RightShift, TypeConverter.ToNumeric(originalLeftValue), TypeConverter.ToNumeric(rval), _left._expression);
+                return JintBinaryExpression.EvaluateBitwiseOperation(context.Engine, Operator.RightShift, TypeConverter.ToNumeric(originalLeftValue), TypeConverter.ToNumeric(rval), location);
 
             case Operator.UnsignedRightShiftAssignment:
-                return JintBinaryExpression.EvaluateBitwiseOperation(context.Engine, Operator.UnsignedRightShift, TypeConverter.ToNumeric(originalLeftValue), TypeConverter.ToNumeric(rval), _left._expression);
+                return JintBinaryExpression.EvaluateBitwiseOperation(context.Engine, Operator.UnsignedRightShift, TypeConverter.ToNumeric(originalLeftValue), TypeConverter.ToNumeric(rval), location);
 
             case Operator.ExponentiationAssignment:
                 return JintBinaryExpression.Exponentiate(context, TypeConverter.ToNumeric(originalLeftValue), TypeConverter.ToNumeric(rval));

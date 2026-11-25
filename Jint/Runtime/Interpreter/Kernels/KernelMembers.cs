@@ -712,16 +712,7 @@ internal sealed class KernelCall : KernelExpression
         }
 
         number = 0;
-        return CallFromRegisters(
-            frame,
-            function,
-            thisValue,
-            state,
-            count >= 1 ? Box(v0, n0) : JsValue.Undefined,
-            count >= 2 ? Box(v1, n1) : JsValue.Undefined,
-            count >= 3 ? Box(v2, n2) : JsValue.Undefined,
-            count >= 4 ? Box(v3, n3) : JsValue.Undefined,
-            count);
+        return CallScriptWithNumbers(frame, function, thisValue, state, new NumberArguments(v0, n0, v1, n1, v2, n2, v3, n3, count));
     }
 
     /// <summary>An argument's value; a pure one that is a Number read without its nodes, any other evaluated by them.</summary>
@@ -737,16 +728,46 @@ internal sealed class KernelCall : KernelExpression
         return argument.Evaluate(frame, out number);
     }
 
-    /// <summary>JintCallExpression.RegisterLaneCall: the arguments in locals, the callee's own register entry.</summary>
+    /// <summary>JintCallExpression.RegisterLaneCall: the arguments in locals, Numbers unboxed, the callee's own register entry.</summary>
     private JsValue CallRegisters(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state)
     {
         var arguments = _arguments;
         var count = arguments.Length;
-        var arg0 = count >= 1 ? Box(arguments[0].Evaluate(frame, out var n0), n0) : JsValue.Undefined;
-        var arg1 = count >= 2 ? Box(arguments[1].Evaluate(frame, out var n1), n1) : JsValue.Undefined;
-        var arg2 = count >= 3 ? Box(arguments[2].Evaluate(frame, out var n2), n2) : JsValue.Undefined;
-        var arg3 = count >= 4 ? Box(arguments[3].Evaluate(frame, out var n3), n3) : JsValue.Undefined;
-        return CallFromRegisters(frame, function, thisValue, state, arg0, arg1, arg2, arg3, count);
+        double n0 = 0, n1 = 0, n2 = 0, n3 = 0;
+        var v0 = count >= 1 ? arguments[0].Evaluate(frame, out n0) : null;
+        var v1 = count >= 2 ? arguments[1].Evaluate(frame, out n1) : null;
+        var v2 = count >= 3 ? arguments[2].Evaluate(frame, out n2) : null;
+        var v3 = count >= 4 ? arguments[3].Evaluate(frame, out n3) : null;
+        return CallScriptWithNumbers(frame, function, thisValue, state, new NumberArguments(v0, n0, v1, n1, v2, n2, v3, n3, count));
+    }
+
+    /// <summary>The call of an interpreted function through the register lane with arguments a kernel evaluated.</summary>
+    private JsValue CallScriptWithNumbers(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, in NumberArguments arguments)
+    {
+        var engine = frame.Engine;
+        var oldSyntaxElement = engine.MarkLastSyntaxElement();
+        frame.Context.PrepareFor(_expression);
+
+        var callStack = engine.CallStack;
+        var recursionDepth = callStack.Push(function, CallHandler, engine.ExecutionContext);
+        if (recursionDepth > engine._maxRecursionDepth)
+        {
+            engine.AbandonImplicitMemoryOperation();
+            Throw.RecursionDepthOverflowException(callStack);
+        }
+
+        JsValue result;
+        try
+        {
+            result = function.CallWithNumbers(thisValue, in arguments, state);
+        }
+        finally
+        {
+            callStack.TryPopAndDiscard();
+        }
+
+        engine.RestoreLastSyntaxElement(in oldSyntaxElement);
+        return result;
     }
 
     private JsValue CallFromRegisters(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, JsValue arg0, JsValue arg1, JsValue arg2, JsValue arg3, int count)

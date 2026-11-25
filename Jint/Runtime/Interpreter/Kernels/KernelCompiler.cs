@@ -313,7 +313,9 @@ internal sealed class KernelCompiler
                     var right = TryCompilePure(compound.Right);
                     if (right is null)
                     {
-                        return null;
+                        // A right-hand side with effects, a call above all, evaluated once after the binding is read.
+                        var effect = compound.Right.IsFunctionDefinition() ? null : TryCompileEffect(compound.Right);
+                        return effect is null ? null : new KernelCompoundEffect(compound, Name(compoundTarget), op, effect);
                     }
 
                     var name = Name(compoundTarget);
@@ -334,6 +336,36 @@ internal sealed class KernelCompiler
                     }
 
                     return new KernelComparison(binary, binary.Operator, left ?? CompileValue(binary.Left), right ?? CompileValue(binary.Right));
+                }
+
+            case NonLogicalBinaryExpression binary when KernelArithmeticEffect.IsSupported(binary.Operator) && TryCompilePure(binary) is null:
+                {
+                    // An arithmetic operand that is not pure, a call above all: each operand once, in order.
+                    var left = TryCompileEffect(binary.Left);
+                    var right = TryCompileEffect(binary.Right);
+                    if (left is null && right is null)
+                    {
+                        return null;
+                    }
+
+                    return new KernelArithmeticEffect(binary, left ?? CompileValue(binary.Left), right ?? CompileValue(binary.Right));
+                }
+
+            case ConditionalExpression conditional when TryCompilePure(conditional) is null:
+                {
+                    var test = TryCompileEffect(conditional.Test);
+                    var consequent = TryCompileEffect(conditional.Consequent);
+                    var alternate = TryCompileEffect(conditional.Alternate);
+                    if (test is null && consequent is null && alternate is null)
+                    {
+                        return null;
+                    }
+
+                    return new KernelConditionalEffect(
+                        conditional,
+                        test ?? CompileValue(conditional.Test),
+                        consequent ?? CompileValue(conditional.Consequent),
+                        alternate ?? CompileValue(conditional.Alternate));
                 }
 
             case LogicalExpression { Operator: Operator.LogicalAnd or Operator.LogicalOr } logical when TryCompilePure(logical) is null:

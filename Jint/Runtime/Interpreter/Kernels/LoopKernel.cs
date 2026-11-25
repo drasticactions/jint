@@ -55,6 +55,9 @@ internal sealed class KernelFrame
     // The next spare frame of the program, while this one is spare.
     internal KernelFrame? NextSpare;
 
+    // For a frame kept with a function environment: the outer environment its names were resolved through.
+    internal Environment? Outer;
+
     public KernelFrame(Environment.BindingName[] names)
     {
         Names = names;
@@ -328,6 +331,78 @@ internal abstract class KernelProgram
             _layout = layout;
             _layoutIndices = indices;
         }
+    }
+
+    /// <summary>
+    /// The frame kept with <paramref name="environment"/>, a call's own function environment, entered: names resolved
+    /// in an earlier call stay resolved while the environment's outer environment is the same.
+    /// </summary>
+    private protected KernelFrame EnterKept(EvaluationContext context, FunctionEnvironment environment)
+    {
+        var frame = environment._kernelFrame;
+        if (frame is null || frame.InUse || !ReferenceEquals(frame.Names, _names) || !ReferenceEquals(frame.Context, context))
+        {
+            return Attach(context, environment);
+        }
+
+        frame.InUse = true;
+        if (!ReferenceEquals(frame.Outer, environment._outerEnv))
+        {
+            frame.Outer = environment._outerEnv;
+            System.Array.Clear(frame.Slots);
+            frame.Global = null;
+            frame.ResolveLayout();
+        }
+
+        return frame;
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private KernelFrame Attach(EvaluationContext context, FunctionEnvironment environment)
+    {
+        var frame = new KernelFrame(_names)
+        {
+            InUse = true,
+            Context = context,
+            Engine = context.Engine,
+            Start = environment,
+            Outer = environment._outerEnv,
+        };
+
+        if (!_layoutKnown)
+        {
+            LearnLayout(environment);
+        }
+
+        frame.Layout = _layout;
+        frame.LayoutIndices = _layoutIndices;
+        frame.ResolveLayout();
+        if (environment._kernelFrame is not { InUse: true })
+        {
+            environment._kernelFrame = frame;
+        }
+
+        return frame;
+    }
+
+    /// <summary>Ends a run in a frame <see cref="EnterKept"/> gave, which keeps its resolved names.</summary>
+    private protected void LeaveKept(KernelFrame frame)
+    {
+        if (!ReferenceEquals(((FunctionEnvironment) frame.Start)._kernelFrame, frame))
+        {
+            Leave(frame);
+            return;
+        }
+
+        if (frame.Abrupt.Value is not null)
+        {
+            frame.Abrupt = default;
+        }
+
+        frame.InCode = false;
+        frame.Escaping = false;
+        frame.Work = 0;
+        frame.InUse = false;
     }
 
     private protected void Leave(KernelFrame frame)

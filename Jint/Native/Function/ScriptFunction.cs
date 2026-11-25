@@ -725,7 +725,7 @@ public sealed class ScriptFunction : Function, IConstructor
 
             if (definition.Kernel(_engine, state) is { } kernel && KernelProgram.CanRun(context))
             {
-                return kernel.Run(context);
+                return kernel.Run(context, funcEnv);
             }
 
             if (definition.SingleReturnBody is { } singleReturnBody)
@@ -811,6 +811,17 @@ public sealed class ScriptFunction : Function, IConstructor
             ? CallLeaf(_strict)
             : CallCore(thisObject, new RegisterArguments(arg0, arg1, arg2, arg3, argCount), state);
         return result is TailCallRequest ? ContinueTailCalls(result, ownsFrame) : result;
+    }
+
+    /// <summary>The register-argument [[Call]] entry point for arguments whose Numbers the parameters take unboxed.</summary>
+    internal JsValue CallWithNumbers(JsValue thisObject, in NumberArguments arguments, JintFunctionDefinition.State state)
+    {
+        _engine._stackGuard.EnsureStackHeadroom();
+        _functionDefinition!.EnsureTailCallMarkers(state, _strict);
+        var result = state.SupportsLeafCall
+            ? CallLeaf(_strict)
+            : CallCore(thisObject, in arguments, state);
+        return result is TailCallRequest ? ContinueTailCalls(result, ownsFrame: true) : result;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -990,7 +1001,7 @@ public sealed class ScriptFunction : Function, IConstructor
             var definition = _functionDefinition!;
             if (definition.Kernel(engine, definition.BuiltState!) is { } kernel && KernelProgram.CanRun(context))
             {
-                return kernel.Run(context);
+                return kernel.Run(context, environment: null);
             }
 
             if (definition.SingleReturnBody is { } singleReturnBody)

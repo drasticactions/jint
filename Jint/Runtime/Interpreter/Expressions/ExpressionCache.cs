@@ -161,6 +161,20 @@ internal sealed class ExpressionCache
         return GetValue(context, _expressions[index]);
     }
 
+    /// <summary>The value at <paramref name="index"/> as <see cref="JintExpression.EvaluateNumeric"/> gives it: null for a Number in <paramref name="number"/>.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public JsValue? GetNumericValue(EvaluationContext context, int index, out double number)
+    {
+        var value = _expressions[index];
+        if (value is JintExpression expression)
+        {
+            return expression.EvaluateNumeric(context, out number);
+        }
+
+        number = 0;
+        return (JsValue) value!;
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static JsValue GetValue(EvaluationContext context, object? value)
     {

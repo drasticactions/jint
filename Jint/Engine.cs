@@ -4822,13 +4822,23 @@ public sealed partial class Engine : IDisposable
     internal void RestoreLastSyntaxElement(in SourceLocation location)
     {
         ref var target = ref _lastSyntaxLocation;
-        Unsafe.AsRef(in target.Start) = location.Start;
-        Unsafe.AsRef(in target.End) = location.End;
+        // Start and End move as one 16-byte store, so the next 16-byte read of them is forwarded from it.
+        Unsafe.As<Position, PositionPair>(ref Unsafe.AsRef(in target.Start)) = Unsafe.As<Position, PositionPair>(ref Unsafe.AsRef(in location.Start));
         var source = location.SourceFile;
         if (!ReferenceEquals(source, target.SourceFile))
         {
             Unsafe.AsRef(in target.SourceFile) = source;
         }
+    }
+
+    /// <summary>
+    /// The start and end of a <see cref="SourceLocation"/>, which lie next to each other in it.
+    /// </summary>
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    internal struct PositionPair
+    {
+        public Position Start;
+        public Position End;
     }
 
     /// <summary>

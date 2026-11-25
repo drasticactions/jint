@@ -171,6 +171,42 @@ public class FunctionKernelTests
           return out.join("|") + read(null);
         }
         """,
+        // calls as operands, and Numbers handed to parameters unboxed
+        """
+        var log = [];
+        function id(x) { log.push(typeof x); return x; }
+        function fib(n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }
+        function sum(n) { var t = 0; t += n > 0 ? sum(n - 1) + n : 0; return t; }
+        function mixed(a, b) { var r = id(a) * id(b) - id(a); r += id(b) === 0 ? id("z") : id(b) / id(a); return r; }
+        function keep(x) { return function () { return x; }; }
+        function param(x) { x += id(1); x -= (x = 50, id(2)); return x; }
+        function zeroes(x, y) { var r = 1 / x; r = r + 1 / y; return r; }
+        function big(x) { var r = 1; r += id(BigInt(x)); return r; }
+        function down(n) { return n > 0 ? down(n - 1) + 1 : boom(n); }
+        function boom(n) { throw new Error("boom " + n); }
+        function test() {
+          log = [];
+          var out = [fib(12), sum(6)];
+          for (var i = 0; i < 4; i++) {
+            out.push(mixed(i, i - 1), mixed("2", i), keep(i * 0.5)(), keep(-0)(), param(i), param("s"), zeroes(-0, 0), zeroes(i - i, -(i - i)));
+            try { out.push(big(i)); } catch (e) { out.push(e.constructor.name + ":" + e.message); }
+          }
+          return out.join(",") + log.join("");
+        }
+        function run() { var r = test(); return r + down(3); }
+        """,
+        // one definition with different outer environments, and a binding an eval injects between calls
+        """
+        var k = 1;
+        function make(m) { return function (x) { var y = x * m + k; return y; }; }
+        function outerEval(code) { function inner(x) { var y = x + k; return y; } var a = inner(1); eval(code); var b = inner(1); return a + "/" + b; }
+        function test() {
+          var out = [], g = [make(2), make(3), make(4)];
+          for (var i = 0; i < 9; i++) { out.push(g[i % 3](i), g[(i * 2) % 3](i)); }
+          out.push(outerEval(""), outerEval("var k = 5;"), outerEval(""));
+          return out.join(",");
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()
@@ -188,10 +224,12 @@ public class FunctionKernelTests
     public void CodeMatchesTheInterpreter(int index, Mode mode)
     {
         var script = Scripts[index];
-        const string Call = "var results = []; for (var round = 0; round < 12; round++) results.push(test()); results.join('|')";
+        var call = "var results = []; for (var round = 0; round < 12; round++) results.push("
+                   + (script.Contains("function run()", StringComparison.Ordinal) ? "run()" : "test()")
+                   + "); results.join('|')";
 
-        var compiled = Run(script, Call, mode, out var codeChecks, out var kernelRuns, out var codeRuns);
-        var interpreted = Run(script, Call, Mode.Interpreter, out var interpreterChecks, out var interpreterRuns, out _);
+        var compiled = Run(script, call, mode, out var codeChecks, out var kernelRuns, out var codeRuns);
+        var interpreted = Run(script, call, Mode.Interpreter, out var interpreterChecks, out var interpreterRuns, out _);
 
         compiled.Should().Be(interpreted);
         codeChecks.Should().Be(interpreterChecks);
@@ -207,17 +245,18 @@ public class FunctionKernelTests
         }
 
         // An exact constraint that lets statements pass between its checks, as a memory limit does.
-        Run(script, Call, mode, out var skippingChecks, out _, out _, skip: 7).Should().Be(interpreted);
-        Run(script, Call, Mode.Interpreter, out var skippingInterpreterChecks, out _, out _, skip: 7);
+        Run(script, call, mode, out var skippingChecks, out _, out _, skip: 7).Should().Be(interpreted);
+        Run(script, call, Mode.Interpreter, out var skippingInterpreterChecks, out _, out _, skip: 7);
         skippingChecks.Should().Be(skippingInterpreterChecks);
 
         // Without an exact constraint.
-        Run(script, Call, mode, exact: false).Should().Be(Run(script, Call, Mode.Interpreter, exact: false));
+        Run(script, call, mode, exact: false).Should().Be(Run(script, call, Mode.Interpreter, exact: false));
     }
 
     [TestCase("function f(a) { var b = a + 1; return b; }", true)]
     [TestCase("function f(a) { if (a > 5) { throw new Error('x'); } var b = a + 1; return b; }", true)]
     [TestCase("function f(a) { return a + 1; }", false)]
+    [TestCase("function f(a) { return a < 1 ? a : f(a - 1) + 1; }", true)]
     [TestCase("function f(a) { var g = function () { return a; }; return g(); }", false)]
     [TestCase("function f(a) { var b = a + 1; return () => b; }", false)]
     [TestCase("function f(a) { var b; try { b = a + 1; } catch (e) { } return b; }", false)]
