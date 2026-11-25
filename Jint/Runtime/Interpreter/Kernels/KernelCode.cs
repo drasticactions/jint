@@ -612,6 +612,23 @@ internal static class KernelCodeRuntime
         return ReadPropertySlow(property, target);
     }
 
+    /// <summary>The callee of a method call, read as <see cref="KernelProperty.ReadCallee"/> reads it.</summary>
+    internal static JsValue? ReadCallee(KernelProperty property, JsValue target)
+    {
+        if (target is JsObject plain
+            && (plain._type & (InternalTypes.ShapeMode | InternalTypes.HasLazySlots)) == InternalTypes.ShapeMode
+            && ReferenceEquals(plain.ShapeOf, property._cachedShape))
+        {
+            return plain.GetSlot(property._cachedSlot);
+        }
+
+        return property.ReadCallee(target);
+    }
+
+    /// <summary>Whether a value an expression answered is a Number, unboxed into <paramref name="number"/>.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool IsNumber(JsValue? value, ref double number) => KernelExpression.IsNumber(value, ref number);
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static KernelResult ReadPropertySlow(KernelProperty property, JsValue target)
     {
@@ -839,6 +856,29 @@ internal static class KernelCodeRuntime
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static bool IsMutableNumber(ref Binding binding) => binding.TryGetMutableNumber(out _);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool TryMutableNumber(ref Binding binding, out double value) => binding.TryGetMutableNumber(out value);
+
+    /// <summary>The store of a compound assignment's result to the binding it read.</summary>
+    internal static void StoreCompound(ref Binding binding, DeclarativeEnvironment? environment, KernelCompoundEffect node, KernelFrame frame, JsValue? value, double number)
+    {
+        if (binding.IsAssignable)
+        {
+            if (value is null)
+            {
+                Binding.StoreUnboxedNumber(ref binding, number);
+            }
+            else
+            {
+                binding = binding.ChangeMutableValue(value);
+            }
+        }
+        else
+        {
+            environment!.SetMutableBinding(node._target._name, KernelExpression.Box(value, number), frame.Engine.ExecutionContext.Strict);
+        }
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static void StoreMutableNumber(ref Binding binding, double value) => Binding.StoreMutableNumber(ref binding, value);

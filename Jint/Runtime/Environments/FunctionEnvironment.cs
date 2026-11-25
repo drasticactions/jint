@@ -87,7 +87,7 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
         _functionObject = null!;
         _thisValue = null;
         _outerEnv = null;
-        _kernelFrame = null;
+        _kernelFrame?.Forget();
         _dictionary?.ClearPreservingCapacity();
     }
 

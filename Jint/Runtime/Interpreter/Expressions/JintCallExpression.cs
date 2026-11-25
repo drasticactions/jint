@@ -813,13 +813,15 @@ internal sealed class JintCallExpression : JintExpression
         bool tailCall)
     {
         var state = _regState!;
+        if (!tailCall && !state.SupportsLeafCall && target._functionDefinition!._kernel is { } kernel && Kernels.KernelProgram.CanRun(context))
+        {
+            return KernelCall(context, engine, target, thisObject, referenceRecord, state, kernel);
+        }
 
-        // Numbers stay unboxed: the callee's parameters take them so.
-        double n0 = 0, n1 = 0, n2 = 0, n3 = 0;
-        var arg0 = _argCount >= 1 ? _arguments.GetNumericValue(context, 0, out n0) : null;
-        var arg1 = _argCount >= 2 ? _arguments.GetNumericValue(context, 1, out n1) : null;
-        var arg2 = _argCount >= 3 ? _arguments.GetNumericValue(context, 2, out n2) : null;
-        var arg3 = _argCount >= 4 ? _arguments.GetNumericValue(context, 3, out n3) : null;
+        var arg0 = _argCount >= 1 ? _arguments.GetValue(context, 0) : JsValue.Undefined;
+        var arg1 = _argCount >= 2 ? _arguments.GetValue(context, 1) : JsValue.Undefined;
+        var arg2 = _argCount >= 3 ? _arguments.GetValue(context, 2) : JsValue.Undefined;
+        var arg3 = _argCount >= 4 ? _arguments.GetValue(context, 3) : JsValue.Undefined;
 
         // Everything the reference was kept for has been read (the this-binding at the call site; the
         // "not a function" messages cannot be reached from here, the callee is callable).
@@ -833,10 +835,10 @@ internal sealed class JintCallExpression : JintExpression
             return engine.RentTailCallRequest(
                 target,
                 thisObject,
-                _argCount >= 1 ? arg0 ?? JsNumber.Create(n0) : JsValue.Undefined,
-                _argCount >= 2 ? arg1 ?? JsNumber.Create(n1) : JsValue.Undefined,
-                _argCount >= 3 ? arg2 ?? JsNumber.Create(n2) : JsValue.Undefined,
-                _argCount >= 4 ? arg3 ?? JsNumber.Create(n3) : JsValue.Undefined,
+                arg0,
+                arg1,
+                arg2,
+                arg3,
                 _argCount,
                 state,
                 this);
@@ -854,11 +856,59 @@ internal sealed class JintCallExpression : JintExpression
 
         try
         {
-            return target.CallWithNumbers(thisObject, new NumberArguments(arg0, n0, arg1, n1, arg2, n2, arg3, n3, _argCount), state);
+            return target.CallFromRegisters(
+                thisObject,
+                arg0,
+                arg1,
+                arg2,
+                arg3,
+                _argCount,
+                state,
+                ownsFrame: true);
         }
         finally
         {
             // if call stack was reset due to recursive call to engine or similar, we might not have it anymore
+            callStack.TryPopAndDiscard();
+        }
+    }
+
+    /// <summary><see cref="RegisterLaneCall"/> for a callee whose body runs on a kernel, which takes Numbers unboxed.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private JsValue KernelCall(
+        EvaluationContext context,
+        Engine engine,
+        ScriptFunction target,
+        JsValue thisObject,
+        Reference? referenceRecord,
+        JintFunctionDefinition.State state,
+        Kernels.FunctionKernel kernel)
+    {
+        double n0 = 0, n1 = 0, n2 = 0, n3 = 0;
+        var arg0 = _argCount >= 1 ? _arguments.GetNumericValue(context, 0, out n0) : null;
+        var arg1 = _argCount >= 2 ? _arguments.GetNumericValue(context, 1, out n1) : null;
+        var arg2 = _argCount >= 3 ? _arguments.GetNumericValue(context, 2, out n2) : null;
+        var arg3 = _argCount >= 4 ? _arguments.GetNumericValue(context, 3, out n3) : null;
+        if (referenceRecord is not null)
+        {
+            engine._referencePool.Return(referenceRecord);
+        }
+
+        var callStack = engine.CallStack;
+        var recursionDepth = callStack.Push(target, this, engine.ExecutionContext);
+        if (recursionDepth > engine._maxRecursionDepth)
+        {
+            engine.AbandonImplicitMemoryOperation();
+            Throw.RecursionDepthOverflowException(callStack);
+        }
+
+        try
+        {
+            var arguments = new NumberArguments(arg0, n0, arg1, n1, arg2, n2, arg3, n3, _argCount);
+            return target.CallKernel(thisObject, in arguments, state, kernel, out var number) ?? JsNumber.Create(number);
+        }
+        finally
+        {
             callStack.TryPopAndDiscard();
         }
     }

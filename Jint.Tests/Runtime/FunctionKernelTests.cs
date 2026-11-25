@@ -200,9 +200,11 @@ public class FunctionKernelTests
         var k = 1;
         function make(m) { return function (x) { var y = x * m + k; return y; }; }
         function outerEval(code) { function inner(x) { var y = x + k; return y; } var a = inner(1); eval(code); var b = inner(1); return a + "/" + b; }
+        function Obj(i) { this.get = function (x) { var y = x * 2 + i; return y; }; }
         function test() {
           var out = [], g = [make(2), make(3), make(4)];
           for (var i = 0; i < 9; i++) { out.push(g[i % 3](i), g[(i * 2) % 3](i)); }
+          for (var j = 0; j < 40; j++) { out.push(new Obj(j).get(j)); }
           out.push(outerEval(""), outerEval("var k = 5;"), outerEval(""));
           return out.join(",");
         }
@@ -306,6 +308,16 @@ public class FunctionKernelTests
         engine._functionKernelThreshold = 1;
         engine.Execute("function f(a) { var b = a * 2; return b + 1; } var s = 0; for (var i = 0; i < 10; i++) s += f(i);");
         engine.GetValue("s").AsNumber().Should().Be(100);
+        engine._functionKernelRuns.Should().Be(0);
+    }
+
+    [Test]
+    public void CoverageRunsTheInterpreter()
+    {
+        var engine = new Engine(o => o.Coverage.Enabled = true);
+        engine._functionKernelThreshold = 1;
+        engine.Execute("function g(a) { var b = a * 2; return b + 1; } function f(a) { var c = g(a) + g(a + 1); return c; }");
+        engine.Evaluate("var s = 0; for (var i = 0; i < 10; i++) { s += f(i); s = s + g(i); } s").AsNumber().Should().Be(320);
         engine._functionKernelRuns.Should().Be(0);
     }
 

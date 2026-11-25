@@ -813,15 +813,40 @@ public sealed class ScriptFunction : Function, IConstructor
         return result is TailCallRequest ? ContinueTailCalls(result, ownsFrame) : result;
     }
 
-    /// <summary>The register-argument [[Call]] entry point for arguments whose Numbers the parameters take unboxed.</summary>
-    internal JsValue CallWithNumbers(JsValue thisObject, in NumberArguments arguments, JintFunctionDefinition.State state)
+    /// <summary>
+    /// A kernel's call of this function, whose body runs on <paramref name="kernel"/>: <see cref="CallCore{TArgs}"/>
+    /// with the body's Number result left unboxed in <paramref name="number"/>.
+    /// </summary>
+    internal JsValue? CallKernel(JsValue thisObject, in NumberArguments arguments, JintFunctionDefinition.State state, FunctionKernel kernel, out double number)
     {
-        _engine._stackGuard.EnsureStackHeadroom();
-        _functionDefinition!.EnsureTailCallMarkers(state, _strict);
-        var result = state.SupportsLeafCall
-            ? CallLeaf(_strict)
-            : CallCore(thisObject, in arguments, state);
-        return result is TailCallRequest ? ContinueTailCalls(result, ownsFrame: true) : result;
+        var engine = _engine;
+        engine._stackGuard.EnsureStackHeadroom();
+        FunctionEnvironment? funcEnv = null;
+        try
+        {
+            ref readonly var calleeContext = ref PrepareForOrdinaryCall(Undefined, state, _strict);
+            if (!state.EnvironmentMayEscape)
+            {
+                funcEnv = (FunctionEnvironment) calleeContext.LexicalEnvironment;
+            }
+
+            if (!state.CanSkipThisBinding)
+            {
+                OrdinaryCallBindThis(in calleeContext, thisObject);
+            }
+
+            engine.FunctionDeclarationInstantiationFast(state, in arguments);
+            return kernel.RunUnboxed(engine._evaluationContext, funcEnv, out number);
+        }
+        finally
+        {
+            if (funcEnv is not null)
+            {
+                ReturnEnvironment(funcEnv, state);
+            }
+
+            engine.LeaveExecutionContext();
+        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

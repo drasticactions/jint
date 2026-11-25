@@ -1066,7 +1066,7 @@ internal sealed class KernelEmitter
                     return;
                 }
 
-            case KernelAssignSlot or KernelUpdateSlot or KernelCompoundSlot or KernelStoreElement or KernelStoreProperty:
+            case KernelAssignSlot or KernelUpdateSlot or KernelCompoundSlot or KernelCompoundEffect or KernelStoreElement or KernelStoreProperty:
                 EmitEffect((KernelEffect) expression, value, number);
                 return;
 
@@ -1535,8 +1535,8 @@ internal sealed class KernelEmitter
             il.Emit(OpCodes.Brfalse, interpret);
             EmitHot(call._member, typeof(KernelProperty));
             il.Emit(OpCodes.Ldloc, thisValue);
-            il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.ReadProperty)));
-            EmitResult(callee, calleeNumber, null);
+            il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.ReadCallee)));
+            il.Emit(OpCodes.Stloc, callee);
         }
         else
         {
@@ -1573,12 +1573,14 @@ internal sealed class KernelEmitter
             }
         }
 
+        // Each argument a value or, where that is null, a Number: the register lane takes Numbers unboxed.
         var values = new LocalBuilder[arguments.Length];
+        var numbers = new LocalBuilder[arguments.Length];
         for (var i = 0; i < arguments.Length; i++)
         {
-            EmitBoxed(arguments[i]);
             values[i] = Rent(typeof(JsValue));
-            il.Emit(OpCodes.Stloc, values[i]);
+            numbers[i] = Rent(typeof(double));
+            EmitUnion(arguments[i], null, values[i], numbers[i]);
         }
 
         void LoadArgument(int i)
@@ -1586,10 +1588,26 @@ internal sealed class KernelEmitter
             if (i < values.Length)
             {
                 il.Emit(OpCodes.Ldloc, values[i]);
+                il.Emit(OpCodes.Ldloc, numbers[i]);
+                il.Emit(OpCodes.Call, BoxMethod);
             }
             else
             {
                 il.Emit(OpCodes.Ldsfld, Field(typeof(JsValue), nameof(JsValue.Undefined)));
+            }
+        }
+
+        void LoadRegister(int i)
+        {
+            if (i < values.Length)
+            {
+                il.Emit(OpCodes.Ldloc, values[i]);
+                il.Emit(OpCodes.Ldloc, numbers[i]);
+            }
+            else
+            {
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ldc_R8, 0.0);
             }
         }
 
@@ -1601,6 +1619,15 @@ internal sealed class KernelEmitter
             il.Emit(OpCodes.Ldloc, kind);
             il.Emit(OpCodes.Ldc_I4_1);
             il.Emit(OpCodes.Bne_Un, otherKind);
+
+            // The arguments boxed once for this lane.
+            for (var i = 0; i < values.Length; i++)
+            {
+                LoadArgument(i);
+                il.Emit(OpCodes.Stloc, values[i]);
+                il.Emit(OpCodes.Ldc_R8, 0.0);
+                il.Emit(OpCodes.Stloc, numbers[i]);
+            }
 
             // A leaf runs no script: the locals stay. They are written back all the same, since it may throw.
             il.Emit(OpCodes.Ldloc, shape);
@@ -1646,12 +1673,12 @@ internal sealed class KernelEmitter
             il.Emit(OpCodes.Castclass, typeof(Native.Function.ScriptFunction));
             il.Emit(OpCodes.Ldloc, thisValue);
             il.Emit(OpCodes.Ldloc, state);
-            LoadArgument(0);
-            LoadArgument(1);
-            LoadArgument(2);
-            LoadArgument(3);
+            LoadRegister(0);
+            LoadRegister(1);
+            LoadRegister(2);
+            LoadRegister(3);
             il.Emit(OpCodes.Call, Method(typeof(KernelCall), nameof(KernelCall.CallRegisterLane)));
-            il.Emit(OpCodes.Stloc, value);
+            EmitResult(value, number, null);
             il.Emit(OpCodes.Br, done);
             il.MarkLabel(otherKind);
         }
@@ -1668,7 +1695,7 @@ internal sealed class KernelEmitter
             {
                 il.Emit(OpCodes.Ldloc, list);
                 il.Emit(OpCodes.Ldc_I4, i);
-                il.Emit(OpCodes.Ldloc, values[i]);
+                LoadArgument(i);
                 il.Emit(OpCodes.Stelem_Ref);
             }
 
@@ -1700,6 +1727,7 @@ internal sealed class KernelEmitter
 
         for (var i = values.Length - 1; i >= 0; i--)
         {
+            Return(numbers[i]);
             Return(values[i]);
         }
 
@@ -2266,7 +2294,7 @@ internal sealed class KernelEmitter
         var il = _il;
         switch (expression)
         {
-            case KernelAssignSlot or KernelUpdateSlot or KernelCompoundSlot or KernelStoreElement or KernelStoreProperty:
+            case KernelAssignSlot or KernelUpdateSlot or KernelCompoundSlot or KernelCompoundEffect or KernelStoreElement or KernelStoreProperty:
                 EmitEffect((KernelEffect) expression, null, null);
                 return;
 
@@ -2462,6 +2490,87 @@ internal sealed class KernelEmitter
                     il.Emit(OpCodes.Br, done);
                     il.MarkLabel(interpret);
                     EmitInterpretEffect(effect, value is not null, resultValue);
+                    Return(environment);
+                    break;
+                }
+
+            case KernelCompoundEffect compound:
+                {
+                    // The binding's Number is read before the right-hand side runs; the result is stored as an assignment stores it.
+                    var target = Name(compound._target);
+                    var binding = il.DeclareLocal(typeof(Binding).MakeByRefType());
+                    var environment = Rent(typeof(DeclarativeEnvironment));
+                    var left = Rent(typeof(double));
+                    var unheld = il.DefineLabel();
+                    var found = il.DefineLabel();
+                    var generic = il.DefineLabel();
+                    var combined = il.DefineLabel();
+                    var throughSlot = il.DefineLabel();
+                    EmitHeld(target, NameLocals.NumberHeld);
+                    il.Emit(OpCodes.Brfalse, unheld);
+                    il.Emit(OpCodes.Ldloc, target.Number);
+                    il.Emit(OpCodes.Stloc, left);
+                    il.Emit(OpCodes.Ldloc, target.Ref);
+                    il.Emit(OpCodes.Stloc, binding);
+                    il.Emit(OpCodes.Ldloc, target.Environment);
+                    il.Emit(OpCodes.Stloc, environment);
+                    il.Emit(OpCodes.Br, found);
+                    il.MarkLabel(unheld);
+                    EmitFind(compound._target, binding, environment);
+                    il.Emit(OpCodes.Ldloc, binding);
+                    il.Emit(OpCodes.Call, IsNullRef);
+                    il.Emit(OpCodes.Brtrue, interpret);
+                    il.Emit(OpCodes.Ldloc, binding);
+                    il.Emit(OpCodes.Ldloca, left);
+                    il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.TryMutableNumber)));
+                    il.Emit(OpCodes.Brfalse, interpret);
+                    il.MarkLabel(found);
+                    EmitUnion(compound._value, null, resultValue, resultNumber);
+                    il.Emit(OpCodes.Ldloc, resultValue);
+                    il.Emit(OpCodes.Ldloca, resultNumber);
+                    il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.IsNumber)));
+                    il.Emit(OpCodes.Brfalse, generic);
+                    il.Emit(OpCodes.Ldc_I4, (int) compound._operator);
+                    il.Emit(OpCodes.Ldloc, left);
+                    il.Emit(OpCodes.Ldloc, resultNumber);
+                    il.Emit(OpCodes.Call, Method(typeof(KernelBinary), nameof(KernelBinary.Apply)));
+                    il.Emit(OpCodes.Stloc, resultNumber);
+                    il.Emit(OpCodes.Ldnull);
+                    il.Emit(OpCodes.Stloc, resultValue);
+                    il.Emit(OpCodes.Br, combined);
+                    il.MarkLabel(generic);
+                    EmitBeforeForeign();
+                    EmitConstant(compound);
+                    il.Emit(OpCodes.Ldarg_1);
+                    il.Emit(OpCodes.Ldloc, left);
+                    il.Emit(OpCodes.Ldloc, resultValue);
+                    il.Emit(OpCodes.Call, Method(typeof(KernelCompoundEffect), nameof(KernelCompoundEffect.ApplyValues)));
+                    il.Emit(OpCodes.Stloc, resultValue);
+                    EmitAfterForeign();
+                    il.MarkLabel(combined);
+
+                    // Held after the right-hand side only if nothing else ran.
+                    EmitHeld(target, NameLocals.NumberHeld);
+                    il.Emit(OpCodes.Brfalse, throughSlot);
+                    il.Emit(OpCodes.Ldloc, resultValue);
+                    il.Emit(OpCodes.Brtrue, throughSlot);
+                    il.Emit(OpCodes.Ldloc, resultNumber);
+                    il.Emit(OpCodes.Stloc, target.Number);
+                    target.Stored = true;
+                    il.Emit(OpCodes.Br, done);
+                    il.MarkLabel(throughSlot);
+                    il.Emit(OpCodes.Ldloc, binding);
+                    il.Emit(OpCodes.Ldloc, environment);
+                    EmitConstant(compound);
+                    il.Emit(OpCodes.Ldarg_1);
+                    il.Emit(OpCodes.Ldloc, resultValue);
+                    il.Emit(OpCodes.Ldloc, resultNumber);
+                    il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.StoreCompound)));
+                    EmitReload(compound._target, target);
+                    il.Emit(OpCodes.Br, done);
+                    il.MarkLabel(interpret);
+                    EmitInterpretEffect(effect, value is not null, resultValue);
+                    Return(left);
                     Return(environment);
                     break;
                 }

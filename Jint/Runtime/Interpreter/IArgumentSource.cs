@@ -193,6 +193,15 @@ internal readonly struct NumberArguments(JsValue? v0, double n0, JsValue? v1, do
         }
     }
 
+    /// <summary>The arguments with their Numbers boxed.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public RegisterArguments Boxed() => new(
+        _count > 0 ? _v0 ?? JsNumber.Create(_n0) : JsValue.Undefined,
+        _count > 1 ? _v1 ?? JsNumber.Create(_n1) : JsValue.Undefined,
+        _count > 2 ? _v2 ?? JsNumber.Create(_n2) : JsValue.Undefined,
+        _count > 3 ? _v3 ?? JsNumber.Create(_n3) : JsValue.Undefined,
+        _count);
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void Store(ref Binding slot, int index, JsValue? value, double number)
     {

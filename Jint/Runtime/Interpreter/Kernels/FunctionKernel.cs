@@ -67,6 +67,7 @@ internal sealed class FunctionKernel : KernelProgram
             loops[i]._entry = i;
         }
 
+        MarkDirectReturns(root);
         var names = compiler.Names;
         var layout = state.UseFixedSlots ? state.SlotNames : null;
         var localSlots = new int[names.Length];
@@ -130,6 +131,32 @@ internal sealed class FunctionKernel : KernelProgram
         return true;
     }
 
+    /// <summary>Marks the return statements that complete the body, outside any loop, to leave their value in the frame.</summary>
+    private static void MarkDirectReturns(KernelStatement statement)
+    {
+        switch (statement)
+        {
+            case KernelReturnStatement returnStatement:
+                returnStatement._direct = true;
+                break;
+            case KernelBlockStatement block:
+                foreach (var nested in block._statements)
+                {
+                    MarkDirectReturns(nested);
+                }
+
+                break;
+            case KernelIfStatement ifStatement:
+                MarkDirectReturns(ifStatement._consequent);
+                if (ifStatement._alternate is { } alternate)
+                {
+                    MarkDirectReturns(alternate);
+                }
+
+                break;
+        }
+    }
+
     private static bool HasCall(Node node)
     {
         if (node is CallExpression)
@@ -170,6 +197,10 @@ internal sealed class FunctionKernel : KernelProgram
     /// is the call's own environment, whose frame keeps its names, or null.
     /// </summary>
     internal JsValue Run(EvaluationContext context, FunctionEnvironment? environment)
+        => KernelExpression.Box(RunUnboxed(context, environment, out var number), number);
+
+    /// <summary><see cref="Run"/> with a Number the body returns left unboxed: null, and the Number in <paramref name="number"/>.</summary>
+    internal JsValue? RunUnboxed(EvaluationContext context, FunctionEnvironment? environment, out double number)
     {
         var frame = environment is not null ? EnterKept(context, environment) : Enter(context);
         var engine = frame.Engine;
@@ -191,6 +222,7 @@ internal sealed class FunctionKernel : KernelProgram
                 engine._functionKernelCodeRuns++;
                 if (code.RunFunction(frame) is { } value)
                 {
+                    number = 0;
                     return value;
                 }
             }
@@ -201,11 +233,18 @@ internal sealed class FunctionKernel : KernelProgram
                 _work += frame.Work;
                 if (result == KernelStatement.Normal)
                 {
+                    number = 0;
                     return JsValue.Undefined;
                 }
             }
 
             completion = frame.Abrupt;
+            if (completion.Type == CompletionType.Normal)
+            {
+                // A return statement of the body left its value in the frame.
+                number = frame.ReturnNumber;
+                return frame.ReturnValue;
+            }
         }
         finally
         {
@@ -224,6 +263,7 @@ internal sealed class FunctionKernel : KernelProgram
             }
         }
 
+        number = 0;
         if (completion.Type == CompletionType.Throw)
         {
             Throw.JavaScriptException(engine, completion.Value, in completion);

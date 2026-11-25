@@ -394,7 +394,7 @@ internal sealed class KernelCompoundEffect : KernelEffect
 
     /// <summary>The operator applied to the binding's Number and a right-hand side that is not one.</summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private JsValue ApplyValues(KernelFrame frame, double left, JsValue right)
+    internal JsValue ApplyValues(KernelFrame frame, double left, JsValue right)
     {
         frame.Context.PrepareFor(_expression);
         return JintAssignmentExpression.ComputeCompound(frame.Context, _compoundOperator, JsNumber.Create(left), right, _location);

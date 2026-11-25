@@ -58,6 +58,10 @@ internal sealed class KernelFrame
     // For a frame kept with a function environment: the outer environment its names were resolved through.
     internal Environment? Outer;
 
+    // The value a function body's return statement left, a Number in ReturnNumber where it is null.
+    internal JsValue? ReturnValue;
+    internal double ReturnNumber;
+
     public KernelFrame(Environment.BindingName[] names)
     {
         Names = names;
@@ -197,6 +201,14 @@ internal sealed class KernelFrame
         {
             Global = global;
         }
+    }
+
+    /// <summary>Lets go of every name's resolution, for a frame kept with an environment that waits for another function.</summary>
+    internal void Forget()
+    {
+        System.Array.Clear(Slots);
+        Global = null;
+        Outer = null;
     }
 
     internal static int IndexOf(Key[] names, Key key)
@@ -348,9 +360,8 @@ internal abstract class KernelProgram
         frame.InUse = true;
         if (!ReferenceEquals(frame.Outer, environment._outerEnv))
         {
+            frame.Forget();
             frame.Outer = environment._outerEnv;
-            System.Array.Clear(frame.Slots);
-            frame.Global = null;
             frame.ResolveLayout();
         }
 
@@ -399,6 +410,11 @@ internal abstract class KernelProgram
             frame.Abrupt = default;
         }
 
+        if (frame.ReturnValue is not null)
+        {
+            frame.ReturnValue = null;
+        }
+
         frame.InCode = false;
         frame.Escaping = false;
         frame.Work = 0;
@@ -417,6 +433,7 @@ internal abstract class KernelProgram
 
         frame.Global = null;
         frame.Abrupt = default;
+        frame.ReturnValue = null;
         frame.Start = null!;
         frame.InCode = false;
         frame.Escaping = false;

@@ -603,6 +603,27 @@ public class LoopKernelTests
           return out.join(",") + log.join("");
         }
         """,
+        // method calls feeding operators: dictionary objects, lazily made closures, a getter, a value that is not callable
+        """
+        var log = [];
+        var dict = { k: 2, f: function (x) { return x * this.k; }, s: function (x) { return "s" + x; } };
+        var withGetter = { get g() { log.push("get"); return function (x) { return x + 1; }; } };
+        function make(i) { return { i: i, m: function (x) { return x + this.i; } }; }
+        function test() {
+          log = [];
+          var out = [], t = 0, u = "", lits = [];
+          for (var j = 0; j < 40; j++) { lits.push(make(j)); }
+          for (var i = 0; i < 40; i++) {
+            t += dict.f(i);
+            u += dict.s(i);
+            t += lits[i].m(i) - withGetter.g(i);
+            t -= i % 7 == 6 ? dict.s(i).length : lits[i].m(1);
+            out.push(t, u.length);
+          }
+          try { for (var q = 0; q < 2; q++) { t += dict.k(q); } } catch (err) { out.push(err.constructor.name + ":" + err.message); }
+          return out.join(",") + log.join("");
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()

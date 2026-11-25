@@ -191,6 +191,9 @@ internal sealed class KernelReturnStatement : KernelStatement
 {
     internal readonly KernelExpression? _argument;
 
+    // Whether the return completes a function body directly, leaving its value in the frame's return fields.
+    internal bool _direct;
+
     public KernelReturnStatement(Statement statement, KernelExpression? argument) : base(statement)
     {
         _argument = argument;
@@ -200,6 +203,20 @@ internal sealed class KernelReturnStatement : KernelStatement
     {
         _runs++;
         RunChecks(frame);
+        if (_direct)
+        {
+            if (_argument is null)
+            {
+                frame.ReturnValue = JsValue.Undefined;
+            }
+            else
+            {
+                frame.ReturnValue = _argument.Evaluate(frame, out frame.ReturnNumber);
+            }
+
+            return Abrupt;
+        }
+
         var value = _argument is null ? JsValue.Undefined : Box(_argument.Evaluate(frame, out var number), number);
         frame.Abrupt = new Completion(CompletionType.Return, value, _statement);
         return Abrupt;

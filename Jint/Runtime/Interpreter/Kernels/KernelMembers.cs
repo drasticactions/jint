@@ -187,6 +187,52 @@ internal sealed class KernelProperty : KernelExpression
         return Bail;
     }
 
+    /// <summary>
+    /// <see cref="Read"/> for the callee of a call, which the call reads once whatever it is: a method of an object
+    /// literal whose closure is not made yet is made, as the interpreter's read makes it.
+    /// </summary>
+    internal JsValue? ReadCallee(JsValue target)
+    {
+        var value = Read(target, out _);
+        if (ReferenceEquals(value, Bail)
+            && target is JsObject plain
+            && (plain._type & (InternalTypes.ShapeMode | InternalTypes.HasLazySlots)) == (InternalTypes.ShapeMode | InternalTypes.HasLazySlots))
+        {
+            var shape = plain.ShapeOf;
+            int slot;
+            if (ReferenceEquals(shape, _cachedShape))
+            {
+                slot = _cachedSlot;
+            }
+            else if (shape.TryGetSlot(in _key, out slot))
+            {
+                _cachedShape = shape;
+                _cachedSlot = slot;
+            }
+            else
+            {
+                return Bail;
+            }
+
+            // A host's lazy slot runs host code: left to the interpreter.
+            return plain.GetSlot(slot) is JsObject.LayoutSlots ? Bail : plain.GetSlotForRead(slot);
+        }
+
+        // An own data property of an ordinary object that keeps its properties by name.
+        if (ReferenceEquals(value, Bail)
+            && target is ObjectInstance ordinary
+            && (ordinary._type & (InternalTypes.PlainObject | InternalTypes.ShapeMode)) == InternalTypes.PlainObject
+            && ordinary._properties is { } properties
+            && properties.TryGetValue(_key, out var descriptor)
+            && descriptor.IsDataDescriptor()
+            && (descriptor._flags & PropertyFlag.CustomJsValue) == PropertyFlag.None)
+        {
+            return descriptor.Value ?? Bail;
+        }
+
+        return value;
+    }
+
     private JsValue ReadBuiltin(ObjectInstance builtin)
     {
         var descriptor = _cachedBuiltinDescriptor;
@@ -349,7 +395,7 @@ internal sealed class KernelCall : KernelExpression
             }
 
             thisValue = target;
-            callee = _member.Read(target, out _);
+            callee = _member.ReadCallee(target);
         }
         else
         {
@@ -521,9 +567,29 @@ internal sealed class KernelCall : KernelExpression
         return CallWithArguments(frame, function, JsValue.Undefined, values);
     }
 
-    /// <summary>The call of an interpreted function through the register lane, the arguments evaluated.</summary>
-    internal JsValue CallRegisterLane(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, JsValue arg0, JsValue arg1, JsValue arg2, JsValue arg3)
-        => CallFromRegisters(frame, function, thisValue, state, arg0, arg1, arg2, arg3, _arguments.Length);
+    /// <summary>The call of an interpreted function through the register lane, the arguments evaluated, Numbers unboxed.</summary>
+    internal KernelResult CallRegisterLane(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, JsValue? v0, double n0, JsValue? v1, double n1, JsValue? v2, double n2, JsValue? v3, double n3)
+    {
+        var count = _arguments.Length;
+        if (!state.SupportsLeafCall && function._functionDefinition!._kernel is { } kernel)
+        {
+            var value = CallKernel(frame, function, thisValue, state, kernel, new NumberArguments(v0, n0, v1, n1, v2, n2, v3, n3, count), out var number);
+            return new KernelResult(value, number);
+        }
+
+        return new KernelResult(
+            CallFromRegisters(
+                frame,
+                function,
+                thisValue,
+                state,
+                count >= 1 ? Box(v0, n0) : JsValue.Undefined,
+                count >= 2 ? Box(v1, n1) : JsValue.Undefined,
+                count >= 3 ? Box(v2, n2) : JsValue.Undefined,
+                count >= 4 ? Box(v3, n3) : JsValue.Undefined,
+                count),
+            0);
+    }
 
     /// <summary>The argument list of an interpreted function's call, rented for compiled code to fill.</summary>
     internal JsValue[] RentArguments(KernelFrame frame) => _arguments.Length == 0 ? [] : frame.Engine._jsValueArrayPool.RentArray(_arguments.Length);
@@ -584,6 +650,11 @@ internal sealed class KernelCall : KernelExpression
                 if (_inlineBody is { } body && _inlineSite!.Accepts(function, engine))
                 {
                     return CallInline(frame, function, thisValue, state, body, out number);
+                }
+
+                if (!state.SupportsLeafCall && definition!._kernel is { } kernel)
+                {
+                    return CallKernel(frame, function, thisValue, state, kernel, out number);
                 }
 
                 return CallRegisters(frame, function, thisValue, state);
@@ -712,7 +783,7 @@ internal sealed class KernelCall : KernelExpression
         }
 
         number = 0;
-        return CallScriptWithNumbers(frame, function, thisValue, state, new NumberArguments(v0, n0, v1, n1, v2, n2, v3, n3, count));
+        return CallScriptWithNumbers(frame, function, thisValue, state, new NumberArguments(v0, n0, v1, n1, v2, n2, v3, n3, count), out number);
     }
 
     /// <summary>An argument's value; a pure one that is a Number read without its nodes, any other evaluated by them.</summary>
@@ -728,8 +799,20 @@ internal sealed class KernelCall : KernelExpression
         return argument.Evaluate(frame, out number);
     }
 
-    /// <summary>JintCallExpression.RegisterLaneCall: the arguments in locals, Numbers unboxed, the callee's own register entry.</summary>
+    /// <summary>JintCallExpression.RegisterLaneCall: the arguments in locals, the callee's own register entry.</summary>
     private JsValue CallRegisters(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state)
+    {
+        var arguments = _arguments;
+        var count = arguments.Length;
+        var arg0 = count >= 1 ? Box(arguments[0].Evaluate(frame, out var n0), n0) : JsValue.Undefined;
+        var arg1 = count >= 2 ? Box(arguments[1].Evaluate(frame, out var n1), n1) : JsValue.Undefined;
+        var arg2 = count >= 3 ? Box(arguments[2].Evaluate(frame, out var n2), n2) : JsValue.Undefined;
+        var arg3 = count >= 4 ? Box(arguments[3].Evaluate(frame, out var n3), n3) : JsValue.Undefined;
+        return CallFromRegisters(frame, function, thisValue, state, arg0, arg1, arg2, arg3, count);
+    }
+
+    /// <summary>The call of a function whose body runs on a kernel, its arguments evaluated in order; a Number result stays unboxed.</summary>
+    private JsValue? CallKernel(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, FunctionKernel kernel, out double number)
     {
         var arguments = _arguments;
         var count = arguments.Length;
@@ -738,11 +821,10 @@ internal sealed class KernelCall : KernelExpression
         var v1 = count >= 2 ? arguments[1].Evaluate(frame, out n1) : null;
         var v2 = count >= 3 ? arguments[2].Evaluate(frame, out n2) : null;
         var v3 = count >= 4 ? arguments[3].Evaluate(frame, out n3) : null;
-        return CallScriptWithNumbers(frame, function, thisValue, state, new NumberArguments(v0, n0, v1, n1, v2, n2, v3, n3, count));
+        return CallKernel(frame, function, thisValue, state, kernel, new NumberArguments(v0, n0, v1, n1, v2, n2, v3, n3, count), out number);
     }
 
-    /// <summary>The call of an interpreted function through the register lane with arguments a kernel evaluated.</summary>
-    private JsValue CallScriptWithNumbers(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, in NumberArguments arguments)
+    private JsValue? CallKernel(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, FunctionKernel kernel, in NumberArguments arguments, out double number)
     {
         var engine = frame.Engine;
         var oldSyntaxElement = engine.MarkLastSyntaxElement();
@@ -756,10 +838,10 @@ internal sealed class KernelCall : KernelExpression
             Throw.RecursionDepthOverflowException(callStack);
         }
 
-        JsValue result;
+        JsValue? result;
         try
         {
-            result = function.CallWithNumbers(thisValue, in arguments, state);
+            result = function.CallKernel(thisValue, in arguments, state, kernel, out number);
         }
         finally
         {
@@ -768,6 +850,19 @@ internal sealed class KernelCall : KernelExpression
 
         engine.RestoreLastSyntaxElement(in oldSyntaxElement);
         return result;
+    }
+
+    /// <summary>The call of an interpreted function through the register lane with arguments a kernel evaluated.</summary>
+    private JsValue? CallScriptWithNumbers(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, in NumberArguments arguments, out double number)
+    {
+        if (!state.SupportsLeafCall && function._functionDefinition!._kernel is { } kernel)
+        {
+            return CallKernel(frame, function, thisValue, state, kernel, in arguments, out number);
+        }
+
+        number = 0;
+        var boxed = arguments.Boxed();
+        return CallFromRegisters(frame, function, thisValue, state, boxed.At(0), boxed.At(1), boxed.At(2), boxed.At(3), boxed.Count);
     }
 
     private JsValue CallFromRegisters(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, JsValue arg0, JsValue arg1, JsValue arg2, JsValue arg3, int count)
