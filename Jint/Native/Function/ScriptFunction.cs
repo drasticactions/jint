@@ -629,8 +629,7 @@ public sealed class ScriptFunction : Function, IConstructor
             }
             else if (_returnedEnvironment)
             {
-                // Cache the env itself so the next call to this function avoids the allocation; one already held means
-                // a nested call of this function returned during this one, so recursion gets a pool.
+                // Keep the env for the next call; one already held means a nested call returned, so recursion gets a pool.
                 var held = _envReuse;
                 if (held is RecursiveEnvPool pool)
                 {
