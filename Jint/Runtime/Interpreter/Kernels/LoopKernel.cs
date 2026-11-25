@@ -61,6 +61,9 @@ internal sealed class KernelFrame
     // For a frame of calls made straight into a function kernel: the call's environment, made with the frame.
     internal FunctionEnvironment? CallEnvironment;
 
+    // Whether a closure instance keeps the frame for its calls.
+    internal bool OwnedByInstance;
+
     // The value a function body's return statement left, a Number in ReturnNumber where it is null.
     internal JsValue? ReturnValue;
     internal double ReturnNumber;
@@ -266,6 +269,9 @@ internal abstract class KernelProgram
     {
         _names = names;
     }
+
+    /// <summary>The names the program reads, which its frames resolve.</summary>
+    private protected Environment.BindingName[] Names => _names;
 
     /// <summary>Whether the context lets a kernel run; see the class remarks.</summary>
     internal static bool CanRun(EvaluationContext context)

@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Jint.Native;
+using Jint.Native.Object;
 using Jint.Runtime.Environments;
 using Jint.Runtime.Interpreter.Expressions;
 
@@ -86,7 +87,7 @@ internal abstract class KernelEffect : KernelExpression
 /// (https://tc39.es/ecma262/#sec-assignment-operators-runtime-semantics-evaluation): the binding is resolved before the
 /// right-hand side runs and re-validated after it, as SimpleAssignmentExpression.TryAssignSlot does. A binding the
 /// kernel cannot reach, a const and an uninitialized binding leave the whole assignment to the interpreter before
-/// anything is evaluated. The right-hand side is never an anonymous function or class, so nothing is named.
+/// anything is evaluated. A function on the right-hand side is named by its node.
 /// </summary>
 internal sealed class KernelAssignSlot : KernelEffect
 {
@@ -479,7 +480,10 @@ internal sealed class KernelStoreProperty : KernelEffect
         _member = member;
         _object = obj;
         _value = value;
+        _key = ((Identifier) member.Property).Name;
     }
+
+    private readonly Key _key;
 
     internal override JsValue? Evaluate(KernelFrame frame, out double number)
     {
@@ -500,6 +504,118 @@ internal sealed class KernelStoreProperty : KernelEffect
     {
         var context = frame.Context;
         context.PrepareFor(_member);
+        if (target is JsObject plain && TryStoreShaped(plain, value))
+        {
+            return;
+        }
+
         (_target ??= new JintMemberExpression(_member)).StoreOnBase(context, target, value);
+    }
+
+    // The slot of the name in the last shape that had it; the last shape it was added to, with the prototypes above.
+    private Shape? _ownShape;
+    private int _ownSlot;
+    private Shape? _addShape;
+    private ObjectInstance?[]? _addChain;
+    private uint[]? _addChainVersions;
+    private int _misses;
+    private const int MaxAddChain = 4;
+    private const int MaxMisses = 16;
+
+    /// <summary>
+    /// The store to an object in shape mode: into its slot for the name, or as an add to one building its shape while no
+    /// prototype has the name (https://tc39.es/ecma262/#sec-ordinarysetwithowndescriptor); false otherwise.
+    /// </summary>
+    private bool TryStoreShaped(JsObject plain, JsValue value)
+    {
+        if ((plain._type & (InternalTypes.ShapeMode | InternalTypes.HasLazySlots)) != InternalTypes.ShapeMode)
+        {
+            return false;
+        }
+
+        var shape = plain.ShapeOf;
+        if (ReferenceEquals(shape, _ownShape))
+        {
+            plain.SetSlot(_ownSlot, value);
+            return true;
+        }
+
+        if (!ReferenceEquals(shape, _addShape) || !ChainHolds(plain))
+        {
+            if (_misses >= MaxMisses || !Record(plain, shape))
+            {
+                return false;
+            }
+
+            if (ReferenceEquals(shape, _ownShape))
+            {
+                plain.SetSlot(_ownSlot, value);
+                return true;
+            }
+        }
+
+        // Only an object still building its shape (a hot constructor's this) grows it, as the interpreter's add does.
+        return (plain._type & InternalTypes.ShapeBuilding) != InternalTypes.Empty
+               && plain.Extensible
+               && plain.TryShapeAdd(in _key, value);
+    }
+
+    private bool ChainHolds(JsObject plain)
+    {
+        var chain = _addChain!;
+        var versions = _addChainVersions!;
+        ObjectInstance? link = plain._prototype;
+        for (var i = 0; i < chain.Length; i++)
+        {
+            if (!ReferenceEquals(link, chain[i]) || link!._propertiesVersion != versions[i])
+            {
+                return false;
+            }
+
+            link = link._prototype;
+        }
+
+        return link is null;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private bool Record(JsObject plain, Shape shape)
+    {
+        _misses++;
+        if (shape.TryGetSlot(in _key, out var slot))
+        {
+            _ownShape = shape;
+            _ownSlot = slot;
+            return true;
+        }
+
+        _addShape = null;
+
+        var property = JsString.Create(((Identifier) _member.Property).Name);
+        var links = new List<ObjectInstance>();
+        for (var link = plain._prototype; link is not null; link = link._prototype)
+        {
+            // Only links with an ordinary [[Set]] whose version moves when the name joins them.
+            if (links.Count == MaxAddChain
+                || ((link._type & InternalTypes.PlainObject) == InternalTypes.Empty && !Native.Function.Function.IsConstructorPrototype(link))
+                || (link._type & (InternalTypes.ExoticGet | InternalTypes.OwnValueHook)) != InternalTypes.Empty
+                || !ObjectInstance.VersionWitnessesOwnProperty(link, property)
+                || !ReferenceEquals(link.GetOwnProperty(property), Descriptors.PropertyDescriptor.Undefined))
+            {
+                return false;
+            }
+
+            links.Add(link);
+        }
+
+        _addChain = links.ToArray();
+        _addChainVersions = new uint[links.Count];
+        for (var i = 0; i < links.Count; i++)
+        {
+            _addChainVersions[i] = links[i]._propertiesVersion;
+        }
+
+        _addShape = shape;
+        return true;
     }
 }

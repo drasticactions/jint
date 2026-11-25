@@ -107,6 +107,12 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
 
     internal override bool HasThisBinding() => _thisBindingStatus != ThisBindingStatus.Lexical;
 
+    /// <summary>The bound this value, or null while it is not bound.</summary>
+    internal JsValue? BoundThis => _thisBindingStatus == ThisBindingStatus.Initialized ? _thisValue : null;
+
+    /// <summary>Whether this environment's this binding is its outer environment's (an arrow function's).</summary>
+    internal bool HasLexicalThis => _thisBindingStatus == ThisBindingStatus.Lexical;
+
     internal override bool HasSuperBinding() =>
         _thisBindingStatus != ThisBindingStatus.Lexical && !_functionObject._homeObject.IsUndefined();
 

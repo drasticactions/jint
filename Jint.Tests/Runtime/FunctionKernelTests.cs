@@ -287,6 +287,152 @@ public class FunctionKernelTests
           return out.join(",");
         }
         """,
+        // this in methods: prototype methods, replaced and shadowed ones, primitives and undefined as this, arrows
+        """
+        function P(k) { this.k = k; }
+        P.prototype.get = function (x) { var y = x + this.k; return y; };
+        P.prototype.set = function (x) { this.k = this.k + x; return this.k; };
+        var lit = { k: 7, get: function (x) { var y = x * this.k; return y; } };
+        function loose() { var t = typeof this; return t + (this === undefined); }
+        function strict() { "use strict"; var t = typeof this; return t + (this === undefined); }
+        function arrowThis(x) { var f = () => this.k + x; return f(); }
+        function callGet(o, x) { var r = o.get(x); r = r + 0; return r; }
+        function callSet(o, x) { var r = o.set(x); r = r + 0; return r; }
+        var math = { add: function (a, b) { return a + b; }, top: function (x) { return Math.abs(x - 5) * 2; } };
+        function test() {
+          var out = [], p = new P(1), q = new P(2), realAbs = Math.abs;
+          for (var i = 0; i < 30; i++) {
+            var sum = math.add(i, 1), top = math.top(i), text = math.add("s", i);
+            out.push(callGet(p, i), callGet(q, i), callSet(p, 1), callGet(lit, i), sum, top, text);
+            if (i === 12) { math.add = function (a, b) { return a - b; }; Math.abs = Math.sign; }
+            if (i === 18) { Math.abs = realAbs; }
+            if (i === 10) { P.prototype.get = function (x) { var y = x - this.k; return y; }; }
+            if (i === 15) { q.get = function (x) { var y = 1000 + x; return y; }; }
+            if (i === 20) { Object.setPrototypeOf(p, { get: function (x) { var y = -x; return y; }, set: function (x) { return x * 2; } }); }
+            if (i === 25) { delete q.get; }
+          }
+          out.push(loose.call(5), loose.call(undefined), strict.call(5), strict.call(undefined), loose(), strict(), arrowThis.call(p, 3), arrowThis.call(lit, 4));
+          return out.join(",");
+        }
+        """,
+        // reads of dictionary objects, inherited data, getters, lazily made methods and frozen objects
+        """
+        var log = [];
+        var base = { b: 2, get g() { log.push("g"); return 3; }, m: function (x) { var y = x + 1; return y; } };
+        function read(o) { var v = o.b; v = v + o.c; return v; }
+        function viaGetter(o) { var v = o.g; v = v * 2; return v; }
+        function callM(o, x) { var r = o.m(x); r = r + 0; return r; }
+        function test() {
+          log = [];
+          var d = { b: 1, c: 2, x: 0 }; delete d.x;
+          var inh = Object.create(base); inh.c = 5;
+          var frozen = Object.freeze({ b: 4, c: 6, m: function (x) { var y = x * 3; return y; } });
+          var out = [];
+          for (var i = 0; i < 30; i++) {
+            d.c = i;
+            out.push(read(d), read(inh), read(frozen), viaGetter(inh), callM(inh, i), callM(frozen, i), callM({ m: function (x) { return x - 1; } }, i));
+            if (i === 12) { base.b = 20; }
+            if (i === 18) { Object.defineProperty(base, "b", { get: function () { log.push("b"); return 30; } }); }
+            if (i === 24) { inh.b = 40; }
+          }
+          return out.join(",") + log.join("");
+        }
+        """,
+        // closures called many times: counters, closures that outlive their calls, instances sharing a definition
+        """
+        function counter(start) { var c = start; return function () { c = c + 1; return c; }; }
+        function adder(k) { return function (x) { var y = x + k; return y; }; }
+        var module = (function () {
+          var count = 0;
+          function helper(x) { var y = x * 2; return y; }
+          return { get: function (x) { count = count + 1; return helper(x) + count; }, count: function () { return count; } };
+        })();
+        function rec(f, n) { var r = f(n); if (n > 0) { r = r + rec(f, n - 1); } return r; }
+        function test() {
+          var out = [], cs = [counter(0), counter(100)], as = [adder(1), adder(2), adder(3)];
+          for (var i = 0; i < 40; i++) {
+            out.push(cs[i % 2](), as[i % 3](i), module.get(i));
+            if (i % 7 === 0) { cs.push(counter(i)); as.push(adder(i)); }
+          }
+          var self = function (n) { var m = n - 1; return n > 0 ? self(m) + n : 0; };
+          out.push(rec(as[0], 5), rec(cs[1], 3), self(40), module.count());
+          return out.join(",");
+        }
+        """,
+        // bodies that make closures: kept past the call, named by declarations and assignments, arrows reading this
+        """
+        var kept = [];
+        function make(k) { var t = k * 2; var f = function (x) { return x + t; }; kept.push(f); return f; }
+        function arrows(k) { var g = (x) => x * k + this.n; var r = g(2); return r + g.name; }
+        function assign(k) { var h; h = function () { return k; }; var o = { m: null }; o.m = function () { return k + 1; }; return h.name + h() + o.m.name + o.m(); }
+        function inner(k) { var s = 0; [1, 2, 3].forEach(function (v) { s = s + v * k; }); return s; }
+        function capturedAndLocal(a, b) { var hidden = a + b; var seen = a * b; var get = function () { return seen; }; seen = seen + hidden; return get() + hidden; }
+        function test() {
+          kept = [];
+          var out = [], host = { n: 5, arrows: arrows };
+          for (var i = 0; i < 30; i++) { out.push(make(i)(1), host.arrows(i), assign(i), inner(i), capturedAndLocal(i, 3)); }
+          for (var j = 0; j < kept.length; j++) { out.push(kept[j](100)); }
+          return out.join(",");
+        }
+        """,
+        // constructors: this.x stores, prototype methods, returning objects or primitives, and new.target
+        """
+        function Pt(x, y) { this.x = x; this.y = y; }
+        Pt.prototype.len = function () { var s = this.x * this.x + this.y * this.y; return s; };
+        function Boxed(v) { this.v = v; return { boxed: v }; }
+        function Prim(v) { this.v = v; return 5; }
+        function Counted(v) { var n = v + 1; this.n = n; this.m = function () { return n; }; }
+        function test() {
+          var out = [];
+          for (var i = 0; i < 30; i++) {
+            var p = new Pt(i, 1), b = new Boxed(i), q = new Prim(i), c = new Counted(i);
+            out.push(p.len(), p.x, b.boxed, b.v, q.v, c.n, c.m(), p instanceof Pt, Object.keys(p).join(""));
+          }
+          try { Pt.prototype.len.call(null); } catch (e) { out.push(e.constructor.name); }
+          return out.join(",");
+        }
+        """,
+        // constructor stores that add properties: setters, read-only and later-added members of the prototype chain
+        """
+        var log = [];
+        function A(v) { this.a = v; this.b = v + 1; }
+        function S(v) { "use strict"; this.a = v; this.b = v * 2; }
+        function N(v) { this.a = v; Object.preventExtensions(this); this.b = v; }
+        function test() {
+          log = [];
+          var out = [];
+          for (var i = 0; i < 40; i++) {
+            var x = new A(i);
+            out.push(x.a, x.b, Object.keys(x).join(""), Object.getOwnPropertyNames(x).length);
+            try { var y = new S(i); out.push(y.a, y.b); } catch (e) { out.push(e.constructor.name); }
+            var n = new N(i); out.push(n.a, n.b, Object.isExtensible(n));
+            if (i === 10) { Object.defineProperty(A.prototype, "b", { set: function (v) { log.push("set b " + v); }, configurable: true }); }
+            if (i === 15) { delete A.prototype.b; }
+            if (i === 20) { Object.defineProperty(Object.prototype, "b", { value: 1, writable: false, configurable: true }); }
+            if (i === 25) { delete Object.prototype.b; }
+            if (i === 30) { S.prototype.a = 0; Object.freeze(S.prototype); }
+          }
+          return out.join(",") + log.join("|");
+        }
+        """,
+        // stacks thrown from methods, closures and constructors, and eval and with around closures that read names
+        """
+        var k = 1;
+        function Thrower(n) { this.n = n; if (n > 25) { throw new Error("ctor " + n); } }
+        Thrower.prototype.fail = function (x) { var y = x + this.n; if (y > 30) { throw new Error("method " + y); } return y; };
+        function closeOver(n) { var t = n; return function (x) { var y = x + t + k; if (y > 40) { throw new Error("closure " + y); } return y; }; }
+        function viaEval(code, f) { eval(code); return f(1) + k; }
+        function viaWith(o, f) { with (o) { return f(2) + k; } }
+        function test() {
+          var out = [], cs = [closeOver(1), closeOver(2)];
+          for (var i = 0; i < 30; i++) {
+            try { out.push(new Thrower(i).fail(i)); } catch (e) { out.push(e.message + e.stack); }
+            try { out.push(cs[i % 2](i)); } catch (e) { out.push(e.message + e.stack); }
+            if (i % 9 === 0) { out.push(viaEval("var k = 100;", cs[0]), viaEval("", cs[1]), viaWith({ k: 50 }, cs[0])); }
+          }
+          return out.join(",");
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()
@@ -400,9 +546,13 @@ public class FunctionKernelTests
     [TestCase("function f(a) { var b = a + 1; return b; }", true)]
     [TestCase("function f(a) { if (a > 5) { throw new Error('x'); } var b = a + 1; return b; }", true)]
     [TestCase("function f(a) { return a + 1; }", false)]
+    [TestCase("function f(a) { return this.x + a; }", true)]
     [TestCase("function f(a) { return a < 1 ? a : f(a - 1) + 1; }", true)]
-    [TestCase("function f(a) { var g = function () { return a; }; return g(); }", false)]
-    [TestCase("function f(a) { var b = a + 1; return () => b; }", false)]
+    [TestCase("function f(a) { var g = function () { return a; }; return g(); }", true)]
+    [TestCase("function f(a) { var b = a + 1; return () => b; }", true)]
+    [TestCase("function f(a) { var b = a + 1; return () => arguments[0] + b; }", false)]
+    [TestCase("function f(a) { function g() { return a; } return g(); }", false)]
+    [TestCase("function f(a) { var C = class { }; return new C(); }", false)]
     [TestCase("function f(a) { var b; try { b = a + 1; } catch (e) { } return b; }", false)]
     [TestCase("function f(a) { var b = arguments.length; return b + a; }", false)]
     [TestCase("function f(a) { var b = eval('a'); return b; }", false)]
@@ -553,6 +703,7 @@ public class FunctionKernelTests
 
     [TestCase("var progress = ''; function step(t, i) { if (i % 3) { t += i; progress = t; } else t--; return t; } function f() { var t = 0; for (var i = 0; i < 300; i++) { t = step(t, i); } return t; } f();")]
     [TestCase("var progress = ''; function g(a, b) { var c = a * 2; c = c - b; return c; } function f() { var t = 0; for (var i = 0; i < 300; i += 2) { t = g(t, i) % 1000; progress = t; } return t; } f();")]
+    [TestCase("var progress = ''; function P(k) { this.k = k; } P.prototype.add = function (t, i) { var r = t + this.k; progress = r; return r + i; }; function mk(p) { var n = 0; return function (t, i) { n = n + 1; var r = p.add(t, i) % 1000; return r + n; }; } function f() { var t = 0, g = mk(new P(2)); for (var i = 0; i < 300; i++) { t = g(t, i) % 997; } return t; } f();")]
     public void StatementLimitStopsAtTheSameStatement(string script)
     {
         for (var limit = 1; limit < 80; limit += 3)

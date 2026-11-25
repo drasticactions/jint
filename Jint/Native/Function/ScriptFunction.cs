@@ -161,6 +161,46 @@ public sealed class ScriptFunction : Function, IConstructor
         set => HeldEnvironment = value;
     }
 
+    /// <summary>Takes the call environment a kernel call of this instance kept with its frame, or null.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal FunctionEnvironment? TakeKernelEnvironment()
+    {
+        if (_ownDescriptors is FunctionEnvironment { KernelFrame.OwnedByInstance: true } environment)
+        {
+            _ownDescriptors = null;
+            return environment;
+        }
+
+        return _ownDescriptors is FunctionRareData { EnvReuse: FunctionEnvironment { KernelFrame.OwnedByInstance: true } } ? TakeRareKernelEnvironment() : null;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private FunctionEnvironment? TakeRareKernelEnvironment()
+    {
+        var environment = (FunctionEnvironment?) _envReuse;
+        _envReuse = null;
+        return environment;
+    }
+
+    /// <summary>Keeps a kernel call's environment for this instance's next call; the first call's is not kept.</summary>
+    internal bool KeepKernelEnvironment(FunctionEnvironment environment)
+    {
+        if (!_returnedEnvironment)
+        {
+            _returnedEnvironment = true;
+            return false;
+        }
+
+        // An environment a call on the interpreter kept gives way; a pool of a recursive function does not.
+        if (_envReuse is { } held && held is not FunctionEnvironment)
+        {
+            return false;
+        }
+
+        _envReuse = environment;
+        return true;
+    }
+
     /// <summary>Takes the environment a previous call of this function left for the next one, if any.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal FunctionEnvironment? TakeReusableEnvironment()
@@ -876,7 +916,7 @@ public sealed class ScriptFunction : Function, IConstructor
         }
 
         Engine.FunctionDeclarationInstantiationInto(funcEnv, state, in arguments);
-        kernel.BeginCall();
+        kernel.BeginCall(frame);
         engine.PushCallFrame(funcEnv, site);
         JsValue? result;
         try
@@ -886,7 +926,7 @@ public sealed class ScriptFunction : Function, IConstructor
         finally
         {
             engine.PopCallFrame();
-            kernel.LeaveCallFrame(frame, state);
+            kernel.LeaveCallFrame(frame, state, this);
         }
 
         return result;
@@ -1195,7 +1235,32 @@ public sealed class ScriptFunction : Function, IConstructor
 
             var context = _engine._evaluationContext;
 
-            var result = _functionDefinition.EvaluateBody(context, this, arguments, state);
+            Completion result;
+            if (kind == ConstructorKind.Base && state.SupportsRegisterCall && !_engine._isDebugMode && !_isClassConstructor)
+            {
+                _engine.FunctionDeclarationInstantiationFast(state, new ArrayArguments(arguments));
+                if (_functionDefinition.Kernel(_engine, state) is { } kernel && KernelProgram.CanRun(context))
+                {
+                    // A body on a kernel holds no resources to dispose and makes no tail call.
+                    var returned = kernel.Run(context, environment: null);
+                    if (constructorEnv._slots is { } slots && kernel.RunsInFrames(state))
+                    {
+                        // Nothing reaches the environment past the call: its cleared slots serve the next one.
+                        ClearSlots(slots);
+                        Interlocked.Exchange(ref state._cachedSlots, slots);
+                        constructorEnv._slots = null;
+                    }
+
+                    return returned as ObjectInstance ?? (ObjectInstance) thisArgument;
+                }
+
+                result = _functionDefinition.EvaluateInstantiatedBodyFast(context);
+            }
+            else
+            {
+                result = _functionDefinition.EvaluateBody(context, this, arguments, state);
+            }
+
             result = constructorEnv.DisposeResources(result);
 
             // The DebugHandler needs the current execution context before the return for stepping through the return point

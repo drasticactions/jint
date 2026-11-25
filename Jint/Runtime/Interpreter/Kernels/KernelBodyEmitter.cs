@@ -547,6 +547,28 @@ internal sealed class KernelBodyEmitter
                 il.Emit(OpCodes.Stloc, value);
                 return;
 
+            case KernelThis:
+                il.Emit(OpCodes.Ldarg_1);
+                il.Emit(OpCodes.Ldfld, Field(typeof(KernelFrame), nameof(KernelFrame.Start)));
+                il.Emit(OpCodes.Call, Method(typeof(KernelThis), nameof(KernelThis.Read)));
+                il.Emit(OpCodes.Stloc, value);
+                break;
+
+            case KernelProperty property:
+                {
+                    // The object, a value or Bail, then its property through the node's caches.
+                    var target = Rent(typeof(JsValue));
+                    var scratch = Rent(typeof(double));
+                    EmitPure(property._object, target, scratch, bail);
+                    EmitConstant(property, typeof(KernelProperty));
+                    EmitBox(target, scratch);
+                    il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.ReadProperty)));
+                    EmitSplit(value, number);
+                    Return(target);
+                    Return(scratch);
+                    break;
+                }
+
             default:
                 EmitConstant(expression, typeof(KernelExpression));
                 il.Emit(OpCodes.Ldarg_1);

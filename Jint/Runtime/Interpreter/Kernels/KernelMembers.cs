@@ -97,6 +97,9 @@ internal sealed class KernelProperty : KernelExpression
     internal Shape? _cachedShape;
     internal int _cachedSlot;
 
+    // A shape of receivers without an own property of the name.
+    private Shape? _missShape;
+
     // A built-in object's data property: valid while the object's own properties are unchanged; a value write
     // changes the descriptor in place. Built-ins live as long as their realm, so the entry keeps nothing alive.
     private ObjectInstance? _cachedBuiltin;
@@ -137,23 +140,35 @@ internal sealed class KernelProperty : KernelExpression
         number = 0;
         if (target is JsObject plain)
         {
-            if ((plain._type & (InternalTypes.ShapeMode | InternalTypes.HasLazySlots)) == InternalTypes.ShapeMode)
+            var type = plain._type;
+            if ((type & InternalTypes.ShapeMode) != InternalTypes.Empty)
             {
                 var shape = plain.ShapeOf;
+                int slot;
                 if (ReferenceEquals(shape, _cachedShape))
                 {
-                    return plain.GetSlot(_cachedSlot);
+                    slot = _cachedSlot;
                 }
-
-                if (shape.TryGetSlot(in _key, out var slot))
+                else if (ReferenceEquals(shape, _missShape))
+                {
+                    return ReadInherited(plain);
+                }
+                else if (shape.TryGetSlot(in _key, out slot))
                 {
                     _cachedShape = shape;
                     _cachedSlot = slot;
-                    return plain.GetSlot(slot);
                 }
+                else
+                {
+                    _missShape = shape;
+                    return ReadInherited(plain);
+                }
+
+                var value = plain.GetSlot(slot);
+                return (type & InternalTypes.HasLazySlots) == InternalTypes.Empty ? value : ReadLazy(plain, slot, value);
             }
 
-            return Bail;
+            return ReadDictionary(plain);
         }
 
         if (_isLength)
@@ -187,50 +202,136 @@ internal sealed class KernelProperty : KernelExpression
         return Bail;
     }
 
-    /// <summary>
-    /// <see cref="Read"/> for the callee of a call, which the call reads once whatever it is: a method of an object
-    /// literal whose closure is not made yet is made, as the interpreter's read makes it.
-    /// </summary>
-    internal JsValue? ReadCallee(JsValue target)
+    /// <summary><see cref="Read"/> for the callee of a call.</summary>
+    internal JsValue? ReadCallee(JsValue target) => Read(target, out _);
+
+    /// <summary>A lazy slot's value: a closure not made yet is made now; a host's slot answers Bail.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static JsValue ReadLazy(JsObject owner, int slot, JsValue value)
     {
-        var value = Read(target, out _);
-        if (ReferenceEquals(value, Bail)
-            && target is JsObject plain
-            && (plain._type & (InternalTypes.ShapeMode | InternalTypes.HasLazySlots)) == (InternalTypes.ShapeMode | InternalTypes.HasLazySlots))
+        if (value is JsObject.LayoutSlots)
         {
-            var shape = plain.ShapeOf;
-            int slot;
-            if (ReferenceEquals(shape, _cachedShape))
-            {
-                slot = _cachedSlot;
-            }
-            else if (shape.TryGetSlot(in _key, out slot))
-            {
-                _cachedShape = shape;
-                _cachedSlot = slot;
-            }
-            else
+            return Bail;
+        }
+
+        return value is JsObject.UnmaterializedSlots ? owner.GetSlotForRead(slot) : value;
+    }
+
+    /// <summary>An own data property of an object kept by name, or the prototype's where it has none.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private JsValue ReadDictionary(JsObject plain)
+    {
+        if ((plain._type & (InternalTypes.PlainObject | InternalTypes.ExoticGet | InternalTypes.OwnValueHook)) != InternalTypes.PlainObject)
+        {
+            return Bail;
+        }
+
+        if (plain._properties is { } properties && properties.TryGetValue(_key, out var descriptor))
+        {
+            return IsPlainData(descriptor) ? descriptor._value ?? Bail : Bail;
+        }
+
+        return ReadInherited(plain);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsPlainData(PropertyDescriptor descriptor)
+        => (descriptor._flags & PropertyFlag.CustomJsValue) == PropertyFlag.None && descriptor.IsDataDescriptor();
+
+    // The prototype last read from, its version, and its slot or (kept by name) descriptor of the member.
+    private ObjectInstance? _protoHolder;
+    private uint _protoHolderVersion;
+    private Shape? _protoHolderShape;
+    private int _protoHolderSlot;
+    private PropertyDescriptor? _protoDescriptor;
+
+    /// <summary>The member of the prototype of an object without an own property of the name, or Bail.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private JsValue ReadInherited(JsObject receiver)
+    {
+        var holder = receiver._prototype;
+        if (holder is null)
+        {
+            return Bail;
+        }
+
+        if (!ReferenceEquals(holder, _protoHolder) || holder._propertiesVersion != _protoHolderVersion)
+        {
+            if (!CacheInherited(holder))
             {
                 return Bail;
             }
-
-            // A host's lazy slot runs host code: left to the interpreter.
-            return plain.GetSlot(slot) is JsObject.LayoutSlots ? Bail : plain.GetSlotForRead(slot);
         }
 
-        // An own data property of an ordinary object that keeps its properties by name.
-        if (ReferenceEquals(value, Bail)
-            && target is ObjectInstance ordinary
-            && (ordinary._type & (InternalTypes.PlainObject | InternalTypes.ShapeMode)) == InternalTypes.PlainObject
-            && ordinary._properties is { } properties
-            && properties.TryGetValue(_key, out var descriptor)
-            && descriptor.IsDataDescriptor()
-            && (descriptor._flags & PropertyFlag.CustomJsValue) == PropertyFlag.None)
+        if (_protoDescriptor is { } descriptor)
         {
-            return descriptor.Value ?? Bail;
+            return IsPlainData(descriptor) ? descriptor._value ?? Bail : Bail;
         }
 
-        return value;
+        var shaped = Unsafe.As<JsObject>(holder);
+        if ((shaped._type & InternalTypes.ShapeMode) == InternalTypes.Empty || !ReferenceEquals(shaped.ShapeOf, _protoHolderShape))
+        {
+            return Bail;
+        }
+
+        var value = shaped.GetSlot(_protoHolderSlot);
+        return (shaped._type & InternalTypes.HasLazySlots) == InternalTypes.Empty ? value : ReadLazy(shaped, _protoHolderSlot, value);
+    }
+
+    /// <summary>Records where <paramref name="holder"/> keeps the member as an own data property, or false.</summary>
+    private bool CacheInherited(ObjectInstance holder)
+    {
+        _protoHolder = null;
+        _protoHolderShape = null;
+        _protoDescriptor = null;
+        if ((holder._type & (InternalTypes.ExoticGet | InternalTypes.OwnValueHook)) != InternalTypes.Empty
+            || !ObjectInstance.VersionWitnessesOwnProperty(holder, _name))
+        {
+            return false;
+        }
+
+        if (holder is JsObject plain)
+        {
+            if ((plain._type & InternalTypes.ShapeMode) != InternalTypes.Empty)
+            {
+                if (!plain.ShapeOf.TryGetSlot(in _key, out var slot))
+                {
+                    return false;
+                }
+
+                _protoHolderShape = plain.ShapeOf;
+                _protoHolderSlot = slot;
+            }
+            else if ((plain._type & InternalTypes.PlainObject) != InternalTypes.Empty
+                     && plain._properties is { } properties
+                     && properties.TryGetValue(_key, out var descriptor)
+                     && IsPlainData(descriptor))
+            {
+                _protoDescriptor = descriptor;
+            }
+            else
+            {
+                return false;
+            }
+        }
+        else
+        {
+            // Materializing a lazy built-in member runs no script; a value write changes a descriptor kept by name.
+            var descriptor = holder.GetOwnProperty(_name);
+            if (descriptor == PropertyDescriptor.Undefined
+                || !IsPlainData(descriptor)
+                || (holder is not BuiltinShapeObject
+                    && (holder._properties is not { } properties || !properties.TryGetValue(_key, out var kept) || !ReferenceEquals(kept, descriptor))))
+            {
+                return false;
+            }
+
+            _protoDescriptor = descriptor;
+        }
+
+        _protoHolder = holder;
+        _protoHolderVersion = holder._propertiesVersion;
+        return true;
     }
 
     private JsValue ReadBuiltin(ObjectInstance builtin)
@@ -645,9 +746,23 @@ internal sealed class KernelCall : KernelExpression
     /// <summary>The call of an interpreted function through the register lane, the arguments evaluated, Numbers unboxed.</summary>
     internal KernelResult CallRegisterLane(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, JsValue? v0, double n0, JsValue? v1, double n1, JsValue? v2, double n2, JsValue? v3, double n3)
     {
-        var count = _arguments.Length;
-        if (!state.SupportsLeafCall && function._functionDefinition!._kernel is { } kernel)
+        if (_inlineBody is { } body && TryComputeInPlace(frame, function, body, v0, n0, v1, n1, v2, n2, v3, n3, out var computed))
         {
+            return computed;
+        }
+
+        var count = _arguments.Length;
+        if (function._functionDefinition!._kernel is { } kernel)
+        {
+            if (kernel._code is { } code)
+            {
+                var engine = frame.Engine;
+                if (engine.CanPushCallFrame && kernel.RunsInFrames(state) && !frame.Context.CompletionValuesObservable && engine._stackGuard.HasVerifiedHeadroom())
+                {
+                    return kernel.CallCode(engine, function, CallHandler, thisValue, state, code, v0, n0, v1, n1, v2, n2, v3, n3, count);
+                }
+            }
+
             var value = CallKernel(frame, function, thisValue, state, kernel, new NumberArguments(v0, n0, v1, n1, v2, n2, v3, n3, count), out var number);
             return new KernelResult(value, number);
         }
@@ -658,15 +773,15 @@ internal sealed class KernelCall : KernelExpression
     /// <summary>Whether <paramref name="function"/>'s body has code <see cref="CallFromCode"/> calls straight into.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static bool HasCode(ScriptFunction function, JintFunctionDefinition.State state)
-        => !state.SupportsLeafCall && function._functionDefinition!._kernel is { _code: not null };
+        => function._functionDefinition!._kernel is { _code: not null };
 
     /// <summary><see cref="CallRegisterLane"/> for compiled code: straight into the callee's code where it has some.</summary>
     internal KernelResult CallFromCode(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, JsValue? v0, double n0, JsValue? v1, double n1, JsValue? v2, double n2, JsValue? v3, double n3)
     {
-        if (!state.SupportsLeafCall && function._functionDefinition!._kernel is { _code: { } code } kernel)
+        if (function._functionDefinition!._kernel is { _code: { } code } kernel)
         {
             var engine = frame.Engine;
-            if (engine.CanPushCallFrame && !state.EnvironmentMayEscape && !frame.Context.CompletionValuesObservable && engine._stackGuard.HasVerifiedHeadroom())
+            if (engine.CanPushCallFrame && kernel.RunsInFrames(state) && !frame.Context.CompletionValuesObservable && engine._stackGuard.HasVerifiedHeadroom())
             {
                 return kernel.CallCode(engine, function, CallHandler, thisValue, state, code, v0, n0, v1, n1, v2, n2, v3, n3, _arguments.Length);
             }
@@ -740,7 +855,7 @@ internal sealed class KernelCall : KernelExpression
                     return CallInline(frame, function, thisValue, state, body, out number);
                 }
 
-                if (!state.SupportsLeafCall && definition!._kernel is { } kernel)
+                if (definition!._kernel is { } kernel)
                 {
                     return CallKernel(frame, function, thisValue, state, kernel, out number);
                 }
@@ -795,15 +910,34 @@ internal sealed class KernelCall : KernelExpression
     }
 
     /// <summary>
-    /// Whether the tree computes the body of the definition just probed in place: a call of a name (whose
-    /// <c>this</c> the body cannot read anyway) through the register lane, of a body <see cref="KernelInlineBody"/>
-    /// accepts, as compiled code computes it.
+    /// The body of an accepted callee computed in place for arguments evaluated by loop code, as <see cref="CallInline"/>
+    /// computes it; false, having run nothing, where it does not apply.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private bool TryComputeInPlace(KernelFrame frame, ScriptFunction function, KernelInlineBody body, JsValue? v0, double n0, JsValue? v1, double n1, JsValue? v2, double n2, JsValue? v3, double n3, out KernelResult computed)
+    {
+        computed = default;
+        if (!_inlineSite!.Accepts(function, frame.Engine)
+            || !IsNumber(v0, ref n0) || !IsNumber(v1, ref n1) || !IsNumber(v2, ref n2) || !IsNumber(v3, ref n3)
+            || !TryTakeInlineChecks(frame))
+        {
+            return false;
+        }
+
+        var result = body.Compute(n0, n1, n2, n3);
+        computed = body.IsBoolean ? new KernelResult(result != 0 ? JsBoolean.True : JsBoolean.False, 0) : new KernelResult(null, result);
+        return true;
+    }
+
+    /// <summary>
+    /// Whether the tree computes the body of the definition just probed in place: a call through the register lane
+    /// of a body <see cref="KernelInlineBody"/> accepts, which never reads <c>this</c>, as compiled code computes it.
     /// </summary>
     private void ProbeInlineBody()
     {
         _inlineBody = null;
         _inlineSite = null;
-        if (_member is null && _registerState is not null && _registerDefinition is { } definition
+        if (_registerState is not null && _registerDefinition is { } definition
             && KernelInlineBody.TryCreate(definition, _arguments.Length) is { } body)
         {
             _inlineBody = body;
@@ -925,7 +1059,7 @@ internal sealed class KernelCall : KernelExpression
     private JsValue? CallKernel(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, FunctionKernel kernel, in NumberArguments arguments, out double number)
     {
         var engine = frame.Engine;
-        if (engine.CanPushCallFrame && !state.EnvironmentMayEscape && !frame.Context.CompletionValuesObservable && engine._stackGuard.HasVerifiedHeadroom())
+        if (engine.CanPushCallFrame && kernel.RunsInFrames(state) && !frame.Context.CompletionValuesObservable && engine._stackGuard.HasVerifiedHeadroom())
         {
             var oldPositions = engine.MarkLastSyntaxPositions();
             var oldSource = engine._lastSyntaxLocation.SourceFile;
@@ -970,7 +1104,7 @@ internal sealed class KernelCall : KernelExpression
     /// <summary>The call of an interpreted function through the register lane with arguments a kernel evaluated.</summary>
     private JsValue? CallScriptWithNumbers(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, in NumberArguments arguments, out double number)
     {
-        if (!state.SupportsLeafCall && function._functionDefinition!._kernel is { } kernel)
+        if (function._functionDefinition!._kernel is { } kernel)
         {
             return CallKernel(frame, function, thisValue, state, kernel, in arguments, out number);
         }
@@ -1070,6 +1204,57 @@ internal sealed class KernelCall : KernelExpression
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     internal JsValue Interpret(KernelFrame frame) => (_handler ??= JintExpression.Build(_expression)).GetValue(frame.Context);
+}
+
+/// <summary>
+/// <c>new C(arguments)</c> (https://tc39.es/ecma262/#sec-evaluatenew) of a callee read purely, without spread; a callee
+/// that is not a constructor leaves the whole expression to the interpreter before an argument runs.
+/// </summary>
+internal sealed class KernelNew : KernelExpression
+{
+    internal readonly KernelExpression _callee;
+    internal readonly KernelExpression[] _arguments;
+    private JintExpression? _handler;
+
+    public KernelNew(NewExpression expression, KernelExpression callee, KernelExpression[] arguments) : base(expression)
+    {
+        _callee = callee;
+        _arguments = arguments;
+    }
+
+    private JintExpression Handler => _handler ??= JintExpression.Build(_expression);
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        number = 0;
+        var callee = _callee.Evaluate(frame, out _);
+        if (callee is not Function function || !function.IsConstructor)
+        {
+            return Interpret(frame);
+        }
+
+        var engine = frame.Engine;
+        var arguments = _arguments;
+        var values = arguments.Length == 0 ? [] : engine._jsValueArrayPool.RentArray(arguments.Length);
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            values[i] = Box(arguments[i].Evaluate(frame, out var n), n);
+        }
+
+        var oldSyntaxElement = engine.MarkLastSyntaxElement();
+        frame.Context.PrepareFor(_expression);
+        var instance = engine.Construct(function, values, function, Handler);
+        if (values.Length > 0)
+        {
+            engine._jsValueArrayPool.ReturnArray(values);
+        }
+
+        engine.RestoreLastSyntaxElement(in oldSyntaxElement);
+        return instance;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private JsValue Interpret(KernelFrame frame) => Handler.GetValue(frame.Context);
 }
 
 /// <summary>

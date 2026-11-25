@@ -283,6 +283,48 @@ internal sealed class KernelName : KernelExpression
 }
 
 /// <summary>
+/// A pure <c>this</c> (https://tc39.es/ecma262/#sec-resolvethisbinding): the bound this value of the function
+/// environment the run is in, past the environments of blocks and arrows; anything else answers Bail.
+/// </summary>
+internal sealed class KernelThis : KernelExpression
+{
+    public KernelThis(Expression expression) : base(expression)
+    {
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        number = 0;
+        return Read(frame.Start);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static JsValue Read(Environment? environment)
+    {
+        if (environment is FunctionEnvironment function && function.BoundThis is { } bound)
+        {
+            return bound;
+        }
+
+        return ReadOuter(environment);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static JsValue ReadOuter(Environment? environment)
+    {
+        for (var e = environment; e is DeclarativeEnvironment and not ModuleEnvironment; e = e._outerEnv)
+        {
+            if (e is FunctionEnvironment function && !function.HasLexicalThis)
+            {
+                return function.BoundThis ?? Bail;
+            }
+        }
+
+        return Bail;
+    }
+}
+
+/// <summary>
 /// A pure expression in a place that needs its value: a <see cref="KernelExpression.Bail"/> is answered by evaluating
 /// the expression with the interpreter's handler, which repeats nothing observable, as the pure evaluation did nothing
 /// observable.
@@ -377,6 +419,31 @@ internal sealed class KernelRoot : KernelExpression
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     internal JsValue Interpret(KernelFrame frame) => (_handler ??= JintExpression.Build(_expression)).GetValue(frame.Context);
+}
+
+/// <summary>A function or arrow expression: its handler's closure, named as a declaration or assignment names it.</summary>
+internal sealed class KernelFunction : KernelExpression
+{
+    private readonly JintExpression _handler;
+    private readonly JsString? _name;
+
+    public KernelFunction(Expression expression, string? name) : base(expression)
+    {
+        _handler = JintExpression.Build(expression);
+        _name = name is null ? null : new JsString(name);
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        number = 0;
+        var value = _handler.GetValue(frame.Context);
+        if (_name is not null)
+        {
+            ((Native.Function.Function) value).SetFunctionName(_name);
+        }
+
+        return value;
+    }
 }
 
 /// <summary>An expression the kernel leaves to the interpreter's handler.</summary>

@@ -32,6 +32,7 @@ internal sealed class FunctionKernel : KernelProgram
     private readonly Key[]? _layout;
     private readonly int[] _localSlots;
     private readonly int _size;
+    private readonly bool _createsClosures;
 
     // The frames of calls made straight into the body, by call depth, and the depth.
     private KernelFrame?[] _callFrames = new KernelFrame?[4];
@@ -44,8 +45,9 @@ internal sealed class FunctionKernel : KernelProgram
     private long _work;
     private bool _noCode;
 
-    private FunctionKernel(KernelBlockStatement body, int loops, Key[]? layout, int[] localSlots, Environments.Environment.BindingName[] names, int size) : base(names)
+    private FunctionKernel(KernelBlockStatement body, int loops, Key[]? layout, int[] localSlots, Environments.Environment.BindingName[] names, int size, bool createsClosures) : base(names)
     {
+        _createsClosures = createsClosures;
         _body = body;
         _loops = loops;
         _layout = layout;
@@ -54,16 +56,16 @@ internal sealed class FunctionKernel : KernelProgram
     }
 
     /// <summary>
-    /// The kernel of a body that runs on one, or null where the body stays on the interpreter, as a single
-    /// <c>return</c> without a call does: the interpreter runs one about as fast as a kernel is entered.
+    /// The kernel of a body that runs on one, or null where the body stays on the interpreter, as a single <c>return</c>
+    /// without a call or property read does: the interpreter runs one about as fast as a kernel is entered.
     /// </summary>
     internal static FunctionKernel? TryCreate(Engine engine, JintFunctionDefinition definition, JintFunctionDefinition.State state)
     {
         if (definition.Function.Body is not FunctionBody body
             || definition.IsAsync
             || definition.IsGenerator
-            || body.Body is [ReturnStatement { Argument: var argument }] && (argument is null || !HasCall(argument))
-            || !CanCompile(body))
+            || body.Body is [ReturnStatement { Argument: var argument }] && (argument is null || !HasCallOrMember(argument))
+            || !CanCompile(body, out var createsClosures))
         {
             return null;
         }
@@ -90,7 +92,7 @@ internal sealed class FunctionKernel : KernelProgram
             localSlots[i] = layout is null ? -1 : KernelFrame.IndexOf(layout, names[i].Key);
         }
 
-        return new FunctionKernel(root, loops.Count, layout, localSlots, names, compiler.Size);
+        return new FunctionKernel(root, loops.Count, layout, localSlots, names, compiler.Size, createsClosures);
     }
 
     /// <summary>The body's code, compiled now once the tree has run the body often enough for it to pay; null otherwise.</summary>
@@ -150,36 +152,60 @@ internal sealed class FunctionKernel : KernelProgram
     }
 
     /// <summary>
-    /// Whether a kernel runs the body: no closure, loop (it has a loop kernel), <c>try</c>, <c>with</c>, <c>using</c>,
-    /// direct <c>eval</c>, <c>arguments</c>, <c>super</c>, <c>yield</c> or <c>await</c>.
+    /// Whether a kernel runs the body: no function declaration, class, loop (it has a loop kernel), <c>try</c>, <c>with</c>,
+    /// <c>using</c>, <c>yield</c> or <c>await</c>, and no direct <c>eval</c>, <c>arguments</c> or <c>super</c> in it or its arrows.
     /// </summary>
-    private static bool CanCompile(FunctionBody body)
+    private static bool CanCompile(FunctionBody body, out bool createsClosures)
     {
-        var pending = new Stack<Node>();
-        pending.Push(body);
+        createsClosures = false;
+        var pending = new Stack<(Node Node, bool InArrow)>();
+        pending.Push((body, false));
         while (pending.Count > 0)
         {
-            foreach (var node in pending.Pop().ChildNodes)
+            var (parent, inArrow) = pending.Pop();
+            foreach (var node in parent.ChildNodes)
             {
                 switch (node)
                 {
-                    case IFunction:
-                    case ClassDeclaration or ClassExpression:
-                    case TryStatement or WithStatement:
-                    case ForStatement or WhileStatement or DoWhileStatement or ForInStatement or ForOfStatement:
-                    case YieldExpression or AwaitExpression or Super:
-                    case VariableDeclaration { Kind: VariableDeclarationKind.Using or VariableDeclarationKind.AwaitUsing }:
+                    case FunctionExpression:
+                        // Its body is its own; the kernel only makes the closure.
+                        createsClosures = true;
+                        continue;
+                    case ArrowFunctionExpression:
+                        // Its body reads the arguments, super and new.target of this one.
+                        createsClosures = true;
+                        pending.Push((node, true));
+                        continue;
+                    case Super or MetaProperty:
                     case Identifier { Name: "arguments" }:
                     case CallExpression { Callee: Identifier { Name: "eval" } }:
                         return false;
                 }
 
-                pending.Push(node);
+                if (!inArrow)
+                {
+                    switch (node)
+                    {
+                        case IFunction:
+                        case ClassDeclaration or ClassExpression:
+                        case TryStatement or WithStatement:
+                        case ForStatement or WhileStatement or DoWhileStatement or ForInStatement or ForOfStatement:
+                        case YieldExpression or AwaitExpression:
+                        case VariableDeclaration { Kind: VariableDeclarationKind.Using or VariableDeclarationKind.AwaitUsing }:
+                            return false;
+                    }
+                }
+
+                pending.Push((node, inArrow));
             }
         }
 
         return true;
     }
+
+    /// <summary>Whether calls run in the frames the kernel keeps: not where the body makes a closure.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    internal bool RunsInFrames(JintFunctionDefinition.State state) => !state.EnvironmentMayEscape && !_createsClosures;
 
     /// <summary>Marks the return statements that complete the body, outside any loop, to leave their value in the frame.</summary>
     private static void MarkDirectReturns(KernelStatement statement)
@@ -207,16 +233,16 @@ internal sealed class FunctionKernel : KernelProgram
         }
     }
 
-    private static bool HasCall(Node node)
+    private static bool HasCallOrMember(Node node)
     {
-        if (node is CallExpression)
+        if (node is CallExpression or MemberExpression or ThisExpression)
         {
             return true;
         }
 
         foreach (var child in node.ChildNodes)
         {
-            if (HasCall(child))
+            if (HasCallOrMember(child))
             {
                 return true;
             }
@@ -226,13 +252,13 @@ internal sealed class FunctionKernel : KernelProgram
     }
 
     /// <summary>
-    /// Whether a statement of the body other than a <c>throw</c> is run by the interpreter as a whole, which code would
-    /// only enter and leave again: such a body stays on the interpreter.
+    /// Whether a statement of the body other than a <c>throw</c> or a function stored to a property is run by the
+    /// interpreter as a whole, which code would only enter and leave again: such a body stays on the interpreter.
     /// </summary>
     private static bool LeavesAStatementToTheInterpreter(KernelStatement statement) => statement switch
     {
         KernelInterpretedStatement { _statement: not ThrowStatement } => true,
-        KernelExpressionStatement { _expression: KernelInterpreted } => true,
+        KernelExpressionStatement { _expression: KernelInterpreted { _expression: not AssignmentExpression { Left: MemberExpression, Right: FunctionExpression or ArrowFunctionExpression } } } => true,
         KernelReturnStatement { _argument: KernelInterpreted } => true,
         KernelBlockStatement block => Array.Exists(block._statements, LeavesAStatementToTheInterpreter),
         KernelIfStatement ifStatement => LeavesAStatementToTheInterpreter(ifStatement._consequent)
@@ -299,6 +325,11 @@ internal sealed class FunctionKernel : KernelProgram
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     internal KernelFrame EnterCallFrame(EvaluationContext context, Native.Function.ScriptFunction function, JintFunctionDefinition.State state)
     {
+        if (function.TakeKernelEnvironment() is { } kept && EnterKeptFrame(context, function, state, kept) is { } own)
+        {
+            return own;
+        }
+
         var depth = _callDepth;
         var frames = _callFrames;
         var frame = (uint) depth < (uint) frames.Length ? frames[depth] : null;
@@ -322,15 +353,57 @@ internal sealed class FunctionKernel : KernelProgram
         return frame;
     }
 
+    /// <summary>The frame a closure instance kept from its last call, or null where it cannot serve.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private KernelFrame? EnterKeptFrame(EvaluationContext context, Native.Function.ScriptFunction function, JintFunctionDefinition.State state, FunctionEnvironment environment)
+    {
+        var frame = environment.KernelFrame!;
+        if (frame.InUse
+            || !ReferenceEquals(frame.Names, Names)
+            || !ReferenceEquals(frame.Context, context)
+            || !ReferenceEquals(frame.CallEnvironment, environment)
+            || (state.UseFixedSlots && environment._slots is null))
+        {
+            return null;
+        }
+
+        frame.InUse = true;
+        if (!ReferenceEquals(environment._functionObject, function))
+        {
+            environment._functionObject = function;
+        }
+
+        // A call the interpreter made in the environment left its this bound.
+        environment.ReleaseThis();
+
+        if (!ReferenceEquals(frame.Outer, function._environment))
+        {
+            Rebind(frame, function._environment);
+        }
+
+        frame.Engine._functionKernelRuns++;
+        return frame;
+    }
+
     /// <summary>Enters the frame <see cref="EnterCallFrame"/> gave, once its slots are filled.</summary>
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-    internal void BeginCall() => _callDepth++;
-
-    /// <summary>Ends a call <see cref="BeginCall"/> entered: the slots cleared, and a closure's environment let go of.</summary>
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-    internal void LeaveCallFrame(KernelFrame frame, JintFunctionDefinition.State state)
+    internal void BeginCall(KernelFrame frame)
     {
-        _callDepth--;
+        if (!frame.OwnedByInstance)
+        {
+            _callDepth++;
+        }
+    }
+
+    /// <summary>Ends a call <see cref="BeginCall"/> entered: slots cleared, a closure's frame kept or let go of.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    internal void LeaveCallFrame(KernelFrame frame, JintFunctionDefinition.State state, Native.Function.ScriptFunction function)
+    {
+        if (!frame.OwnedByInstance)
+        {
+            _callDepth--;
+        }
+
         var environment = frame.CallEnvironment!;
         if (environment._slots is { } slots)
         {
@@ -363,10 +436,36 @@ internal sealed class FunctionKernel : KernelProgram
         }
 
         frame.Work = 0;
-        if (frame.Outer is not GlobalEnvironment)
+        if (frame.OwnedByInstance)
         {
-            Release(frame);
+            frame.InUse = false;
+            function.KeepKernelEnvironment(environment);
         }
+        else if (frame.Outer is not GlobalEnvironment)
+        {
+            KeepOrRelease(frame, function);
+        }
+    }
+
+    /// <summary>
+    /// A closure's frame handed to the instance for its next calls, from its second call on; otherwise its function and
+    /// outer environment let go of, so that the kernel keeps neither alive.
+    /// </summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private void KeepOrRelease(KernelFrame frame, Native.Function.ScriptFunction function)
+    {
+        var environment = frame.CallEnvironment!;
+        var depth = _callDepth;
+        if ((uint) depth < (uint) _callFrames.Length && ReferenceEquals(_callFrames[depth], frame) && function.KeepKernelEnvironment(environment))
+        {
+            _callFrames[depth] = null;
+            frame.OwnedByInstance = true;
+            frame.InUse = false;
+            environment.KernelFrame = frame;
+            return;
+        }
+
+        Release(frame);
     }
 
     /// <summary>A call of <paramref name="function"/> straight into the body's code, its arguments stored to the slots of a frame of its own.</summary>
@@ -415,7 +514,7 @@ internal sealed class FunctionKernel : KernelProgram
 
         var positions = engine.MarkLastSyntaxPositions();
         var source = engine._lastSyntaxLocation.SourceFile;
-        BeginCall();
+        BeginCall(frame);
         engine.PushCallFrame(environment, site);
         engine._functionKernelCodeRuns++;
         JsValue? value;
@@ -427,7 +526,7 @@ internal sealed class FunctionKernel : KernelProgram
         finally
         {
             engine.PopCallFrame();
-            LeaveCallFrame(frame, state);
+            LeaveCallFrame(frame, state, function);
         }
 
         engine.RestoreLastSyntaxElement(positions, source);

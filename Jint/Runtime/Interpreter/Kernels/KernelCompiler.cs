@@ -152,7 +152,7 @@ internal sealed class KernelCompiler
                             continue;
                         }
 
-                        var initializer = CompileSlotAssignment(declarator.Init, id, declarator.Init, isDeclarator: true);
+                        var initializer = CompileSlotAssignment(declarator.Init, id, declarator.Init, isDeclarator: true, name: declarator.Init.IsFunctionDefinition() ? id.Name : null);
                         if (initializer is null)
                         {
                             return null;
@@ -282,7 +282,9 @@ internal sealed class KernelCompiler
             case AssignmentExpression { Operator: Operator.Assignment } assignment:
                 if (assignment.Left is Identifier target)
                 {
-                    return CompileSlotAssignment(assignment, target, assignment.Right, isDeclarator: false);
+                    // An anonymous function assigned to a name that is not parenthesized takes the name.
+                    var takesName = assignment.Right.IsAnonymousFunctionDefinition() && target.Range.Start == assignment.Range.Start;
+                    return CompileSlotAssignment(assignment, target, assignment.Right, isDeclarator: false, name: takesName ? target.Name : null);
                 }
 
                 if (assignment.Left is MemberExpression { Computed: false, Optional: false, Object: not Super, Property: Identifier } named
@@ -394,20 +396,33 @@ internal sealed class KernelCompiler
             case CallExpression call:
                 return TryCompileCall(call);
 
+            case FunctionExpression or ArrowFunctionExpression:
+                return new KernelFunction(expression, name: null);
+
+            case NewExpression newExpression:
+                return TryCompileNew(newExpression);
+
             default:
                 return null;
         }
     }
 
     /// <summary>An assignment to a name, or (<paramref name="isDeclarator"/>) a var initializer, whose node is the initializer.</summary>
-    private KernelExpression? CompileSlotAssignment(Expression node, Identifier target, Expression value, bool isDeclarator)
+    private KernelExpression? CompileSlotAssignment(Expression node, Identifier target, Expression value, bool isDeclarator, string? name)
     {
-        if (IsEvalOrArguments(target) || value.IsFunctionDefinition())
+        if (IsEvalOrArguments(target) || value is ClassExpression)
         {
             return null;
         }
 
-        return new KernelAssignSlot(node, Name(target), CompileValue(value), isDeclarator);
+        var compiled = value.IsFunctionDefinition() ? CompileFunction(value, name) : CompileValue(value);
+        return new KernelAssignSlot(node, Name(target), compiled, isDeclarator);
+    }
+
+    private KernelFunction CompileFunction(Expression function, string? name)
+    {
+        _compiled++;
+        return new KernelFunction(function, name);
     }
 
     /// <summary>Whether the static analysis marked a call in the expression as one in tail position.</summary>
@@ -473,6 +488,31 @@ internal sealed class KernelCompiler
         return new KernelCall(call, member, callee, arguments);
     }
 
+    private KernelNew? TryCompileNew(NewExpression expression)
+    {
+        foreach (var argument in expression.Arguments)
+        {
+            if (argument is SpreadElement)
+            {
+                return null;
+            }
+        }
+
+        var callee = TryCompilePure(expression.Callee);
+        if (callee is null)
+        {
+            return null;
+        }
+
+        var arguments = new KernelExpression[expression.Arguments.Count];
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            arguments[i] = CompileValue(expression.Arguments[i]);
+        }
+
+        return new KernelNew(expression, callee, arguments);
+    }
+
     /// <summary>A pure expression (see <see cref="KernelExpression"/>), or null.</summary>
     private KernelExpression? TryCompilePure(Expression expression)
     {
@@ -506,6 +546,9 @@ internal sealed class KernelCompiler
 
                     return IsEvalOrArguments(identifier) ? null : Name(identifier);
                 }
+
+            case ThisExpression:
+                return new KernelThis(expression);
 
             case Literal literal:
                 {
