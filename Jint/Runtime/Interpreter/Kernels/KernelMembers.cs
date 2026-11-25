@@ -655,6 +655,11 @@ internal sealed class KernelCall : KernelExpression
         return new KernelResult(CallFromNumbers(frame, function, thisValue, state, new NumberArguments(v0, n0, v1, n1, v2, n2, v3, n3, count)), 0);
     }
 
+    /// <summary>Whether <paramref name="function"/>'s body has code <see cref="CallFromCode"/> calls straight into.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool HasCode(ScriptFunction function, JintFunctionDefinition.State state)
+        => !state.SupportsLeafCall && function._functionDefinition!._kernel is { _code: not null };
+
     /// <summary><see cref="CallRegisterLane"/> for compiled code: straight into the callee's code where it has some.</summary>
     internal KernelResult CallFromCode(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, JsValue? v0, double n0, JsValue? v1, double n1, JsValue? v2, double n2, JsValue? v3, double n3)
     {

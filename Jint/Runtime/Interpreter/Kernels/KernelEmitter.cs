@@ -1645,7 +1645,7 @@ internal sealed class KernelEmitter
             LoadRegister(1);
             LoadRegister(2);
             LoadRegister(3);
-            il.Emit(OpCodes.Call, Method(typeof(KernelCall), nameof(KernelCall.CallFromCode)));
+            il.Emit(OpCodes.Call, Method(typeof(KernelCall), nameof(KernelCall.CallRegisterLane)));
             EmitResult(value, number, null);
             il.Emit(OpCodes.Br, done);
             il.MarkLabel(otherKind);

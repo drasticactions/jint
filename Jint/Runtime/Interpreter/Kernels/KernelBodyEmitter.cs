@@ -1098,28 +1098,18 @@ internal sealed class KernelBodyEmitter
             }
 
             var callBuiltin = il.DefineLabel();
+            var callLane = il.DefineLabel();
             il.Emit(OpCodes.Ldloc, function);
             il.Emit(OpCodes.Brfalse, callBuiltin);
-            EmitConstant(call, typeof(KernelCall));
-            il.Emit(OpCodes.Ldarg_1);
             il.Emit(OpCodes.Ldloc, function);
-            il.Emit(OpCodes.Ldloc, thisValue);
             il.Emit(OpCodes.Ldloc, state);
-            for (var i = 0; i < 4; i++)
-            {
-                if (i < count)
-                {
-                    il.Emit(OpCodes.Ldloc, values[i]);
-                    il.Emit(OpCodes.Ldloc, numbers[i]);
-                }
-                else
-                {
-                    il.Emit(OpCodes.Ldnull);
-                    il.Emit(OpCodes.Ldc_R8, 0.0);
-                }
-            }
-
-            il.Emit(OpCodes.Call, Method(typeof(KernelCall), nameof(KernelCall.CallFromCode)));
+            il.Emit(OpCodes.Call, Method(typeof(KernelCall), nameof(KernelCall.HasCode)));
+            il.Emit(OpCodes.Brfalse, callLane);
+            EmitRegisterCall(call, function, thisValue, state, values, numbers, nameof(KernelCall.CallFromCode));
+            EmitSplit(value, number);
+            il.Emit(OpCodes.Br, end);
+            il.MarkLabel(callLane);
+            EmitRegisterCall(call, function, thisValue, state, values, numbers, nameof(KernelCall.CallRegisterLane));
             EmitSplit(value, number);
             il.Emit(OpCodes.Br, end);
 
@@ -1187,6 +1177,32 @@ internal sealed class KernelBodyEmitter
         Return(thisValue);
         Return(callee);
         Return(scratch);
+    }
+
+    /// <summary>A register lane's call of <paramref name="function"/> with its arguments in locals, through <paramref name="lane"/>.</summary>
+    private void EmitRegisterCall(KernelCall call, LocalBuilder function, LocalBuilder thisValue, LocalBuilder state, LocalBuilder[] values, LocalBuilder[] numbers, string lane)
+    {
+        var il = _il;
+        EmitConstant(call, typeof(KernelCall));
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Ldloc, function);
+        il.Emit(OpCodes.Ldloc, thisValue);
+        il.Emit(OpCodes.Ldloc, state);
+        for (var i = 0; i < 4; i++)
+        {
+            if (i < values.Length)
+            {
+                il.Emit(OpCodes.Ldloc, values[i]);
+                il.Emit(OpCodes.Ldloc, numbers[i]);
+            }
+            else
+            {
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ldc_R8, 0.0);
+            }
+        }
+
+        il.Emit(OpCodes.Call, Method(typeof(KernelCall), lane));
     }
 
     private LocalBuilder Rent(Type type)
