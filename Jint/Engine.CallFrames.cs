@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Jint.Native.Function;
 using Jint.Runtime;
@@ -34,6 +33,9 @@ public partial class Engine
             return _callStack;
         }
     }
+
+    /// <summary>How many frames the call stack has, counting those of kernel calls not pushed yet.</summary>
+    internal int CallDepth => _callStack.Count + _framesNotPushed;
 
     /// <summary>The execution context stack, with the frames of kernel calls pushed.</summary>
     private ExecutionContextStack ExecutionContexts
@@ -122,8 +124,7 @@ public partial class Engine
             var function = (ScriptFunction) environment._functionObject;
             _callStack.Push(function, _frameSites[i], in _executionContexts.Peek());
             var origin = function._functionOrigin;
-            Debug.Assert(_memoryLimitConstraint is null);
-            _executionContexts.PushFunctionContext(origin.ScriptOrModule, environment, function._privateEnvironment, origin.Realm, function, function._strict);
+            EnterFunctionExecutionContext(origin.ScriptOrModule, environment, function._privateEnvironment, origin.Realm, function, function._strict);
         }
     }
 }

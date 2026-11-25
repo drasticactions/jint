@@ -274,6 +274,37 @@ public class FunctionKernelTests
         Run(script, call, mode, exact: false).Should().Be(Run(script, call, Mode.Interpreter, exact: false));
     }
 
+    [TestCase(6)]
+    [TestCase(10)]
+    public void MemoryLimitedEnginesMatchTheInterpreter(int index)
+    {
+        var script = Scripts[index];
+        var call = "var results = []; for (var round = 0; round < 12; round++) results.push("
+                   + (script.Contains("function run()", StringComparison.Ordinal) ? "run()" : "test()")
+                   + "); results.join('|')";
+
+        string RunWith(Mode mode)
+        {
+            var engine = new Engine(o => o.LimitMemory(1_000_000_000));
+            Configure(engine, mode);
+            try
+            {
+                engine.Execute(script);
+                return engine.Evaluate(call).ToString();
+            }
+            catch (JavaScriptException e)
+            {
+                return $"{e.Error} at {e.Location.Start.Line}:{e.Location.Start.Column} {e.JavaScriptStackTrace}";
+            }
+        }
+
+        var interpreted = RunWith(Mode.Interpreter);
+        foreach (var mode in CodeModes)
+        {
+            RunWith(mode).Should().Be(interpreted, mode.ToString());
+        }
+    }
+
     [Test]
     public void HostCallbacksSeeTheFramesOfKernelCalls()
     {

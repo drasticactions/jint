@@ -2065,7 +2065,7 @@ public sealed partial class Engine : IDisposable
             _extensionMethods);
 
         _callStack = new JintCallStack(_maxRecursionDepth >= 0, recordsCallingContext: _isDebugMode);
-        _pushesCallFrames = !_isDebugMode && _maxRecursionDepth < 0 && _memoryLimitConstraint is null;
+        _pushesCallFrames = !_isDebugMode && _maxRecursionDepth < 0;
         _stackGuard = new StackGuard(this);
 
         var scriptParsingDefaults = Options.RetainFunctionSourceText

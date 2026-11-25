@@ -266,7 +266,7 @@ internal sealed class StackGuard
             return true;
         }
 
-        if (_engine.CallStack.Count + _unframedEvalDepth > _maxExecutionStackCount)
+        if (_engine.CallDepth + _unframedEvalDepth > _maxExecutionStackCount)
         {
             Throw.RangeError(_engine.Realm, "Maximum call stack size exceeded");
         }

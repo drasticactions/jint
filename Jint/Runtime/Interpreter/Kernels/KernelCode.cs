@@ -215,7 +215,7 @@ internal sealed class KernelInlineSite
         if (callee is not Native.Function.ScriptFunction function
             || !ReferenceEquals(function._functionDefinition, Definition)
             || function._isClassConstructor
-            || !engine.CallStack.CountsNoCalls)
+            || !engine._callStack.CountsNoCalls)
         {
             return false;
         }
