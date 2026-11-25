@@ -4,16 +4,16 @@ using Jint.Native.Function;
 using Jint.Runtime;
 using Jint.Runtime.CallStack;
 using Jint.Runtime.Environments;
-using Jint.Runtime.Interpreter.Kernels;
+using Jint.Runtime.Interpreter.Expressions;
 
 namespace Jint;
 
 public partial class Engine
 {
     // Kernel calls whose call stack frame and execution context are pushed only once something reads either stack:
-    // each call's environment and call site, and how many of the innermost are not pushed yet.
+    // each call's environment and the handler of its call, and how many of the innermost are not pushed yet.
     private FunctionEnvironment?[] _frameEnvironments = new FunctionEnvironment?[16];
-    private KernelCall?[] _frameSites = new KernelCall?[16];
+    private JintExpression?[] _frameSites = new JintExpression?[16];
     private int _frameCount;
     internal int _framesNotPushed;
 
@@ -62,7 +62,7 @@ public partial class Engine
 
     /// <summary>Pushes the frame of a kernel call of the function of <paramref name="environment"/> made at <paramref name="site"/>.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal void PushCallFrame(FunctionEnvironment environment, KernelCall site)
+    internal void PushCallFrame(FunctionEnvironment environment, JintExpression site)
     {
         var count = _frameCount;
         var environments = _frameEnvironments;
@@ -120,7 +120,7 @@ public partial class Engine
         {
             var environment = _frameEnvironments[i]!;
             var function = (ScriptFunction) environment._functionObject;
-            _callStack.Push(function, _frameSites[i]!.CallHandler, in _executionContexts.Peek());
+            _callStack.Push(function, _frameSites[i], in _executionContexts.Peek());
             var origin = function._functionOrigin;
             Debug.Assert(_memoryLimitConstraint is null);
             _executionContexts.PushFunctionContext(origin.ScriptOrModule, environment, function._privateEnvironment, origin.Realm, function, function._strict);

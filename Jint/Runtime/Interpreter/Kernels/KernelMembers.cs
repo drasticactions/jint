@@ -577,18 +577,7 @@ internal sealed class KernelCall : KernelExpression
             return new KernelResult(value, number);
         }
 
-        return new KernelResult(
-            CallFromRegisters(
-                frame,
-                function,
-                thisValue,
-                state,
-                count >= 1 ? Box(v0, n0) : JsValue.Undefined,
-                count >= 2 ? Box(v1, n1) : JsValue.Undefined,
-                count >= 3 ? Box(v2, n2) : JsValue.Undefined,
-                count >= 4 ? Box(v3, n3) : JsValue.Undefined,
-                count),
-            0);
+        return new KernelResult(CallFromNumbers(frame, function, thisValue, state, new NumberArguments(v0, n0, v1, n1, v2, n2, v3, n3, count)), 0);
     }
 
     /// <summary>The argument list of an interpreted function's call, rented for compiled code to fill.</summary>
@@ -813,11 +802,12 @@ internal sealed class KernelCall : KernelExpression
     {
         var arguments = _arguments;
         var count = arguments.Length;
-        var arg0 = count >= 1 ? Box(arguments[0].Evaluate(frame, out var n0), n0) : JsValue.Undefined;
-        var arg1 = count >= 2 ? Box(arguments[1].Evaluate(frame, out var n1), n1) : JsValue.Undefined;
-        var arg2 = count >= 3 ? Box(arguments[2].Evaluate(frame, out var n2), n2) : JsValue.Undefined;
-        var arg3 = count >= 4 ? Box(arguments[3].Evaluate(frame, out var n3), n3) : JsValue.Undefined;
-        return CallFromRegisters(frame, function, thisValue, state, arg0, arg1, arg2, arg3, count);
+        double n0 = 0, n1 = 0, n2 = 0, n3 = 0;
+        var v0 = count >= 1 ? arguments[0].Evaluate(frame, out n0) : null;
+        var v1 = count >= 2 ? arguments[1].Evaluate(frame, out n1) : null;
+        var v2 = count >= 3 ? arguments[2].Evaluate(frame, out n2) : null;
+        var v3 = count >= 4 ? arguments[3].Evaluate(frame, out n3) : null;
+        return CallFromNumbers(frame, function, thisValue, state, new NumberArguments(v0, n0, v1, n1, v2, n2, v3, n3, count));
     }
 
     /// <summary>The call of a function whose body runs on a kernel, its arguments evaluated in order; a Number result stays unboxed.</summary>
@@ -838,7 +828,11 @@ internal sealed class KernelCall : KernelExpression
         var engine = frame.Engine;
         if (engine.CanPushCallFrame && !state.EnvironmentMayEscape && !frame.Context.CompletionValuesObservable && engine._stackGuard.HasVerifiedHeadroom())
         {
-            return function.CallKernelInFrame(this, thisValue, in arguments, state, kernel, out number);
+            var oldPositions = engine.MarkLastSyntaxPositions();
+            var oldSource = engine._lastSyntaxLocation.SourceFile;
+            var result = function.CallKernelInFrame(CallHandler, thisValue, in arguments, state, kernel, out number);
+            engine.RestoreLastSyntaxElement(oldPositions, oldSource);
+            return result;
         }
 
         return CallKernelWithStackFrame(frame, function, thisValue, state, kernel, in arguments, out number);
@@ -883,8 +877,36 @@ internal sealed class KernelCall : KernelExpression
         }
 
         number = 0;
-        var boxed = arguments.Boxed();
-        return CallFromRegisters(frame, function, thisValue, state, boxed.At(0), boxed.At(1), boxed.At(2), boxed.At(3), boxed.Count);
+        return CallFromNumbers(frame, function, thisValue, state, in arguments);
+    }
+
+    /// <summary>The call of an interpreted function through the register lane with its Numbers unboxed.</summary>
+    private JsValue CallFromNumbers(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, in NumberArguments arguments)
+    {
+        var engine = frame.Engine;
+        var oldSyntaxElement = engine.MarkLastSyntaxElement();
+        frame.Context.PrepareFor(_expression);
+
+        var callStack = engine.CallStack;
+        var recursionDepth = callStack.Push(function, CallHandler, engine.ExecutionContext);
+        if (recursionDepth > engine._maxRecursionDepth)
+        {
+            engine.AbandonImplicitMemoryOperation();
+            Throw.RecursionDepthOverflowException(callStack);
+        }
+
+        JsValue result;
+        try
+        {
+            result = function.CallFromNumbers(thisValue, in arguments, state);
+        }
+        finally
+        {
+            callStack.TryPopAndDiscard();
+        }
+
+        engine.RestoreLastSyntaxElement(in oldSyntaxElement);
+        return result;
     }
 
     private JsValue CallFromRegisters(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, JsValue arg0, JsValue arg1, JsValue arg2, JsValue arg3, int count)

@@ -624,6 +624,49 @@ public class LoopKernelTests
           return out.join(",") + log.join("");
         }
         """,
+        // names held across calls: locals only the loop's function reaches, globals, captured names and arrays callees change
+        """
+        var g = 0, shared = [1, 2, 3], bytes = new Uint8Array(4);
+        function bumpGlobal(x) { g += x; return x; }
+        function grow(x) { shared.push(x); bytes[x % 4] = x; return 1; }
+        function add(a, b) { var c = a + b; return c; }
+        function captured() {
+          var n = 0, out = [];
+          function inc(k) { n += k; return n; }
+          for (var i = 0; i < 30; i++) { var r = inc(i); out.push(r + n); }
+          return out.join(".");
+        }
+        function test() {
+          g = 0; shared = [1, 2, 3]; bytes = new Uint8Array(4);
+          var s = 0, t = 1, out = [], a = shared, b = bytes;
+          for (var i = 0; i < 40; i++) {
+            s += add(i, t);
+            t = add(t, 1) - add(s, -s);
+            var h = bumpGlobal(i) + g;
+            var len = a.length + grow(i) + a.length + b[i % 4];
+            s += i % 5 == 0 ? add(i, h) : add(len, (t = t + 1));
+            out.push(s, t, h, len);
+          }
+          return out.join(",") + "/" + captured() + "/" + g + "/" + shared.length;
+        }
+        """,
+        // Numbers handed unboxed to callees the interpreter runs, which add, concatenate and compare them
+        """
+        var log = [];
+        var obj = { valueOf: function () { log.push("v"); return 4; }, toString: function () { return "o"; } };
+        function cat(x, y) { return x + y; }
+        function twice(x) { return x + x + "|" + (x + 1) + (1 / x); }
+        function keep(x) { return [x, typeof x, x === 0, Object.is(x, -0)].join(":"); }
+        function test() {
+          log = [];
+          var out = [], vals = [0, -0, 1.5, -3, NaN, Infinity, "2", "s", null, undefined, true, obj];
+          for (var i = 0; i < vals.length * 3; i++) {
+            var v = vals[i % vals.length], n = i - 5;
+            out.push(cat(n, v), cat(v, n * 0.5), cat(n, -n), twice(n), twice(v), keep(n * 0), keep(-n * 0));
+          }
+          return out.join(",") + log.join("");
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()

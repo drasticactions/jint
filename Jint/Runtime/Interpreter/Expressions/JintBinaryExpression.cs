@@ -55,8 +55,7 @@ internal abstract class JintBinaryExpression : JintExpression
     /// <summary>
     /// Whether this node evaluates its operands through <see cref="JintExpression.EvaluateNumeric"/>: an operand
     /// with a numeric lane, or, for an operator that converts both operands to numbers or compares them, an
-    /// identifier, whose slot may hold an unboxed number. A <c>+</c> of an identifier keeps the plain reads, since
-    /// so many of them concatenate strings.
+    /// identifier, whose slot may hold an unboxed number.
     /// </summary>
     private static bool HasNumericOperand(Operator op, JintExpression left, JintExpression right)
     {
@@ -65,7 +64,7 @@ internal abstract class JintBinaryExpression : JintExpression
             return true;
         }
 
-        return op is Operator.Subtraction or Operator.Multiplication or Operator.Division or Operator.Remainder
+        return op is Operator.Addition or Operator.Subtraction or Operator.Multiplication or Operator.Division or Operator.Remainder
                    or Operator.LessThan or Operator.GreaterThan or Operator.LessThanOrEqual or Operator.GreaterThanOrEqual
                && (left is JintIdentifierExpression || right is JintIdentifierExpression);
     }

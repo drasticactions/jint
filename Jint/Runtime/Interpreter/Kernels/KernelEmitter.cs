@@ -90,8 +90,10 @@ internal sealed class KernelEmitter
     // The shared blocks before and after a foreign step, and where each returns to.
     private readonly Label _syncLabel;
     private readonly Label _dropLabel;
+    private readonly Label _callDropLabel;
     private readonly List<Label> _syncReturns = [];
     private readonly List<Label> _dropReturns = [];
+    private readonly List<Label> _callDropReturns = [];
     private readonly LocalBuilder _syncReturn;
     private readonly LocalBuilder _dropReturn;
 
@@ -137,6 +139,7 @@ internal sealed class KernelEmitter
         _dropReturn = _il.DeclareLocal(typeof(int));
         _syncLabel = _il.DefineLabel();
         _dropLabel = _il.DefineLabel();
+        _callDropLabel = _il.DefineLabel();
         if (isFunction)
         {
             _slotsLocal = _il.DeclareLocal(typeof(Binding[]));
@@ -216,6 +219,9 @@ internal sealed class KernelEmitter
         internal const int NoLength = 32;
 
         internal LocalBuilder State = null!;
+
+        // The bits of State a call leaves: those of the value of a name whose environment no other code reaches.
+        internal LocalBuilder Keep = null!;
         internal LocalBuilder Number = null!;
         internal LocalBuilder Value = null!;
         internal LocalBuilder TypedData = null!;
@@ -367,6 +373,7 @@ internal sealed class KernelEmitter
                 il.Emit(OpCodes.Stloc, name.Value.Ref);
                 il.Emit(OpCodes.Ldloc, _outEnvironment);
                 il.Emit(OpCodes.Stloc, name.Value.Environment);
+                EmitKeep(name.Value);
                 continue;
             }
 
@@ -375,6 +382,7 @@ internal sealed class KernelEmitter
             il.Emit(OpCodes.Stloc, name.Value.Ref);
             il.Emit(OpCodes.Ldloc, _outEnvironment);
             il.Emit(OpCodes.Stloc, name.Value.Environment);
+            EmitKeep(name.Value);
         }
 
         foreach (var hot in _hot)
@@ -384,6 +392,16 @@ internal sealed class KernelEmitter
         }
 
         il.Emit(OpCodes.Br, body);
+    }
+
+    /// <summary>The bits of a name's state a call leaves, from the environment it resolved to.</summary>
+    private void EmitKeep(NameLocals name)
+    {
+        var il = _il;
+        il.Emit(OpCodes.Ldloc, name.Environment);
+        il.Emit(OpCodes.Ldc_I4, NameLocals.NumberHeld | NameLocals.ValueHeld | NameLocals.NotTyped | NameLocals.NoLength);
+        il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.KeptAcrossCalls)));
+        il.Emit(OpCodes.Stloc, name.Keep);
     }
 
     // ----- loops and statements -----
@@ -766,6 +784,21 @@ internal sealed class KernelEmitter
         _dropReturns.Add(back);
     }
 
+    /// <summary>
+    /// After a call that ran nothing of the code's own: the locals of every name dropped but the value of one in an
+    /// environment no other code can reach.
+    /// </summary>
+    private void EmitAfterCall()
+    {
+        var il = _il;
+        var back = il.DefineLabel();
+        il.Emit(OpCodes.Ldc_I4, _callDropReturns.Count);
+        il.Emit(OpCodes.Stloc, _dropReturn);
+        il.Emit(OpCodes.Br, _callDropLabel);
+        il.MarkLabel(back);
+        _callDropReturns.Add(back);
+    }
+
     /// <summary>The end of the run: everything a foreign step would see, then out of the try blocks.</summary>
     private void EmitExit(Target exit)
     {
@@ -805,6 +838,28 @@ internal sealed class KernelEmitter
         il.Emit(OpCodes.Ldloc, _syncReturn);
         il.Emit(OpCodes.Switch, _syncReturns.ToArray());
         il.Emit(OpCodes.Br, _syncReturns[0]);
+
+        if (_callDropReturns.Count > 0)
+        {
+            il.MarkLabel(_callDropLabel);
+            foreach (var name in _names.Values)
+            {
+                il.Emit(OpCodes.Ldloc, name.State);
+                il.Emit(OpCodes.Ldloc, name.Keep);
+                il.Emit(OpCodes.And);
+                il.Emit(OpCodes.Stloc, name.State);
+            }
+
+            foreach (var site in _siteCaches)
+            {
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Stloc, site);
+            }
+
+            il.Emit(OpCodes.Ldloc, _dropReturn);
+            il.Emit(OpCodes.Switch, _callDropReturns.ToArray());
+            il.Emit(OpCodes.Br, _callDropReturns[0]);
+        }
 
         il.MarkLabel(_dropLabel);
         foreach (var name in _names.Values)
@@ -1721,8 +1776,18 @@ internal sealed class KernelEmitter
         il.Emit(OpCodes.Ldarg_1);
         il.Emit(OpCodes.Call, Method(typeof(KernelCall), nameof(KernelCall.Interpret)));
         il.Emit(OpCodes.Stloc, value);
-        il.MarkLabel(done);
-        EmitAfterForeign();
+        if (MayAssign(call))
+        {
+            il.MarkLabel(done);
+            EmitAfterForeign();
+        }
+        else
+        {
+            // Nothing of the call assigns, through a lane or the interpreter: only the callee runs.
+            il.MarkLabel(done);
+            EmitAfterCall();
+        }
+
         il.MarkLabel(afterCall);
 
         for (var i = values.Length - 1; i >= 0; i--)
@@ -1735,6 +1800,28 @@ internal sealed class KernelEmitter
         Return(calleeNumber);
         Return(callee);
         Return(thisValue);
+    }
+
+    /// <summary>Whether the interpreter's evaluation of a call assigns a name: its callee or an argument assigns or updates something.</summary>
+    private static bool MayAssign(KernelCall call)
+    {
+        var pending = new Stack<Node>();
+        pending.Push(call._expression);
+        while (pending.Count > 0)
+        {
+            var node = pending.Pop();
+            if (node is AssignmentExpression or UpdateExpression or IFunction or ClassExpression)
+            {
+                return true;
+            }
+
+            foreach (var child in node.ChildNodes)
+            {
+                pending.Push(child);
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Stores the value on the stack, then jumps to <paramref name="bail"/> when it is Bail.</summary>
@@ -2800,6 +2887,7 @@ internal sealed class KernelEmitter
                 Number = _il.DeclareLocal(typeof(double)),
                 Value = _il.DeclareLocal(typeof(JsValue)),
                 State = _il.DeclareLocal(typeof(int)),
+                Keep = _il.DeclareLocal(typeof(int)),
                 TypedData = _il.DeclareLocal(typeof(byte[])),
                 TypedOffset = _il.DeclareLocal(typeof(int)),
                 TypedLength = _il.DeclareLocal(typeof(int)),

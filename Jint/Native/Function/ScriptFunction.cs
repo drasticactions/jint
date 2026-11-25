@@ -813,6 +813,17 @@ public sealed class ScriptFunction : Function, IConstructor
         return result is TailCallRequest ? ContinueTailCalls(result, ownsFrame) : result;
     }
 
+    /// <summary><see cref="CallFromRegisters"/> with Numbers unboxed, which reach the parameters unboxed.</summary>
+    internal JsValue CallFromNumbers(JsValue thisObject, in NumberArguments arguments, JintFunctionDefinition.State state)
+    {
+        _engine._stackGuard.EnsureStackHeadroom();
+        _functionDefinition!.EnsureTailCallMarkers(state, _strict);
+        var result = state.SupportsLeafCall
+            ? CallLeaf(_strict)
+            : CallCore(thisObject, in arguments, state);
+        return result is TailCallRequest ? ContinueTailCalls(result, ownsFrame: true) : result;
+    }
+
     /// <summary>
     /// A kernel's call of this function, whose body runs on <paramref name="kernel"/>: <see cref="CallCore{TArgs}"/>
     /// with the body's Number result left unboxed in <paramref name="number"/>.
@@ -894,15 +905,13 @@ public sealed class ScriptFunction : Function, IConstructor
     }
 
     /// <summary>
-    /// <see cref="CallKernel"/> made from a kernel at <paramref name="site"/> with one frame for the call, from which the
-    /// call stack frame and execution context are pushed only when something reads either stack.
+    /// <see cref="CallKernel"/> made at <paramref name="site"/> with one frame for the call, from which the call stack
+    /// frame and execution context are pushed only when something reads either stack.
     /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
-    internal JsValue? CallKernelInFrame(KernelCall site, JsValue thisObject, in NumberArguments arguments, JintFunctionDefinition.State state, FunctionKernel kernel, out double number)
+    internal JsValue? CallKernelInFrame(JintExpression site, JsValue thisObject, in NumberArguments arguments, JintFunctionDefinition.State state, FunctionKernel kernel, out double number)
     {
         var engine = _engine;
-        var oldPositions = engine.MarkLastSyntaxPositions();
-        var oldSource = engine._lastSyntaxLocation.SourceFile;
         var funcEnv = TakeCallEnvironment(state);
         if (!state.CanSkipThisBinding)
         {
@@ -924,7 +933,6 @@ public sealed class ScriptFunction : Function, IConstructor
             ReturnEnvironment(funcEnv, state);
         }
 
-        engine.RestoreLastSyntaxElement(oldPositions, oldSource);
         return result;
     }
 

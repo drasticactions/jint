@@ -894,6 +894,12 @@ internal sealed class JintCallExpression : JintExpression
             engine._referencePool.Return(referenceRecord);
         }
 
+        if (engine.CanPushCallFrame && !state.EnvironmentMayEscape && !context.CompletionValuesObservable && engine._stackGuard.HasVerifiedHeadroom())
+        {
+            var framed = new NumberArguments(arg0, n0, arg1, n1, arg2, n2, arg3, n3, _argCount);
+            return target.CallKernelInFrame(this, thisObject, in framed, state, kernel, out var framedNumber) ?? JsNumber.Create(framedNumber);
+        }
+
         var callStack = engine.CallStack;
         var recursionDepth = callStack.Push(target, this, engine.ExecutionContext);
         if (recursionDepth > engine._maxRecursionDepth)

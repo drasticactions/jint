@@ -370,6 +370,15 @@ internal readonly struct KernelTypedFacts
 internal static class KernelCodeRuntime
 {
     /// <summary>
+    /// <paramref name="bits"/> for a name in the call environment of a function no closure, eval or arguments object
+    /// reaches, whose bindings only the function's own code reads and writes; 0 for any other.
+    /// </summary>
+    internal static int KeptAcrossCalls(DeclarativeEnvironment? environment, int bits)
+        => environment is FunctionEnvironment { _functionObject: Native.Function.ScriptFunction { _functionDefinition.BuiltState: { UseFixedSlots: true, EnvironmentMayEscape: false } } }
+            ? bits
+            : 0;
+
+    /// <summary>
     /// The slot name <paramref name="binding"/> resolves to in this run, resolved now if it was not; a null reference
     /// for a name that is not in a slot, which the code reads through its node.
     /// </summary>
