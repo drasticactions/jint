@@ -55,7 +55,10 @@ internal sealed class KernelInlineBody
             parameters[i] = name;
         }
 
-        if (function.Body is not FunctionBody { Body: { Count: 1 } statements } || statements[0] is not ReturnStatement { Argument: { } result })
+        // A return of a literal runs without its statement check on the interpreter, which the call then makes.
+        if (function.Body is not FunctionBody { Body: { Count: 1 } statements }
+            || statements[0] is not ReturnStatement { Argument: { } result }
+            || result is Literal)
         {
             return null;
         }

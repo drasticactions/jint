@@ -899,6 +899,11 @@ public sealed class ScriptFunction : Function, IConstructor
 
         // A kept environment whose slot array went to the State, as NewFunctionEnvironment gives it one.
         taken.Reset(this, Undefined, _environment);
+        if (!state.UseFixedSlots)
+        {
+            return taken;
+        }
+
         taken._slotNames = state.SlotNames;
         taken._slots = Interlocked.Exchange(ref state._cachedSlots, null) ?? new Binding[state.SlotNames!.Length];
         return taken;

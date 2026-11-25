@@ -228,6 +228,20 @@ public class FunctionKernelTests
           return out.join(",") + stacks.join("~");
         }
         """,
+        // functions without parameters or locals, whose call environments hold no slots, and a call of a literal return
+        """
+        var x = 2;
+        function one() { return 1; }
+        var get = () => { return x + one(); };
+        var o = { x: 2, get: function () { return this.x + one(); }, twice: function () { return this.get() * 2 + get(); } };
+        function own() { return this.x * 3 + one(); }
+        var p = { x: 5, own: own };
+        function test() {
+          var out = [];
+          for (var i = 0; i < 30; i++) { o.x = i; x = i * 2; p.x = i; out.push(o.twice(), o.get(), get(), p.own()); }
+          return out.join(",");
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()
