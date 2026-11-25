@@ -544,6 +544,9 @@ internal sealed class JintObjectExpression : JintExpression
         {
         }
 
+        /// <summary>Makes the site hot, for a handler that takes over from one the interpreter has run often.</summary>
+        internal void StartHot() => _evaluations = ShapePromoteThreshold;
+
         protected override object EvaluateInternal(EvaluationContext context) => Create(context);
 
         public override JsValue GetValue(EvaluationContext context) => Create(context);

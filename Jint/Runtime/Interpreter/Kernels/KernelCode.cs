@@ -5,6 +5,7 @@ using Jint.Native;
 using Jint.Native.Object;
 using Jint.Native.TypedArray;
 using Jint.Runtime.Environments;
+using Environment = Jint.Runtime.Environments.Environment;
 
 namespace Jint.Runtime.Interpreter.Kernels;
 
@@ -25,6 +26,12 @@ internal sealed class KernelCode
     /// </summary>
     internal delegate int Entry(object[] constants, KernelFrame frame, int entry);
 
+    /// <summary>
+    /// The code of a function body over its constants, entered at <see cref="StartEntry"/>: the value it returns,
+    /// undefined when it completes normally, or null for an abrupt completion left in <see cref="KernelFrame.Abrupt"/>.
+    /// </summary>
+    internal delegate JsValue? FunctionEntry(KernelFrame frame, int entry);
+
     /// <summary>The entry where the outermost loop starts.</summary>
     internal const int StartEntry = -1;
 
@@ -35,12 +42,19 @@ internal sealed class KernelCode
     /// </summary>
     internal const int DefaultThreshold = 16384;
 
-    private readonly Entry _entry;
+    private readonly Entry _entry = null!;
+    private readonly FunctionEntry _functionEntry = null!;
     private readonly object[] _constants;
 
     internal KernelCode(Entry entry, object[] constants)
     {
         _entry = entry;
+        _constants = constants;
+    }
+
+    internal KernelCode(FunctionEntry entry, object[] constants)
+    {
+        _functionEntry = entry;
         _constants = constants;
     }
 
@@ -67,8 +81,21 @@ internal sealed class KernelCode
         }
     }
 
+    /// <summary>A function body's code from its start (see <see cref="FunctionEntry"/>).</summary>
+    internal JsValue? RunFunction(KernelFrame frame)
+    {
+        // The program's Leave clears the flag.
+        frame.InCode = true;
+        return _functionEntry(frame, StartEntry);
+    }
+
     /// <summary>The loop's code, or null where code cannot be compiled.</summary>
-    internal static KernelCode? TryCompile(KernelForStatement loop)
+    internal static KernelCode? TryCompile(KernelForStatement loop) => TryCompile(loop, null, 0);
+
+    /// <summary>A function body's code, or null where code cannot be compiled.</summary>
+    internal static KernelCode? TryCompile(KernelBlockStatement body, int loops, int calls, Key[]? layout, int[] localSlots) => TryCompile(null, body, loops, calls, layout, localSlots);
+
+    private static KernelCode? TryCompile(KernelForStatement? loop, KernelBlockStatement? body, int loops, int calls = 0, Key[]? layout = null, int[]? localSlots = null)
     {
         // The guard stated here, beside the call, so that the trimming and AOT analyses fold it.
         if (!RuntimeFeature.IsDynamicCodeSupported || !RuntimeFeature.IsDynamicCodeCompiled)
@@ -78,7 +105,7 @@ internal sealed class KernelCode
 
         try
         {
-            return KernelEmitter.Compile(loop);
+            return loop is not null ? KernelEmitter.Compile(loop) : KernelEmitter.Compile(body!, loops, calls, layout, localSlots!);
         }
         catch (Exception e) when (e is PlatformNotSupportedException or NotSupportedException or MissingMemberException or TypeInitializationException)
         {
@@ -364,6 +391,32 @@ internal static class KernelCodeRuntime
         return ref Unsafe.NullRef<Binding>();
     }
 
+    /// <summary>
+    /// <see cref="Bind"/> for a name a function body declares, at <paramref name="index"/> of <paramref name="slots"/>,
+    /// the slots of the environment the run was entered in when it has the body's layout.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static ref Binding BindLocal(KernelFrame frame, int binding, int index, Binding[]? slots, out DeclarativeEnvironment? environment)
+    {
+        if (slots is not null && (uint) index < (uint) slots.Length)
+        {
+            environment = Unsafe.As<DeclarativeEnvironment>(frame.Start);
+            return ref slots[index];
+        }
+
+        return ref Bind(frame, binding, out environment);
+    }
+
+    /// <summary>The slots of <paramref name="start"/> when it is an environment of the layout a function body was compiled for.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static Binding[]? LocalSlots(Environment start, Key[] layout, Engine engine)
+        => start is DeclarativeEnvironment declarative
+           && ReferenceEquals(declarative._slotNames, layout)
+           && declarative._dictionary is not { Count: > 0 }
+           && ReferenceEquals(declarative._engine, engine)
+            ? declarative._slots
+            : null;
+
     /// <summary><see cref="KernelName.Evaluate"/> of a name whose slot holds: the Number, or the value, or Bail.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static KernelResult ReadSlot(ref Binding binding)
@@ -402,6 +455,26 @@ internal static class KernelCodeRuntime
         var value = result.Value;
         var kind = value is not null && !ReferenceEquals(value, KernelExpression.Bail) ? KernelNameRead.Value : KernelNameRead.Uncached;
         return new KernelNameRead(value, result.Number, kind);
+    }
+
+    /// <summary><see cref="ReadNameCold"/> with the read of a slot that holds inline, for code that reads it first.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static KernelNameRead ReadNameFirst(ref Binding slot, KernelName name, KernelFrame frame, int epoch)
+    {
+        if (!Unsafe.IsNullRef(ref slot) && frame.Engine._envBindingInjectionEpoch == epoch)
+        {
+            if (slot.TryGetMutableNumber(out var number))
+            {
+                return new KernelNameRead(null, number, KernelNameRead.MutableNumber);
+            }
+
+            if (slot.IsPlainValue && slot.PeekValue is { } value && (value._type & InternalTypes.ReadHook) == InternalTypes.Empty)
+            {
+                return new KernelNameRead(value, 0, KernelNameRead.Value);
+            }
+        }
+
+        return ReadNameCold(ref slot, name, frame, epoch);
     }
 
     /// <summary><see cref="KernelName.TryReadNumber"/> of a name whose slot holds: the Number, or Bail.</summary>

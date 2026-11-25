@@ -6,9 +6,8 @@ using Environment = Jint.Runtime.Environments.Environment;
 namespace Jint.Runtime.Interpreter.Kernels;
 
 /// <summary>
-/// Builds the node tree of a <see cref="LoopKernel"/> from a <c>for</c> statement. A construct it has no node for
-/// becomes a node that runs the interpreter's handler for it, so the tree covers every loop; the compiler only decides
-/// how much of it runs on kernel nodes.
+/// Builds the node tree of a <see cref="LoopKernel"/> or a <see cref="FunctionKernel"/>, where a construct without a
+/// node of its own becomes a node that runs the interpreter's handler for it.
 /// </summary>
 internal sealed class KernelCompiler
 {
@@ -71,6 +70,22 @@ internal sealed class KernelCompiler
         var loop = new KernelForStatement(statement, initStatement, initExpression, test, update, body, owner);
         Loops[index] = loop;
         return loop;
+    }
+
+    // Whether empty object literals left to the interpreter start hot, as in a body the interpreter has run often.
+    private bool _sitesStartHot;
+
+    /// <summary>A function body, checked as a statement and handling the exceptions of its statements as a block does.</summary>
+    internal KernelBlockStatement CompileFunctionBody(FunctionBody body)
+    {
+        _sitesStartHot = true;
+        var statements = new KernelStatement[body.Body.Count];
+        for (var i = 0; i < statements.Length; i++)
+        {
+            statements[i] = CompileListStatement(body.Body[i], blockLevel: false);
+        }
+
+        return new KernelBlockStatement(body, statements, isChecked: true);
     }
 
     /// <summary>A statement of a statement list, where a <c>return</c> of a literal is resolved without running it.</summary>
@@ -227,7 +242,13 @@ internal sealed class KernelCompiler
             return new KernelRoot(pure);
         }
 
-        return new KernelInterpreted(expression);
+        var interpreted = new KernelInterpreted(expression);
+        if (_sitesStartHot && interpreted._handler is JintObjectExpression.JintEmptyObjectExpression emptyObject)
+        {
+            emptyObject.StartHot();
+        }
+
+        return interpreted;
     }
 
     private KernelExpression CompileTest(Expression expression) => CompileValue(expression);
@@ -258,6 +279,13 @@ internal sealed class KernelCompiler
                 if (assignment.Left is Identifier target)
                 {
                     return CompileSlotAssignment(assignment, target, assignment.Right, isDeclarator: false);
+                }
+
+                if (assignment.Left is MemberExpression { Computed: false, Optional: false, Object: not Super, Property: Identifier } named
+                    && !assignment.Right.IsFunctionDefinition())
+                {
+                    var owner = TryCompilePure(named.Object);
+                    return owner is null ? null : new KernelStoreProperty(assignment, named, owner, CompileValue(assignment.Right));
                 }
 
                 if (assignment.Left is MemberExpression { Computed: true, Optional: false, Object: not Super } member)

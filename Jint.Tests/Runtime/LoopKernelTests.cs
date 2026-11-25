@@ -703,6 +703,8 @@ public class LoopKernelTests
 
     private static void Configure(Engine engine, Mode mode)
     {
+        // Function bodies stay on the interpreter, so that each loop runs on its own kernel.
+        engine._functionKernelThreshold = -1;
         engine._loopKernelsDisabled = mode == Mode.Interpreter;
         engine._loopKernelCodeThreshold = mode switch
         {

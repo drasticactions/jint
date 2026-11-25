@@ -2264,6 +2264,19 @@ public sealed partial class Engine : IDisposable
     // code is not compiled (a runtime without a JIT, or a test comparing the tree with the code it compiles to).
     internal int _loopKernelCodeThreshold = Runtime.Interpreter.Kernels.KernelCode.Supported ? Runtime.Interpreter.Kernels.KernelCode.DefaultThreshold : -1;
 
+    // Calls of a function the interpreter runs before its body runs on a kernel, or -1 to keep every body on the interpreter.
+    internal int _functionKernelThreshold = Runtime.Interpreter.Kernels.FunctionKernel.DefaultThreshold;
+
+    // Statements per node a function kernel's tree checks before the body is compiled, or -1 to keep it a tree.
+    internal int _functionKernelCodeThreshold = -1;
+
+    // How many more function bodies this engine may run on kernels.
+    internal int _functionKernelBudget = Runtime.Interpreter.Kernels.FunctionKernel.MaxCompiledFunctions;
+
+    // How many function bodies ran on kernels, and how many of those as compiled code; read by tests.
+    internal int _functionKernelRuns;
+    internal int _functionKernelCodeRuns;
+
     // Call environments of functions whose environment nothing can capture
     // (JintFunctionDefinition.State.ReusesEnvironmentAcrossInstances), parked after a call by an instance that does not
     // keep its own, for the next call of any instance of the same definition: the methods a constructor makes for each

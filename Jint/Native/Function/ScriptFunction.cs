@@ -9,6 +9,7 @@ using Jint.Runtime.Descriptors;
 using Jint.Runtime.Environments;
 using Jint.Runtime.Interpreter;
 using Jint.Runtime.Interpreter.Expressions;
+using Jint.Runtime.Interpreter.Kernels;
 using Environment = Jint.Runtime.Environments.Environment;
 
 namespace Jint.Native.Function;
@@ -722,6 +723,11 @@ public sealed class ScriptFunction : Function, IConstructor
             // EvaluateBodyFast, with the instantiation taken out so that this method inlines one copy of it.
             _engine.FunctionDeclarationInstantiationFast(state, in args);
 
+            if (definition.Kernel(_engine, state) is { } kernel && KernelProgram.CanRun(context))
+            {
+                return kernel.Run(context);
+            }
+
             if (definition.SingleReturnBody is { } singleReturnBody)
             {
                 // The statement-body arm, with the completion unwrapped by the list.
@@ -981,17 +987,23 @@ public sealed class ScriptFunction : Function, IConstructor
         try
         {
             var context = engine._evaluationContext;
-            if (_functionDefinition!.SingleReturnBody is { } singleReturnBody)
+            var definition = _functionDefinition!;
+            if (definition.Kernel(engine, definition.BuiltState!) is { } kernel && KernelProgram.CanRun(context))
+            {
+                return kernel.Run(context);
+            }
+
+            if (definition.SingleReturnBody is { } singleReturnBody)
             {
                 return singleReturnBody.ExecuteSingleReturnBody(context);
             }
 
-            if (_functionDefinition.ValueBody is { } valueBody)
+            if (definition.ValueBody is { } valueBody)
             {
                 return valueBody.ExecuteValueBody(context);
             }
 
-            var result = _functionDefinition.EvaluateLeafBody(context);
+            var result = definition.EvaluateLeafBody(context);
 
             if (result.Type == CompletionType.Throw)
             {

@@ -324,10 +324,15 @@ internal sealed class KernelBlockStatement : KernelStatement
     internal readonly KernelStatement[] _statements;
     internal readonly bool _checked;
 
-    public KernelBlockStatement(Statement statement, KernelStatement[] statements) : base(statement)
+    public KernelBlockStatement(Statement statement, KernelStatement[] statements) : this(statement, statements, statements.Length != 1)
+    {
+    }
+
+    /// <summary>A block, or with <paramref name="isChecked"/> a function body, which is checked whatever its length.</summary>
+    public KernelBlockStatement(Statement statement, KernelStatement[] statements, bool isChecked) : base(statement)
     {
         _statements = statements;
-        _checked = statements.Length != 1;
+        _checked = isChecked;
     }
 
     internal override int Execute(KernelFrame frame)
@@ -440,14 +445,14 @@ internal sealed class KernelForStatement : KernelStatement
     // The test and update taken in place when they count a name up or down to a limit (see KernelLoopHeader).
     internal readonly KernelLoopHeader? _header;
 
-    // The kernel this loop belongs to, and the entry of the kernel's code at this loop's head (see KernelCode).
-    internal LoopKernel _kernel = null!;
+    // The loop kernel this loop belongs to (none in a function body), and the entry of its code at this loop's head.
+    internal LoopKernel? _kernel;
     internal int _entry;
 
     internal override int Execute(KernelFrame frame)
     {
         // The outermost loop runs as code once the kernel has code; a loop inside it is entered at its head.
-        if (_entry == 0 && _kernel._code is { } compiled && frame.CodeThreshold >= 0 && !frame.InCode)
+        if (_entry == 0 && _kernel?._code is { } compiled && frame.CodeThreshold >= 0 && !frame.InCode)
         {
             return compiled.Run(frame, KernelCode.StartEntry);
         }
@@ -473,8 +478,13 @@ internal sealed class KernelForStatement : KernelStatement
         {
             // An iteration about to begin can as well begin in the kernel's code: everything the tree has done is in
             // the environments.
-            _kernel._iterations++;
-            if (frame.CodeThreshold >= 0 && _kernel.WorthCompiling(frame) && !frame.InCode && _kernel.Compile() is { } code)
+            var kernel = _kernel;
+            if (kernel is not null)
+            {
+                kernel._iterations++;
+            }
+
+            if (kernel is not null && frame.CodeThreshold >= 0 && kernel.WorthCompiling(frame) && !frame.InCode && kernel.Compile() is { } code)
             {
                 return EnterCode(frame, code);
             }

@@ -52,6 +52,9 @@ internal sealed class KernelFrame
     internal Key[]? Layout;
     internal int[]? LayoutIndices;
 
+    // The next spare frame of the program, while this one is spare.
+    internal KernelFrame? NextSpare;
+
     public KernelFrame(Environment.BindingName[] names)
     {
         Names = names;
@@ -232,6 +235,11 @@ internal abstract class KernelProgram
 {
     private readonly Environment.BindingName[] _names;
     private KernelFrame? _frame;
+
+    // Frames of runs inside a run (recursive calls), kept for the next ones.
+    private KernelFrame? _spareFrames;
+    private int _spareFrameCount;
+    private const int MaxSpareFrames = 32;
     private Key[]? _layout;
     private int[]? _layoutIndices;
     private bool _layoutKnown;
@@ -248,19 +256,39 @@ internal abstract class KernelProgram
            && !context.OperatorOverloadingAllowed
            && context.Engine.ExecutionContext.Suspendable is null;
 
-    private protected KernelFrame Enter(EvaluationContext context)
+    private protected KernelFrame Enter(EvaluationContext context, bool resolveLayout = true)
     {
         var frame = _frame;
-        if (frame is null || frame.InUse)
+        if (frame is null)
+        {
+            frame = _frame = new KernelFrame(_names);
+        }
+        else if (frame.InUse)
         {
             // A run inside a run of the same kernel (a recursive call) has a frame of its own.
-            frame = new KernelFrame(_names);
-            _frame ??= frame;
+            frame = _spareFrames;
+            if (frame is null)
+            {
+                frame = new KernelFrame(_names);
+            }
+            else
+            {
+                _spareFrames = frame.NextSpare;
+                frame.NextSpare = null;
+                _spareFrameCount--;
+            }
         }
 
         frame.InUse = true;
-        frame.Context = context;
-        var engine = frame.Engine = context.Engine;
+
+        // The engine's own, kept from run to run: written only for a new frame.
+        if (!ReferenceEquals(frame.Context, context))
+        {
+            frame.Context = context;
+            frame.Engine = context.Engine;
+        }
+
+        var engine = frame.Engine;
         var start = frame.Start = engine.ExecutionContext.LexicalEnvironment;
         if (!_layoutKnown)
         {
@@ -274,9 +302,11 @@ internal abstract class KernelProgram
             frame.LayoutIndices = _layoutIndices;
         }
 
-        frame.ResolveLayout();
-        frame.CodeThreshold = engine._loopKernelCodeThreshold;
-        engine._loopKernelRuns++;
+        if (resolveLayout)
+        {
+            frame.ResolveLayout();
+        }
+
         return frame;
     }
 
@@ -300,7 +330,7 @@ internal abstract class KernelProgram
         }
     }
 
-    private protected static void Leave(KernelFrame frame)
+    private protected void Leave(KernelFrame frame)
     {
         // Nothing of the run stays reachable from the handler tree, and the next run resolves every name again; the
         // layout holds no engine state.
@@ -313,12 +343,16 @@ internal abstract class KernelProgram
         frame.Global = null;
         frame.Abrupt = default;
         frame.Start = null!;
-        frame.Context = null!;
-        frame.Engine = null!;
         frame.InCode = false;
         frame.Escaping = false;
         frame.Work = 0;
         frame.InUse = false;
+        if (!ReferenceEquals(frame, _frame) && _spareFrameCount < MaxSpareFrames)
+        {
+            frame.NextSpare = _spareFrames;
+            _spareFrames = frame;
+            _spareFrameCount++;
+        }
     }
 }
 
@@ -393,6 +427,8 @@ internal sealed class LoopKernel : KernelProgram
     internal Completion Run(EvaluationContext context)
     {
         var frame = Enter(context);
+        frame.CodeThreshold = frame.Engine._loopKernelCodeThreshold;
+        frame.Engine._loopKernelRuns++;
         try
         {
             var code = _loop.Execute(frame);

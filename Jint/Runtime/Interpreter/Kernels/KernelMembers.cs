@@ -331,6 +331,13 @@ internal sealed class KernelCall : KernelExpression
     internal override JsValue? Evaluate(KernelFrame frame, out double number)
     {
         number = 0;
+
+        // A stack too low for the call: the interpreter makes it, on a fresh stack.
+        if (!frame.Engine._stackGuard.TryEnterOnCurrentStack())
+        {
+            return Interpret(frame);
+        }
+
         JsValue thisValue;
         JsValue? callee;
         if (_member is not null)

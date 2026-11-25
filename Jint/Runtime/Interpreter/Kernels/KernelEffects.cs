@@ -369,3 +369,44 @@ internal sealed class KernelStoreElement : KernelEffect
         return false;
     }
 }
+
+/// <summary>
+/// <c>object.name = value</c> with an object read purely: the object, the value, then the member handler's store
+/// (https://tc39.es/ecma262/#sec-putvalue).
+/// </summary>
+internal sealed class KernelStoreProperty : KernelEffect
+{
+    internal readonly KernelExpression _object;
+    internal readonly KernelExpression _value;
+    private readonly MemberExpression _member;
+    private JintMemberExpression? _target;
+
+    public KernelStoreProperty(Expression expression, MemberExpression member, KernelExpression obj, KernelExpression value) : base(expression)
+    {
+        _member = member;
+        _object = obj;
+        _value = value;
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        number = 0;
+        var target = _object.Evaluate(frame, out var targetNumber);
+        if (ReferenceEquals(target, Bail))
+        {
+            return Interpret(frame);
+        }
+
+        var value = Box(_value.Evaluate(frame, out var valueNumber), valueNumber);
+        Store(frame, Box(target, targetNumber), value);
+        return value;
+    }
+
+    /// <summary>The store once the object and the value are evaluated.</summary>
+    internal void Store(KernelFrame frame, JsValue target, JsValue value)
+    {
+        var context = frame.Context;
+        context.PrepareFor(_member);
+        (_target ??= new JintMemberExpression(_member)).StoreOnBase(context, target, value);
+    }
+}

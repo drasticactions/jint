@@ -59,6 +59,11 @@ internal sealed class JintFunctionDefinition
     // memoized here — where the definition is per class — instead of in that shared State.
     private SourceText _ownSourceText;
 
+    // The body's kernel (see FunctionKernel) and the calls left before it is built, counted from the first call.
+    internal Kernels.FunctionKernel? _kernel;
+    internal int _kernelCountdown;
+    private bool _kernelCountdownStarted;
+
     public JintFunctionDefinition(IFunction function, INode sourceTextNode)
     {
         Function = function;
@@ -91,6 +96,9 @@ internal sealed class JintFunctionDefinition
     {
         _bodyExpression = null;
         _bodyStatementList = null;
+        _kernel = null;
+        _kernelCountdown = 0;
+        _kernelCountdownStarted = false;
 
         // A Function-constructor definition parks the last call environment on its State; see
         // State._dynamicCachedEnv. Read without Initialize, which would build a State nobody asked for.
@@ -218,6 +226,47 @@ internal sealed class JintFunctionDefinition
 
         // https://tc39.es/ecma262/#sec-runtime-semantics-evaluatefunctionbody
         return (_bodyStatementList ?? BuildBodyStatementList(context)).ExecuteSynchronousFunctionBody(context);
+    }
+
+    /// <summary>The body's kernel, counting this call towards building it.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal Kernels.FunctionKernel? Kernel(Engine engine, State state)
+        => _kernel ?? (--_kernelCountdown <= 0 ? CountdownElapsed(engine, state) : null);
+
+    /// <summary>The body's kernel once the countdown reaches zero, built now where the body can run on one.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private Kernels.FunctionKernel? CountdownElapsed(Engine engine, State state)
+    {
+        if (!_kernelCountdownStarted)
+        {
+            _kernelCountdownStarted = true;
+            var threshold = engine._functionKernelThreshold;
+            if (threshold > 1)
+            {
+                _kernelCountdown = threshold - 1;
+                return null;
+            }
+
+            if (threshold < 0)
+            {
+                _kernelCountdown = int.MaxValue;
+                return null;
+            }
+        }
+
+        _kernelCountdown = int.MaxValue;
+        if (engine._functionKernelBudget <= 0 || engine._functionKernelThreshold < 0)
+        {
+            return null;
+        }
+
+        _kernel = Kernels.FunctionKernel.TryCreate(this, state);
+        if (_kernel is not null)
+        {
+            engine._functionKernelBudget--;
+        }
+
+        return _kernel;
     }
 
     /// <summary>
