@@ -242,6 +242,51 @@ public class FunctionKernelTests
           return out.join(",");
         }
         """,
+        // a bare call as a whole branch of a returned conditional, in sloppy and strict functions, and calls in tests
+        """
+        var log = [];
+        function f(x) { var y = x + 1; return y; }
+        function g(n) { var y = n * 2; log.push(n); return y; }
+        function h(c, x, n) { return c ? f(x) + n : g(n); }
+        function hs(c, x, n) { "use strict"; return c ? f(x) + n : g(n); }
+        function tests(a, b) { var r = 0; if (f(a) > g(b) && !f(b)) { r = 1; } else if (f(a) == "3" || g(a) < f(b)) { r = 2; } return r + (f(a) !== g(b)); }
+        function nothing(a) { var b = a + 1; if (b > 3) { return; } }
+        function test() {
+          log = [];
+          var out = [];
+          for (var i = 0; i < 20; i++) { out.push(h(i & 1, i, 3), hs(i & 2, i, 4), tests(i % 5, i % 3), nothing(i)); }
+          return out.join(",") + log.join("");
+        }
+        """,
+        // calls nested in arguments, of interpreted functions and of built-ins, each argument compiled once
+        """
+        function inc(x) { var y = x + 1; return y; }
+        function deep(a) {
+          var r = inc(inc(inc(inc(inc(inc(inc(inc(inc(inc(inc(inc(inc(inc(inc(inc(inc(inc(inc(inc(inc(inc(inc(inc(a))))))))))))))))))))))));
+          var m = Math.max(Math.max(Math.max(Math.max(Math.max(Math.max(Math.max(Math.max(Math.max(Math.max(a, 1), 2), 3), 4), 5), 6), 7), 8), 9), inc(a));
+          return r + m;
+        }
+        function test() {
+          var out = [];
+          for (var i = 0; i < 12; i++) { out.push(deep(i), deep("s" + i)); }
+          return out.join(",");
+        }
+        """,
+        // recursion deeper than the frames a kernel keeps, mutual recursion, methods binding this, closures of many calls
+        """
+        function down(n) { var m = n - 1; return n > 0 ? down(m) + 1 : 0; }
+        function even(n) { return n === 0 ? true : odd(n - 1) + 0 === 1; }
+        function odd(n) { return n === 0 ? false : even(n - 1); }
+        var obj = { k: 3, m: function (x) { var t = x + this.k; return t; } };
+        function viaThis(x) { var r = obj.m(x) * 2; r = r + obj.m(1); return r; }
+        function counter(start) { var c = start; return function (d) { var e = d + 1; c = c + e; return c; }; }
+        function test() {
+          var out = [down(70), down(33), even(10), even(7)];
+          var a = counter(1), b = counter(100);
+          for (var i = 0; i < 25; i++) { out.push(viaThis(i), a(i), b(i)); }
+          return out.join(",");
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()
@@ -379,23 +424,86 @@ public class FunctionKernelTests
     {
         var engine = new Engine();
         engine._functionKernelThreshold.Should().Be(FunctionKernel.DefaultThreshold);
-        engine._functionKernelCodeThreshold.Should().Be(-1, "bodies stay trees unless the engine is told to compile them");
-        engine._functionKernelCodeThreshold = KernelCode.DefaultThreshold;
+        engine._functionKernelCodeThreshold.Should().Be(KernelCode.Supported ? FunctionKernel.DefaultCodeThreshold : -1);
+        engine._functionKernelCodeInBackground = false;
         engine.Execute("function f(a) { var b = a * 2; return b + 1; }");
         engine.Evaluate($"var s = 0; for (var i = 0; i < {FunctionKernel.DefaultThreshold - 1}; i++) s += f(i); s");
         engine._functionKernelRuns.Should().Be(0, "the interpreter runs the first calls");
         engine.Evaluate("f(4)").AsNumber().Should().Be(9);
         engine._functionKernelRuns.Should().Be(1);
-        engine._functionKernelCodeRuns.Should().Be(0, "a tree runs the body until it has done enough work");
-        engine.Evaluate("var t = 0; for (var i = 0; i < 300000; i++) t += f(i); t");
+        engine._functionKernelCodeRuns.Should().Be(0, "a tree runs the body until it has run it often enough");
+        engine.Evaluate($"var t = 0; for (var i = 0; i < {FunctionKernel.DefaultCodeThreshold - 2}; i++) t += f(i); t");
+        engine._functionKernelCodeRuns.Should().Be(0);
+        engine.Evaluate($"var t = 0; for (var i = 0; i < 10; i++) t += f(i); t").AsNumber().Should().Be(100);
         if (KernelCode.Supported)
         {
-            engine._functionKernelCodeRuns.Should().BeGreaterThan(0, "the tree has done enough work for code to pay");
+            engine._functionKernelCodeRuns.Should().BeGreaterThan(0, "the body has run often enough on its tree");
         }
         else
         {
             engine._functionKernelCodeRuns.Should().Be(0, "where code is not compiled, bodies stay trees");
         }
+    }
+
+    [Test]
+    public void BodiesCompiledInTheBackgroundRunAsCodeOnceCompiled()
+    {
+        var engine = new Engine();
+        engine._functionKernelThreshold = 1;
+        engine._functionKernelCodeThreshold = 1;
+        engine.Execute("function f(a) { var b = a * 2; return b + 1; }");
+        var deadline = DateTime.UtcNow + TestBudgets.WedgeCeiling;
+        while (engine._functionKernelCodeRuns == 0 && KernelCode.Supported && DateTime.UtcNow < deadline)
+        {
+            engine.Evaluate("f(2)").AsNumber().Should().Be(5);
+            Thread.Sleep(1);
+        }
+
+        engine.Evaluate("f(4)").AsNumber().Should().Be(9);
+        if (KernelCode.Supported)
+        {
+            engine._functionKernelCodeRuns.Should().BeGreaterThan(0);
+        }
+    }
+
+    [TestCase(Mode.Tree)]
+    [TestCase(Mode.Code)]
+    public void AKernelKeepsNoClosureItsCallsRanIn(Mode mode)
+    {
+        var engine = new Engine();
+        Configure(engine, mode);
+        engine.Execute("function make(o) { return function (x) { var y = x + 1; return o.n + y; }; } function run(f) { var s = 0; s = s + f(1); s = s + f(2); return s; }");
+        var reference = CallAndForget(engine);
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+        reference.IsAlive.Should().BeFalse("a kernel's call frames let go of a closure's environment when its call ends");
+        engine._functionKernelRuns.Should().BeGreaterThan(0);
+        GC.KeepAlive(engine);
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static WeakReference CallAndForget(Engine engine)
+        {
+            var held = engine.Evaluate("({ n: 5 })");
+            engine.SetValue("held", held);
+            engine.Execute("var f = make(held); held = undefined; for (var i = 0; i < 10; i++) run(f); f = undefined;");
+            return new WeakReference(held);
+        }
+    }
+
+    [Test]
+    public void AnEngineCompilesABoundedNumberOfBodiesToCode()
+    {
+        var engine = new Engine();
+        engine._functionKernelThreshold = 1;
+        engine._functionKernelCodeThreshold = 0;
+        engine._functionKernelCodeInBackground = false;
+        engine._functionKernelCodeBudget = 1;
+        engine.Execute("function f(a) { var b = a + 1; return b; } function g(a) { var b = a + 2; return b; }");
+        engine.Evaluate("f(1) + g(1) + f(2) + g(2)").AsNumber().Should().Be(12);
+        engine._functionKernelCodeBudget.Should().Be(KernelCode.Supported ? 0 : 1);
+        engine._functionKernelRuns.Should().Be(4);
+        engine._functionKernelCodeRuns.Should().Be(KernelCode.Supported ? 2 : 0);
     }
 
     [Test]
@@ -529,7 +637,8 @@ public class FunctionKernelTests
             Mode.CodeWarm or Mode.CodeLate => 5,
             _ => 1,
         };
-        engine._functionKernelCodeThreshold = mode == Mode.Tree || !KernelCode.Supported ? -1 : KernelCode.DefaultThreshold;
+        engine._functionKernelCodeThreshold = mode == Mode.Tree || !KernelCode.Supported ? -1 : FunctionKernel.DefaultCodeThreshold;
+        engine._functionKernelCodeInBackground = false;
         engine._loopKernelCodeWork = mode switch
         {
             Mode.Code => 0,

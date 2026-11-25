@@ -528,6 +528,76 @@ internal sealed class KernelCall : KernelExpression
         return 1;
     }
 
+    /// <summary>For compiled code: the register lane's state for <paramref name="function"/>, probed as <see cref="CallScript"/> probes it, or null.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal JintFunctionDefinition.State? RegisterState(ScriptFunction function)
+        => ReferenceEquals(function._functionDefinition, _registerDefinition) && !function._isClassConstructor && _arguments.Length <= 4
+            ? _registerState
+            : ProbeRegisterState(function);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private JintFunctionDefinition.State? ProbeRegisterState(ScriptFunction function)
+    {
+        if (_arguments.Length > 4 || function._isClassConstructor)
+        {
+            return null;
+        }
+
+        _registerDefinition = function._functionDefinition;
+        _registerState = function.TryInitializeDefinition() is { SupportsRegisterCall: true } probed ? probed : null;
+        ProbeInlineBody();
+        return _registerState;
+    }
+
+    /// <summary>Whether the tree computes this call of <paramref name="function"/> in place (see <see cref="KernelInlineBody"/>).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal bool ComputesInPlace(ScriptFunction function, Engine engine) => _inlineBody is not null && InlineSiteAccepts(function, engine);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private bool InlineSiteAccepts(ScriptFunction function, Engine engine) => _inlineSite!.Accepts(function, engine);
+
+    /// <summary>The tree's call of an interpreted function, for compiled code.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal KernelResult CallScriptFromCode(KernelFrame frame, ScriptFunction function, JsValue thisValue)
+    {
+        var value = CallScript(frame, function, thisValue, out var number);
+        return new KernelResult(value, number);
+    }
+
+    /// <summary>
+    /// For compiled code: the fast call shape of a built-in <paramref name="callee"/>, probed as <see cref="Evaluate"/>
+    /// probes it; false to leave the call to the interpreter.
+    /// </summary>
+    internal bool BuiltinShape(JsValue? callee, out FastCallShape shape)
+    {
+        shape = default;
+        if (callee is not Function function)
+        {
+            return false;
+        }
+
+        if (!ReferenceEquals(function, _fastCallee))
+        {
+            if (function._functionDefinition is not null || _arguments.Length > 2)
+            {
+                return false;
+            }
+
+            var probed = function.GetFastCallShape(_arguments.Length);
+            if (!probed.Supported || probed.Variadic)
+            {
+                return false;
+            }
+
+            _fastCallee = function;
+            _fastShape = probed;
+            _intrinsic = _arguments.Length == 1 ? KernelIntrinsics.Identify(function) : KernelIntrinsics.None;
+        }
+
+        shape = _fastShape;
+        return true;
+    }
+
     /// <summary>Whether a built-in's fast lane needs no call stack frame for these values: it then runs no script.</summary>
     internal static bool IsLeaf(FastCallShape shape, JsValue thisValue, JsValue arg0, JsValue arg1) => shape.IsLeafFor(thisValue, arg0, arg1);
 
@@ -541,6 +611,11 @@ internal sealed class KernelCall : KernelExpression
 
         return CallWithFrame(frame, function, thisValue, arg0, arg1);
     }
+
+    /// <summary><see cref="CallBuiltin"/> out of line, for compiled code.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal JsValue CallBuiltinFromCode(KernelFrame frame, Function function, JsValue thisValue, FastCallShape shape, JsValue arg0, JsValue arg1)
+        => CallBuiltin(frame, function, thisValue, shape, arg0, arg1);
 
     /// <summary>The call of a built-in of one argument through its fast lane, the argument evaluated.</summary>
     internal JsValue CallIntrinsic(KernelFrame frame, Function function, JsValue thisValue, JsValue arg0)
@@ -579,6 +654,25 @@ internal sealed class KernelCall : KernelExpression
 
         return new KernelResult(CallFromNumbers(frame, function, thisValue, state, new NumberArguments(v0, n0, v1, n1, v2, n2, v3, n3, count)), 0);
     }
+
+    /// <summary><see cref="CallRegisterLane"/> for compiled code: straight into the callee's code where it has some.</summary>
+    internal KernelResult CallFromCode(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, JsValue? v0, double n0, JsValue? v1, double n1, JsValue? v2, double n2, JsValue? v3, double n3)
+    {
+        if (!state.SupportsLeafCall && function._functionDefinition!._kernel is { _code: { } code } kernel)
+        {
+            var engine = frame.Engine;
+            if (engine.CanPushCallFrame && !state.EnvironmentMayEscape && !frame.Context.CompletionValuesObservable && engine._stackGuard.HasVerifiedHeadroom())
+            {
+                return kernel.CallCode(engine, function, CallHandler, thisValue, state, code, v0, n0, v1, n1, v2, n2, v3, n3, _arguments.Length);
+            }
+        }
+
+        return CallRegisterLaneOutOfLine(frame, function, thisValue, state, v0, n0, v1, n1, v2, n2, v3, n3);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private KernelResult CallRegisterLaneOutOfLine(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, JsValue? v0, double n0, JsValue? v1, double n1, JsValue? v2, double n2, JsValue? v3, double n3)
+        => CallRegisterLane(frame, function, thisValue, state, v0, n0, v1, n1, v2, n2, v3, n3);
 
     /// <summary>The argument list of an interpreted function's call, rented for compiled code to fill.</summary>
     internal JsValue[] RentArguments(KernelFrame frame) => _arguments.Length == 0 ? [] : frame.Engine._jsValueArrayPool.RentArray(_arguments.Length);
@@ -655,7 +749,7 @@ internal sealed class KernelCall : KernelExpression
 
     /// <summary>The call of an interpreted function with its arguments in a pooled list.</summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private JsValue CallWithArgumentList(KernelFrame frame, ScriptFunction function, JsValue thisValue)
+    internal JsValue CallWithArgumentList(KernelFrame frame, ScriptFunction function, JsValue thisValue)
     {
         var engine = frame.Engine;
         var arguments = _arguments;

@@ -11,8 +11,7 @@ public partial class Engine
 {
     // Kernel calls whose call stack frame and execution context are pushed only once something reads either stack:
     // each call's environment and the handler of its call, and how many of the innermost are not pushed yet.
-    private FunctionEnvironment?[] _frameEnvironments = new FunctionEnvironment?[16];
-    private JintExpression?[] _frameSites = new JintExpression?[16];
+    private KernelCallFrame[] _frames = new KernelCallFrame[16];
     private int _frameCount;
     internal int _framesNotPushed;
 
@@ -67,15 +66,16 @@ public partial class Engine
     internal void PushCallFrame(FunctionEnvironment environment, JintExpression site)
     {
         var count = _frameCount;
-        var environments = _frameEnvironments;
-        if ((uint) count >= (uint) environments.Length)
+        var frames = _frames;
+        if ((uint) count >= (uint) frames.Length)
         {
             GrowCallFrames();
-            environments = _frameEnvironments;
+            frames = _frames;
         }
 
-        environments[count] = environment;
-        _frameSites[count] = site;
+        ref var frame = ref frames[count];
+        frame.Environment = environment;
+        frame.Site = site;
         _frameCount = count + 1;
         _framesNotPushed++;
     }
@@ -86,8 +86,7 @@ public partial class Engine
     {
         var count = _frameCount - 1;
         _frameCount = count;
-        _frameEnvironments[count] = null;
-        _frameSites[count] = null;
+        _frames[count] = default;
         if (_framesNotPushed > 0)
         {
             _framesNotPushed--;
@@ -107,8 +106,7 @@ public partial class Engine
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void GrowCallFrames()
     {
-        System.Array.Resize(ref _frameEnvironments, _frameEnvironments.Length * 2);
-        System.Array.Resize(ref _frameSites, _frameSites.Length * 2);
+        System.Array.Resize(ref _frames, _frames.Length * 2);
     }
 
     /// <summary>Pushes the call stack frame and execution context of every kernel call that has not pushed them, outermost first.</summary>
@@ -120,11 +118,18 @@ public partial class Engine
         _framesNotPushed = 0;
         for (var i = first; i < count; i++)
         {
-            var environment = _frameEnvironments[i]!;
+            var environment = _frames[i].Environment!;
             var function = (ScriptFunction) environment._functionObject;
-            _callStack.Push(function, _frameSites[i], in _executionContexts.Peek());
+            _callStack.Push(function, _frames[i].Site, in _executionContexts.Peek());
             var origin = function._functionOrigin;
             EnterFunctionExecutionContext(origin.ScriptOrModule, environment, function._privateEnvironment, origin.Realm, function, function._strict);
         }
+    }
+
+    /// <summary>The frame of a kernel call: its environment and the handler of its call.</summary>
+    private struct KernelCallFrame
+    {
+        internal FunctionEnvironment? Environment;
+        internal JintExpression? Site;
     }
 }

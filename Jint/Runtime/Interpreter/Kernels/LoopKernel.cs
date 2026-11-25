@@ -58,6 +58,9 @@ internal sealed class KernelFrame
     // For a frame kept with a function environment: the outer environment its names were resolved through.
     internal Environment? Outer;
 
+    // For a frame of calls made straight into a function kernel: the call's environment, made with the frame.
+    internal FunctionEnvironment? CallEnvironment;
+
     // The value a function body's return statement left, a Number in ReturnNumber where it is null.
     internal JsValue? ReturnValue;
     internal double ReturnNumber;
@@ -371,6 +374,18 @@ internal abstract class KernelProgram
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     private KernelFrame Attach(EvaluationContext context, FunctionEnvironment environment)
     {
+        var frame = NewFrame(context, environment);
+        if (environment.KernelFrame is not { InUse: true })
+        {
+            environment.KernelFrame = frame;
+        }
+
+        return frame;
+    }
+
+    /// <summary>A frame in use for a run in <paramref name="environment"/>, a call's own function environment, its names resolved.</summary>
+    private protected KernelFrame NewFrame(EvaluationContext context, FunctionEnvironment environment)
+    {
         var frame = new KernelFrame(_names)
         {
             InUse = true,
@@ -388,11 +403,6 @@ internal abstract class KernelProgram
         frame.Layout = _layout;
         frame.LayoutIndices = _layoutIndices;
         frame.ResolveLayout();
-        if (environment.KernelFrame is not { InUse: true })
-        {
-            environment.KernelFrame = frame;
-        }
-
         return frame;
     }
 

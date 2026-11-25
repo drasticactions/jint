@@ -27,10 +27,10 @@ internal sealed class KernelCode
     internal delegate int Entry(object[] constants, KernelFrame frame, int entry);
 
     /// <summary>
-    /// The code of a function body over its constants, entered at <see cref="StartEntry"/>: the value it returns,
-    /// undefined when it completes normally, or null for an abrupt completion left in <see cref="KernelFrame.Abrupt"/>.
+    /// The code of a function body: the value it returns, undefined when it completes normally, null with the Number
+    /// in <paramref name="number"/>, or Bail for a completion left in the frame as the tree leaves it.
     /// </summary>
-    internal delegate JsValue? FunctionEntry(KernelFrame frame, int entry);
+    internal delegate JsValue? BodyEntry(KernelFrame frame, out double number);
 
     /// <summary>The entry where the outermost loop starts.</summary>
     internal const int StartEntry = -1;
@@ -43,7 +43,6 @@ internal sealed class KernelCode
     internal const int DefaultThreshold = 16384;
 
     private readonly Entry _entry = null!;
-    private readonly FunctionEntry _functionEntry = null!;
     private readonly object[] _constants;
 
     internal KernelCode(Entry entry, object[] constants)
@@ -52,11 +51,21 @@ internal sealed class KernelCode
         _constants = constants;
     }
 
-    internal KernelCode(FunctionEntry entry, object[] constants)
+    internal KernelCode(BodyEntry entry, int size)
     {
-        _functionEntry = entry;
-        _constants = constants;
+        Body = entry;
+        Size = size;
+        _constants = [];
     }
+
+    /// <summary>What a function body's code answers when the run's environment does not have the body's slots: the tree runs it.</summary>
+    internal static readonly JsValue NotRun = new JsString("not run");
+
+    /// <summary>A function body's code (see <see cref="BodyEntry"/>).</summary>
+    internal readonly BodyEntry? Body;
+
+    /// <summary>How many bytes of IL a function body's code has.</summary>
+    internal readonly int Size;
 
     /// <summary>Whether this runtime compiles code at run time to machine code; where it does not, kernels stay trees.</summary>
     internal static bool Supported
@@ -81,21 +90,8 @@ internal sealed class KernelCode
         }
     }
 
-    /// <summary>A function body's code from its start (see <see cref="FunctionEntry"/>).</summary>
-    internal JsValue? RunFunction(KernelFrame frame)
-    {
-        // The program's Leave clears the flag.
-        frame.InCode = true;
-        return _functionEntry(frame, StartEntry);
-    }
-
-    /// <summary>The loop's code, or null where code cannot be compiled.</summary>
-    internal static KernelCode? TryCompile(KernelForStatement loop) => TryCompile(loop, null, 0);
-
-    /// <summary>A function body's code, or null where code cannot be compiled.</summary>
-    internal static KernelCode? TryCompile(KernelBlockStatement body, int loops, int calls, Key[]? layout, int[] localSlots) => TryCompile(null, body, loops, calls, layout, localSlots);
-
-    private static KernelCode? TryCompile(KernelForStatement? loop, KernelBlockStatement? body, int loops, int calls = 0, Key[]? layout = null, int[]? localSlots = null)
+    /// <summary>A function body's code from <see cref="KernelBodyEmitter"/>, or null where code cannot be compiled.</summary>
+    internal static KernelCode? TryCompileBody(KernelBlockStatement body, Key[]? layout, int[] localSlots)
     {
         // The guard stated here, beside the call, so that the trimming and AOT analyses fold it.
         if (!RuntimeFeature.IsDynamicCodeSupported || !RuntimeFeature.IsDynamicCodeCompiled)
@@ -105,7 +101,26 @@ internal sealed class KernelCode
 
         try
         {
-            return loop is not null ? KernelEmitter.Compile(loop) : KernelEmitter.Compile(body!, loops, calls, layout, localSlots!);
+            return KernelBodyEmitter.Compile(body, layout, localSlots);
+        }
+        catch (Exception e) when (e is PlatformNotSupportedException or NotSupportedException or MissingMemberException or TypeInitializationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The loop's code, or null where code cannot be compiled.</summary>
+    internal static KernelCode? TryCompile(KernelForStatement loop)
+    {
+        // The guard stated here, beside the call, so that the trimming and AOT analyses fold it.
+        if (!RuntimeFeature.IsDynamicCodeSupported || !RuntimeFeature.IsDynamicCodeCompiled)
+        {
+            return null;
+        }
+
+        try
+        {
+            return KernelEmitter.Compile(loop);
         }
         catch (Exception e) when (e is PlatformNotSupportedException or NotSupportedException or MissingMemberException or TypeInitializationException)
         {
@@ -400,31 +415,77 @@ internal static class KernelCodeRuntime
         return ref Unsafe.NullRef<Binding>();
     }
 
-    /// <summary>
-    /// <see cref="Bind"/> for a name a function body declares, at <paramref name="index"/> of <paramref name="slots"/>,
-    /// the slots of the environment the run was entered in when it has the body's layout.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static ref Binding BindLocal(KernelFrame frame, int binding, int index, Binding[]? slots, out DeclarativeEnvironment? environment)
-    {
-        if (slots is not null && (uint) index < (uint) slots.Length)
-        {
-            environment = Unsafe.As<DeclarativeEnvironment>(frame.Start);
-            return ref slots[index];
-        }
-
-        return ref Bind(frame, binding, out environment);
-    }
-
     /// <summary>The slots of <paramref name="start"/> when it is an environment of the layout a function body was compiled for.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static Binding[]? LocalSlots(Environment start, Key[] layout, Engine engine)
-        => start is DeclarativeEnvironment declarative
+        => (start as FunctionEnvironment ?? start as DeclarativeEnvironment) is { } declarative
            && ReferenceEquals(declarative._slotNames, layout)
            && declarative._dictionary is not { Count: > 0 }
            && ReferenceEquals(declarative._engine, engine)
             ? declarative._slots
             : null;
+
+    /// <summary>Whether the slot of a name a function body declares is there and assignable.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool IsAssignableLocal(Binding[]? slots, int index) => slots is not null && (uint) index < (uint) slots.Length && slots[index].IsAssignable;
+
+    /// <summary>An assignment's value stored to a slot <see cref="IsAssignableLocal"/> accepted, as <see cref="KernelAssignSlot"/> stores it.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static void StoreLocal(Binding[] slots, int index, JsValue? value, double number, KernelAssignSlot assign, KernelFrame frame)
+    {
+        ref var binding = ref slots[index];
+        if (!binding.IsAssignable)
+        {
+            assign.StoreChanged(frame, value, number);
+        }
+        else if (value is null)
+        {
+            Binding.StoreUnboxedNumber(ref binding, number);
+        }
+        else
+        {
+            binding = binding.ChangeMutableValue(value);
+        }
+    }
+
+    /// <summary>A node's <see cref="KernelExpression.Evaluate"/>, out of line for function bodies' code.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static KernelResult EvaluateNode(KernelExpression expression, KernelFrame frame)
+    {
+        var value = expression.Evaluate(frame, out var number);
+        return new KernelResult(value, number);
+    }
+
+    /// <summary><see cref="Truthy(JsValue, double)"/> with the conversion of a value out of line.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool IsTruthy(JsValue? value, double number) => value is null ? number != 0 && !double.IsNaN(number) : ToBoolean(value);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static bool ToBoolean(JsValue value) => TypeConverter.ToBoolean(value);
+
+    /// <summary><see cref="Box"/> with the Number's box made out of line.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static JsValue Boxed(JsValue? value, double number) => value ?? BoxNumber(number);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static JsValue BoxNumber(double number) => JsNumber.Create(number);
+
+    /// <summary>Whether a call may be made on this stack, as <see cref="CallStack.StackGuard.TryEnterOnCurrentStack"/> answers.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool CanEnter(CallStack.StackGuard guard) => !guard.HopsToFreshStack || guard.TryEnterOnCurrentStack();
+
+    /// <summary>The value as a script function, or null; the common exact type tested without a cast helper.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static Native.Function.ScriptFunction? AsScriptFunction(JsValue? value)
+        => value is not null && value.GetType() == typeof(Native.Function.ScriptFunction) ? Unsafe.As<Native.Function.ScriptFunction>(value) : value as Native.Function.ScriptFunction;
+
+    /// <summary>Whether a value an expression answered is a Number: null, for one unboxed, or a JsNumber.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool IsNumberValue(JsValue? value) => value is null || (value._type & (InternalTypes.Number | InternalTypes.Integer)) != InternalTypes.Empty;
+
+    /// <summary>The Number of a value <see cref="IsNumberValue"/> accepted.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static double NumberOf(JsValue? value, double number) => value is null ? number : Unsafe.As<JsNumber>(value)._value;
 
     /// <summary><see cref="KernelName.Evaluate"/> of a name whose slot holds: the Number, or the value, or Bail.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -464,26 +525,6 @@ internal static class KernelCodeRuntime
         var value = result.Value;
         var kind = value is not null && !ReferenceEquals(value, KernelExpression.Bail) ? KernelNameRead.Value : KernelNameRead.Uncached;
         return new KernelNameRead(value, result.Number, kind);
-    }
-
-    /// <summary><see cref="ReadNameCold"/> with the read of a slot that holds inline, for code that reads it first.</summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal static KernelNameRead ReadNameFirst(ref Binding slot, KernelName name, KernelFrame frame, int epoch)
-    {
-        if (!Unsafe.IsNullRef(ref slot) && frame.Engine._envBindingInjectionEpoch == epoch)
-        {
-            if (slot.TryGetMutableNumber(out var number))
-            {
-                return new KernelNameRead(null, number, KernelNameRead.MutableNumber);
-            }
-
-            if (slot.IsPlainValue && slot.PeekValue is { } value && (value._type & InternalTypes.ReadHook) == InternalTypes.Empty)
-            {
-                return new KernelNameRead(value, 0, KernelNameRead.Value);
-            }
-        }
-
-        return ReadNameCold(ref slot, name, frame, epoch);
     }
 
     /// <summary><see cref="KernelName.TryReadNumber"/> of a name whose slot holds: the Number, or Bail.</summary>
@@ -894,6 +935,10 @@ internal static class KernelCodeRuntime
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static bool IsAssignable(ref Binding binding) => binding.IsAssignable;
+
+    /// <summary><see cref="KernelBinary.Apply"/> out of line, for operators compiled code does not compute itself.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static double ApplyOperator(Operator op, double left, double right) => KernelBinary.Apply(op, left, right);
 
     /// <summary>What <see cref="KernelStatement"/>'s checks do before a statement.</summary>
     [MethodImpl(MethodImplOptions.NoInlining)]

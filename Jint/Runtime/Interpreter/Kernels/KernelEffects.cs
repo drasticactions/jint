@@ -170,6 +170,11 @@ internal sealed class KernelAssignSlot : KernelEffect
         return value;
     }
 
+    /// <summary>The store of a value whose evaluation changed the binding's state, through the environment of the run.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal void StoreChanged(KernelFrame frame, JsValue? value, double number)
+        => ((DeclarativeEnvironment) frame.Start).SetMutableBinding(_target._name, Box(value, number), frame.Engine.ExecutionContext.Strict);
+
     /// <summary>A value read without its nodes; one that is not a Number is read again by them, which repeats nothing observable.</summary>
     private bool TryNumberValue(KernelFrame frame, out double number)
     {

@@ -233,8 +233,8 @@ public class NumericSubtreeLaneTests
 
     private static long Measure(Action action)
     {
-        // warm the call sites first, so the measured calls take their steady-state lanes
-        for (var i = 0; i < 100; i++)
+        // warm the call sites first, so the measured calls take their steady-state lanes, compiled code among them
+        for (var i = 0; i < Jint.Runtime.Interpreter.Kernels.FunctionKernel.DefaultCodeThreshold + 100; i++)
         {
             action();
         }

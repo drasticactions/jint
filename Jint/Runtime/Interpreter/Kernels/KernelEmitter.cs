@@ -110,22 +110,10 @@ internal sealed class KernelEmitter
     private const int AnySite = int.MinValue;
     private Target _abruptExit;
 
-    // For a function body: the environment's slot names, each name's slot (or -1), their local, and a return's exit.
-    private readonly Key[]? _layout;
-    private readonly int[]? _localSlots;
-    private readonly LocalBuilder? _slotsLocal;
-    private readonly LocalBuilder? _returnValue;
-    private readonly Label _returnExit;
-
-    private KernelEmitter(KernelStatement root, int iterations, int loops, Key[]? layout = null, int[]? localSlots = null)
+    private KernelEmitter(KernelStatement root, int iterations, int loops)
     {
         _root = root;
-        _layout = layout;
-        _localSlots = localSlots;
-        var isFunction = root is not KernelForStatement;
-        _method = isFunction
-            ? new DynamicMethod("JintFunctionKernel", typeof(JsValue), Parameters, typeof(KernelEmitter).Module, skipVisibility: true)
-            : new DynamicMethod("JintLoopKernel", typeof(int), Parameters, typeof(KernelEmitter).Module, skipVisibility: true);
+        _method = new DynamicMethod("JintLoopKernel", typeof(int), Parameters, typeof(KernelEmitter).Module, skipVisibility: true);
         _il = _method.GetILGenerator();
         _engine = _il.DeclareLocal(typeof(Engine));
         _context = _il.DeclareLocal(typeof(EvaluationContext));
@@ -140,12 +128,6 @@ internal sealed class KernelEmitter
         _syncLabel = _il.DefineLabel();
         _dropLabel = _il.DefineLabel();
         _callDropLabel = _il.DefineLabel();
-        if (isFunction)
-        {
-            _slotsLocal = _il.DeclareLocal(typeof(Binding[]));
-            _returnValue = _il.DeclareLocal(typeof(JsValue));
-            _returnExit = _il.DefineLabel();
-        }
         _coldLimit = iterations >= ColdEvidence ? iterations / ColdShare : 0;
         _heads = new Label[loops];
         _headSites = new int[loops];
@@ -157,19 +139,6 @@ internal sealed class KernelEmitter
 
     internal static KernelCode Compile(KernelForStatement loop)
         => Compile(new KernelEmitter(loop, loop._kernel!._iterations, loop._kernel._loops.Length));
-
-    /// <summary>
-    /// The code of a function body with <paramref name="loops"/> loops whose tree ran <paramref name="calls"/> calls,
-    /// the slot names of the call's environment, and the slot of each name in it (or -1).
-    /// </summary>
-    internal static KernelCode Compile(KernelBlockStatement body, int loops, int calls, Key[]? layout, int[] localSlots)
-    {
-        var emitter = new KernelEmitter(body, calls, loops, layout, localSlots);
-        emitter.EmitMethod();
-        var constants = emitter._constants.ToArray();
-        var entry = (KernelCode.FunctionEntry) emitter._method.CreateDelegate(typeof(KernelCode.FunctionEntry), constants);
-        return new KernelCode(entry, constants);
-    }
 
     private static KernelCode Compile(KernelEmitter emitter)
     {
@@ -306,28 +275,12 @@ internal sealed class KernelEmitter
         il.EndExceptionBlock();
         _depth = 0;
 
-        if (_returnValue is not null)
-        {
-            // A function body: undefined for a normal completion, null for an abrupt one, or the value returned.
-            il.MarkLabel(normalExit.Label);
-            il.Emit(OpCodes.Ldsfld, Field(typeof(JsValue), nameof(JsValue.Undefined)));
-            il.Emit(OpCodes.Ret);
-            il.MarkLabel(_abruptExit.Label);
-            il.Emit(OpCodes.Ldnull);
-            il.Emit(OpCodes.Ret);
-            il.MarkLabel(_returnExit);
-            il.Emit(OpCodes.Ldloc, _returnValue);
-            il.Emit(OpCodes.Ret);
-        }
-        else
-        {
-            il.MarkLabel(normalExit.Label);
-            il.Emit(OpCodes.Ldc_I4, KernelStatement.Normal);
-            il.Emit(OpCodes.Ret);
-            il.MarkLabel(_abruptExit.Label);
-            il.Emit(OpCodes.Ldc_I4, KernelStatement.Abrupt);
-            il.Emit(OpCodes.Ret);
-        }
+        il.MarkLabel(normalExit.Label);
+        il.Emit(OpCodes.Ldc_I4, KernelStatement.Normal);
+        il.Emit(OpCodes.Ret);
+        il.MarkLabel(_abruptExit.Label);
+        il.Emit(OpCodes.Ldc_I4, KernelStatement.Abrupt);
+        il.Emit(OpCodes.Ret);
 
         // The prologue, emitted last because it loads what the body turned out to need.
         il.MarkLabel(prologue);
@@ -350,33 +303,10 @@ internal sealed class KernelEmitter
         il.Emit(OpCodes.Stloc, _siteLocal);
         il.Emit(OpCodes.Ldnull);
         il.Emit(OpCodes.Stloc, _pending);
-        if (_slotsLocal is not null && _layout is not null)
-        {
-            il.Emit(OpCodes.Ldarg_1);
-            il.Emit(OpCodes.Ldfld, Field(typeof(KernelFrame), nameof(KernelFrame.Start)));
-            EmitConstant(_layout, typeof(Key[]));
-            il.Emit(OpCodes.Ldloc, _engine);
-            il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.LocalSlots)));
-            il.Emit(OpCodes.Stloc, _slotsLocal);
-        }
-
         foreach (var name in _names)
         {
             il.Emit(OpCodes.Ldarg_1);
             il.Emit(OpCodes.Ldc_I4, name.Key);
-            if (_slotsLocal is not null && _localSlots![name.Key] >= 0)
-            {
-                il.Emit(OpCodes.Ldc_I4, _localSlots[name.Key]);
-                il.Emit(OpCodes.Ldloc, _slotsLocal);
-                il.Emit(OpCodes.Ldloca, _outEnvironment);
-                il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.BindLocal)));
-                il.Emit(OpCodes.Stloc, name.Value.Ref);
-                il.Emit(OpCodes.Ldloc, _outEnvironment);
-                il.Emit(OpCodes.Stloc, name.Value.Environment);
-                EmitKeep(name.Value);
-                continue;
-            }
-
             il.Emit(OpCodes.Ldloca, _outEnvironment);
             il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.Bind)));
             il.Emit(OpCodes.Stloc, name.Value.Ref);
@@ -519,15 +449,6 @@ internal sealed class KernelEmitter
                     }
 
                     il.Emit(OpCodes.Stloc, value);
-                    if (_returnValue is not null)
-                    {
-                        il.Emit(OpCodes.Ldloc, value);
-                        il.Emit(OpCodes.Stloc, _returnValue);
-                        Return(value);
-                        EmitExit(new Target(_returnExit, 0, AnySite));
-                        return;
-                    }
-
                     il.Emit(OpCodes.Ldarg_1);
                     il.Emit(OpCodes.Ldloc, value);
                     EmitConstant(statement._statement, typeof(Statement));
@@ -538,14 +459,6 @@ internal sealed class KernelEmitter
                 }
 
             case KernelLiteralReturnStatement literalReturn:
-                if (_returnValue is not null)
-                {
-                    EmitConstant(literalReturn._value, typeof(JsValue));
-                    il.Emit(OpCodes.Stloc, _returnValue);
-                    EmitExit(new Target(_returnExit, 0, AnySite));
-                    return;
-                }
-
                 il.Emit(OpCodes.Ldarg_1);
                 EmitConstant(literalReturn._value, typeof(JsValue));
                 EmitConstant(statement._statement, typeof(Statement));
@@ -1732,7 +1645,7 @@ internal sealed class KernelEmitter
             LoadRegister(1);
             LoadRegister(2);
             LoadRegister(3);
-            il.Emit(OpCodes.Call, Method(typeof(KernelCall), nameof(KernelCall.CallRegisterLane)));
+            il.Emit(OpCodes.Call, Method(typeof(KernelCall), nameof(KernelCall.CallFromCode)));
             EmitResult(value, number, null);
             il.Emit(OpCodes.Br, done);
             il.MarkLabel(otherKind);
@@ -1895,9 +1808,7 @@ internal sealed class KernelEmitter
         il.Emit(OpCodes.Ldarg_1);
         il.Emit(OpCodes.Ldloc, _epoch);
 
-        // A function body reads most names once per call, a loop once per run.
-        var reader = _localSlots is not null ? nameof(KernelCodeRuntime.ReadNameFirst) : nameof(KernelCodeRuntime.ReadNameCold);
-        il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), reader));
+        il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.ReadNameCold)));
         il.Emit(OpCodes.Stloc, read);
         il.Emit(OpCodes.Ldloc, read);
         il.Emit(OpCodes.Ldfld, Field(typeof(KernelNameRead), nameof(KernelNameRead.Result)));

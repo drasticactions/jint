@@ -2273,8 +2273,14 @@ public sealed partial class Engine : IDisposable
     // Calls of a function the interpreter runs before its body runs on a kernel, or -1 to keep every body on the interpreter.
     internal int _functionKernelThreshold = Runtime.Interpreter.Kernels.FunctionKernel.DefaultThreshold;
 
-    // Statements per node a function kernel's tree checks before the body is compiled, or -1 to keep it a tree.
-    internal int _functionKernelCodeThreshold = -1;
+    // Calls a function kernel's tree runs before the body is compiled, or -1 to keep it a tree.
+    internal int _functionKernelCodeThreshold = Runtime.Interpreter.Kernels.KernelCode.Supported ? Runtime.Interpreter.Kernels.FunctionKernel.DefaultCodeThreshold : -1;
+
+    // Whether the JIT compiles function bodies' code on a pool thread while the tree runs; tests compile in place.
+    internal bool _functionKernelCodeInBackground = true;
+
+    // How many more function bodies this engine may compile.
+    internal int _functionKernelCodeBudget = Runtime.Interpreter.Kernels.FunctionKernel.MaxCompiledBodies;
 
     // How many more function bodies this engine may run on kernels.
     internal int _functionKernelBudget = Runtime.Interpreter.Kernels.FunctionKernel.MaxCompiledFunctions;

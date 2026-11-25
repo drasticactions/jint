@@ -260,10 +260,13 @@ internal sealed class JintFunctionDefinition
             return null;
         }
 
-        _kernel = Kernels.FunctionKernel.TryCreate(this, state);
+        _kernel = Kernels.FunctionKernel.TryCreate(engine, this, state);
         if (_kernel is not null)
         {
             engine._functionKernelBudget--;
+
+            // The handlers the interpreter ran the body with keep what their last call cached until they run again.
+            _bodyStatementList = null;
         }
 
         return _kernel;

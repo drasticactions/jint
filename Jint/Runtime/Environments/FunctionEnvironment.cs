@@ -95,6 +95,16 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
         _dictionary?.ClearPreservingCapacity();
     }
 
+    /// <summary>Lets go of the bound this value, for an environment the next call binds again.</summary>
+    internal void ReleaseThis()
+    {
+        if (_thisBindingStatus == ThisBindingStatus.Initialized)
+        {
+            _thisValue = null;
+            _thisBindingStatus = ThisBindingStatus.Uninitialized;
+        }
+    }
+
     internal override bool HasThisBinding() => _thisBindingStatus != ThisBindingStatus.Lexical;
 
     internal override bool HasSuperBinding() =>

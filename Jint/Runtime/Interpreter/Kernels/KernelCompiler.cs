@@ -75,10 +75,14 @@ internal sealed class KernelCompiler
     // Whether empty object literals left to the interpreter start hot, as in a body the interpreter has run often.
     private bool _sitesStartHot;
 
+    // Whether a call in tail position may be made as a tail call: not in a sloppy function, which makes none.
+    private bool _tailCalls = true;
+
     /// <summary>A function body, checked as a statement and handling the exceptions of its statements as a block does.</summary>
-    internal KernelBlockStatement CompileFunctionBody(FunctionBody body)
+    internal KernelBlockStatement CompileFunctionBody(FunctionBody body, bool strict)
     {
         _sitesStartHot = true;
+        _tailCalls = strict;
         var statements = new KernelStatement[body.Body.Count];
         for (var i = 0; i < statements.Length; i++)
         {
@@ -210,7 +214,7 @@ internal sealed class KernelCompiler
             case ReturnStatement returnStatement:
                 // An async generator's own return awaits; a call in tail position is made as a tail call.
                 if (JintAsyncGeneratorReturnStatement.IsMarked(returnStatement)
-                    || returnStatement.Argument is { } argument && HasTailCall(argument))
+                    || returnStatement.Argument is { } argument && _tailCalls && HasTailCall(argument))
                 {
                     return null;
                 }
