@@ -840,6 +840,17 @@ public class FunctionKernelTests
           return out.join("|") + log.join("");
         }
         """,
+        // a recursive closure called from kernels and from the interpreter in turn
+        """
+        function make() { function rec(n) { var s = 0; if (n > 0) { s = rec(n - 1) + n; } return s; } return rec; }
+        var r = make();
+        function viaKernel(i) { var t = r(i & 3); return t; }
+        function test() {
+          var out = [];
+          for (var i = 0; i < 9; i++) { out.push(viaKernel(i), r.call(null, i & 3), viaKernel(i + 1), r.apply(null, [2])); }
+          return out.join(",");
+        }
+        """,
         // default and destructured parameters: earlier parameters, the temporal dead zone, getters, iterators, closures
         """
         var log = [];
@@ -979,6 +990,19 @@ public class FunctionKernelTests
         {
             RunWith(mode).Should().Be(interpreted, mode.ToString());
         }
+    }
+
+    [TestCase(Mode.Tree)]
+    [TestCase(Mode.Code)]
+    public void ANewInstanceOfARecursiveClosureCalledFromKernelsThenTheInterpreterMatchesIt(Mode mode)
+    {
+        const string Script = """
+            function make() { function rec(n) { var s = 0; if (n > 0) { s = rec(n - 1) + 1; } return s; } return rec; }
+            var r = make();
+            function viaKernel(n) { var t = r(n); return t; }
+            """;
+        const string Call = "var out = []; for (var i = 0; i < 40; i++) { out.push(viaKernel(i & 3)); } r = make(); out.push(viaKernel(0), viaKernel(1), viaKernel(2), r(3, 0, 0, 0, 0), r.call(null, 2)); out.join(',')";
+        Run(Script, Call, mode, exact: false).Should().Be(Run(Script, Call, Mode.Interpreter, exact: false));
     }
 
     [TestCase("function f(a) { var b = a + 1; return b; }", true)]

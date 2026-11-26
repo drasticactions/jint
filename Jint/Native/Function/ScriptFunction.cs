@@ -191,8 +191,8 @@ public sealed class ScriptFunction : Function, IConstructor
             return false;
         }
 
-        // An environment a call on the interpreter kept gives way; a pool of a recursive function does not.
-        if (_envReuse is { } held && held is not FunctionEnvironment)
+        // An environment a call on the interpreter kept gives way; a recursive function keeps a pool there instead.
+        if ((_envReuse is { } held && held is not FunctionEnvironment) || _functionDefinition!.BuiltState is { IsDirectRecursive: true })
         {
             return false;
         }
