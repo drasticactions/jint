@@ -586,8 +586,10 @@ internal sealed class KernelTryStatement : KernelStatement
             return code;
         }
 
-        // A normal completion of the finally block completes the statement with the block's completion.
+        // A normal completion of the finally block keeps the block's completion and the value it returns.
         var completion = frame.Abrupt;
+        var returnValue = frame.ReturnValue;
+        var returnNumber = frame.ReturnNumber;
         frame.Abrupt = default;
         var finalized = _finalizer.Execute(frame);
         if (finalized != Normal)
@@ -597,6 +599,8 @@ internal sealed class KernelTryStatement : KernelStatement
         }
 
         frame.Abrupt = completion;
+        frame.ReturnValue = returnValue;
+        frame.ReturnNumber = returnNumber;
         return code;
     }
 

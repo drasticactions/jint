@@ -46,7 +46,7 @@ internal sealed class KernelBodyEmitter
     private readonly List<(KernelStatement Node, Label Break, Label? Continue)> _targets = [];
 
     // The try blocks and catch clauses around the code being emitted: their completion, their end, the targets outside.
-    private readonly List<(LocalBuilder Pending, Label After, int Targets)> _regions = [];
+    private readonly List<(LocalBuilder Pending, Label After, int Targets, LocalBuilder Value, LocalBuilder Number)> _regions = [];
     private const int PendingReturn = 5;
 
     // The constant of the handler's sites.
@@ -225,11 +225,11 @@ internal sealed class KernelBodyEmitter
                 if (returnStatement._argument is null)
                 {
                     il.Emit(OpCodes.Ldsfld, Field(typeof(JsValue), nameof(JsValue.Undefined)));
-                    il.Emit(OpCodes.Stloc, _resultValue);
+                    il.Emit(OpCodes.Stloc, ReturnValue);
                 }
                 else
                 {
-                    EmitValue(returnStatement._argument, _resultValue, _resultNumber);
+                    EmitValue(returnStatement._argument, ReturnValue, ReturnNumber);
                 }
 
                 EmitReturnExit();
@@ -238,7 +238,7 @@ internal sealed class KernelBodyEmitter
             case KernelLiteralReturnStatement literalReturn:
                 // As JintStatementList returns a literal: without the statement's checks.
                 EmitConstant(literalReturn._value, typeof(JsValue));
-                il.Emit(OpCodes.Stloc, _resultValue);
+                il.Emit(OpCodes.Stloc, ReturnValue);
                 EmitReturnExit();
                 break;
 
@@ -411,6 +411,11 @@ internal sealed class KernelBodyEmitter
     /// <summary>The body completed with the value in the result locals: through the innermost try region, if any.</summary>
     private void EmitReturnExit() => EmitExit(PendingReturn, _exit);
 
+    /// <summary>Where a return keeps its value: the innermost try statement's locals, or the body's result.</summary>
+    private LocalBuilder ReturnValue => _regions.Count == 0 ? _resultValue : _regions[_regions.Count - 1].Value;
+
+    private LocalBuilder ReturnNumber => _regions.Count == 0 ? _resultNumber : _regions[_regions.Count - 1].Number;
+
     /// <summary>The body completed with the completion in the frame: through the innermost try region, if any.</summary>
     private void EmitAbruptExit() => EmitExit(KernelStatement.Abrupt, _abrupt);
 
@@ -438,10 +443,12 @@ internal sealed class KernelBodyEmitter
         var il = _il;
         EmitChecks(statement._statement);
         var pending = il.DeclareLocal(typeof(int));
+        var value = il.DeclareLocal(typeof(JsValue));
+        var number = il.DeclareLocal(typeof(double));
         il.Emit(OpCodes.Ldc_I4_0);
         il.Emit(OpCodes.Stloc, pending);
         var afterBlock = il.DefineLabel();
-        EmitProtected(statement._block, pending, afterBlock);
+        EmitProtected(statement._block, pending, afterBlock, value, number);
         if (statement._handler is { } handler)
         {
             var skip = il.DefineLabel();
@@ -459,7 +466,7 @@ internal sealed class KernelBodyEmitter
             il.Emit(OpCodes.Ldc_I4_0);
             il.Emit(OpCodes.Stloc, pending);
             var afterHandler = il.DefineLabel();
-            EmitProtected(handler, pending, afterHandler);
+            EmitProtected(handler, pending, afterHandler, value, number);
             EmitConstant(statement, typeof(KernelTryStatement));
             il.Emit(OpCodes.Ldarg_1);
             il.Emit(OpCodes.Ldloc, outer);
@@ -492,6 +499,10 @@ internal sealed class KernelBodyEmitter
         il.Emit(OpCodes.Ldloc, pending);
         il.Emit(OpCodes.Ldc_I4, PendingReturn);
         il.Emit(OpCodes.Bne_Un, notReturn);
+        il.Emit(OpCodes.Ldloc, value);
+        il.Emit(OpCodes.Stloc, ReturnValue);
+        il.Emit(OpCodes.Ldloc, number);
+        il.Emit(OpCodes.Stloc, ReturnNumber);
         EmitReturnExit();
         il.MarkLabel(notReturn);
         EmitAbruptTargets();
@@ -502,12 +513,12 @@ internal sealed class KernelBodyEmitter
     /// <paramref name="statement"/> in a handler of its own, which leaves to <paramref name="after"/>: an exception
     /// the blocks inside it make their throw completion is kept in the frame as the statement's.
     /// </summary>
-    private void EmitProtected(KernelStatement statement, LocalBuilder pending, Label after)
+    private void EmitProtected(KernelStatement statement, LocalBuilder pending, Label after, LocalBuilder value, LocalBuilder number)
     {
         var il = _il;
         var site = _currentSite;
         il.BeginExceptionBlock();
-        _regions.Add((pending, after, _targets.Count));
+        _regions.Add((pending, after, _targets.Count, value, number));
         EmitStatement(statement);
         _regions.RemoveAt(_regions.Count - 1);
         il.Emit(OpCodes.Leave, after);
