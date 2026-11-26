@@ -1155,7 +1155,7 @@ internal sealed class JintForStatement : JintIterationStatement<ForStatement>
     /// Checks if any part of the for-loop (init, test, update, body) contains closures
     /// that could capture the per-iteration environment.
     /// </summary>
-    private static bool ForLoopMayCapture(ForStatement statement)
+    internal static bool ForLoopMayCapture(ForStatement statement)
     {
         // Check init declarators (e.g., for (let i = 0, f = function() { return i }; ...))
         if (statement.Init is VariableDeclaration vd)

@@ -138,13 +138,11 @@ internal sealed class KernelEmitter
     }
 
     internal static KernelCode Compile(KernelForStatement loop)
-        => Compile(new KernelEmitter(loop, loop._kernel!._iterations, loop._kernel._loops.Length));
-
-    private static KernelCode Compile(KernelEmitter emitter)
     {
+        var emitter = new KernelEmitter(loop, loop._kernel!._iterations, loop._kernel._loops.Length);
         emitter.EmitMethod();
         var entry = (KernelCode.Entry) emitter._method.CreateDelegate(typeof(KernelCode.Entry));
-        return new KernelCode(entry, emitter._constants.ToArray());
+        return new KernelCode(entry, emitter._constants.ToArray(), loop._kernel);
     }
 
     private readonly struct Target
@@ -499,7 +497,13 @@ internal sealed class KernelEmitter
                 EmitBlock(block);
                 return;
 
-            case KernelForStatement loop:
+            case KernelForStatement { _hasEntry: true } loop:
+                EmitLoop(loop, isRoot: false);
+                return;
+
+            case KernelLabeledStatement { _body: KernelForStatement { _hasEntry: true } loop }:
+                // A break naming the label is the loop's own (see KernelForStatement.AbruptOutcome).
+                EmitCheck(statement._statement);
                 EmitLoop(loop, isRoot: false);
                 return;
 
@@ -511,7 +515,8 @@ internal sealed class KernelEmitter
 
     private static bool ContainsLoop(KernelStatement statement) => statement switch
     {
-        KernelForStatement => true,
+        KernelForStatement { _hasEntry: true } => true,
+        KernelLabeledStatement labeled => ContainsLoop(labeled._body),
         KernelBlockStatement block => Array.Exists(block._statements, ContainsLoop),
         KernelIfStatement ifStatement => ContainsLoop(ifStatement._consequent) || (ifStatement._alternate is { } alternate && ContainsLoop(alternate)),
         _ => false,

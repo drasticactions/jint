@@ -345,7 +345,7 @@ internal sealed class KernelBlockStatement : KernelStatement
     {
     }
 
-    /// <summary>A block, or with <paramref name="isChecked"/> a function body, which is checked whatever its length.</summary>
+    /// <summary>A function body (<paramref name="isChecked"/>), checked whatever its length, or a case's statements, never checked.</summary>
     public KernelBlockStatement(Statement statement, KernelStatement[] statements, bool isChecked) : base(statement)
     {
         _statements = statements;
@@ -355,13 +355,19 @@ internal sealed class KernelBlockStatement : KernelStatement
     internal override int Execute(KernelFrame frame)
     {
         _runs++;
+        var statements = _statements;
         if (!_checked)
         {
-            return ExecuteSingle(frame);
+            if (statements.Length == 1)
+            {
+                return ExecuteSingle(frame);
+            }
+        }
+        else
+        {
+            RunChecks(frame);
         }
 
-        var statements = _statements;
-        RunChecks(frame);
 
         var i = 0;
         try
@@ -462,27 +468,101 @@ internal sealed class KernelForStatement : KernelStatement
     // The test and update taken in place when they count a name up or down to a limit (see KernelLoopHeader).
     internal readonly KernelLoopHeader? _header;
 
-    // The loop kernel this loop belongs to (none in a function body), and the entry of its code at this loop's head.
+    // The loop kernel this loop belongs to (none without a code entry), and the entry of its code at this loop's head.
     internal LoopKernel? _kernel;
     internal int _entry;
 
+    // The labels of a loop of a function body, which a continue may name.
+    internal string[]? _labels;
+
+    // The bindings of a lexical header, in an environment the loop makes; such a loop has no code entry.
+    internal KernelScope? _scope;
+
+    // Whether loop code has an entry at this loop's head, and so emits it as a loop.
+    internal bool _hasEntry;
+
     internal override int Execute(KernelFrame frame)
     {
+        if (_scope is not null)
+        {
+            return RunScoped(frame);
+        }
+
         // The outermost loop runs as code once the kernel has code; a loop inside it is entered at its head.
-        if (_entry == 0 && _kernel?._code is { } compiled && frame.CodeThreshold >= 0 && !frame.InCode)
+        if (_entry == 0 && _kernel is { } kernel)
         {
-            return compiled.Run(frame, KernelCode.StartEntry);
+            if (kernel._code is { } compiled && frame.CodeThreshold >= 0 && !ReferenceEquals(frame.InCodeOf, kernel))
+            {
+                return compiled.Run(frame, KernelCode.StartEntry);
+            }
+
+            if (kernel._nested)
+            {
+                var start = frame.Work;
+                try
+                {
+                    return RunLoop(frame, scoped: false);
+                }
+                finally
+                {
+                    kernel._work += frame.Work - start;
+                }
+            }
         }
 
-        // The loop the kernel stands in for has been checked by its own Execute already.
-        if (_owner is null)
+        return RunLoop(frame, scoped: false);
+    }
+
+    /// <summary>A loop with a lexical header: its environment made, then the declaration and the loop run in it.</summary>
+    private int RunScoped(KernelFrame frame)
+    {
+        RunChecks(frame);
+        var scope = _scope!;
+        var outer = frame.Engine.ExecutionContext.LexicalEnvironment;
+        var environment = scope.Enter(frame, outer);
+        try
         {
-            RunChecks(frame);
+            _initStatement!.Execute(frame);
+            if (scope._perIteration)
+            {
+                NextIteration(frame);
+            }
+
+            return RunLoop(frame, scoped: true);
+        }
+        finally
+        {
+            scope.Leave(frame, environment, outer);
+        }
+    }
+
+    /// <summary>CreatePerIterationEnvironment (https://tc39.es/ecma262/#sec-createperiterationenvironment).</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void NextIteration(KernelFrame frame)
+    {
+        var engine = frame.Engine;
+        var last = (Environments.DeclarativeEnvironment) engine.ExecutionContext.LexicalEnvironment;
+        var next = Environments.JintEnvironment.NewDeclarativeEnvironment(engine, last._outerEnv);
+        last.TransferTo(_scope!.KeyList, next);
+        engine.UpdateLexicalEnvironment(next);
+        _scope.Bind(frame, next);
+    }
+
+    private int RunLoop(KernelFrame frame, bool scoped)
+    {
+        if (!scoped)
+        {
+            // The loop the kernel stands in for has been checked by its own Execute already.
+            if (_owner is null)
+            {
+                RunChecks(frame);
+            }
+
+            _initStatement?.Execute(frame);
+            _initExpression?.EvaluateDiscarded(frame);
         }
 
-        _initStatement?.Execute(frame);
-        _initExpression?.EvaluateDiscarded(frame);
-
+        var perIteration = scoped && _scope!._perIteration;
         var test = _test;
         var update = _update;
         var body = _body;
@@ -501,7 +581,8 @@ internal sealed class KernelForStatement : KernelStatement
                 kernel._iterations++;
             }
 
-            if (kernel is not null && frame.CodeThreshold >= 0 && kernel.WorthCompiling(frame) && !frame.InCode && kernel.Compile() is { } code)
+            // A loop run in another program's frames enters code at its outermost loop only.
+            if (kernel is not null && frame.CodeThreshold >= 0 && (_entry == 0 || !kernel._nested) && kernel.WorthCompiling(frame) && !ReferenceEquals(frame.InCodeOf, kernel) && kernel.Compile() is { } code)
             {
                 return EnterCode(frame, code);
             }
@@ -537,16 +618,19 @@ internal sealed class KernelForStatement : KernelStatement
                     return Normal;
                 }
 
-                if (bodyCode == Abrupt && !Continues(frame))
+                if (bodyCode == Abrupt)
                 {
-                    var completion = frame.Abrupt;
-                    if (completion.Type == CompletionType.Break && string.Equals(completion.Target, _statement.LabelSet?.Name, StringComparison.Ordinal))
+                    var outcome = AbruptOutcome(frame);
+                    if (outcome != 0)
                     {
-                        return Normal;
+                        return outcome == 1 ? Normal : Abrupt;
                     }
-
-                    return Abrupt;
                 }
+            }
+
+            if (perIteration)
+            {
+                NextIteration(frame);
             }
 
             if (header is not null)
@@ -597,24 +681,30 @@ internal sealed class KernelForStatement : KernelStatement
     /// <summary>
     /// What the loop does with the abrupt completion of its body in <see cref="KernelFrame.Abrupt"/>: 0 to go on with
     /// the update (a labelled continue that names this loop), 1 to complete normally (a labelled break that names it),
-    /// 2 to complete with it.
+    /// 2 to complete with it. The completion is cleared from the frame unless the loop completes with it.
     /// </summary>
     internal int AbruptOutcome(KernelFrame frame)
     {
-        if (Continues(frame))
+        var completion = frame.Abrupt;
+        if (Continues(frame) || (completion.Type == CompletionType.Break && string.Equals(completion.Target, _statement.LabelSet?.Name, StringComparison.Ordinal)))
         {
-            return 0;
+            frame.Abrupt = default;
+            return completion.Type == CompletionType.Continue ? 0 : 1;
         }
 
-        var completion = frame.Abrupt;
-        return completion.Type == CompletionType.Break && string.Equals(completion.Target, _statement.LabelSet?.Name, StringComparison.Ordinal) ? 1 : 2;
+        return 2;
     }
 
     /// <summary>A labelled continue that names this loop.</summary>
     private bool Continues(KernelFrame frame)
     {
         var completion = frame.Abrupt;
-        return completion.Type == CompletionType.Continue && _owner is not null && _owner.ContinuesWith(completion.Target!);
+        if (completion.Type != CompletionType.Continue)
+        {
+            return false;
+        }
+
+        return _owner is not null ? _owner.ContinuesWith(completion.Target!) : _labels is not null && Array.IndexOf(_labels, completion.Target) >= 0;
     }
 }
 

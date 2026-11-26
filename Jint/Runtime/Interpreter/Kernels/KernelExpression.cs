@@ -479,3 +479,34 @@ internal sealed class KernelInterpreted : KernelExpression
         }
     }
 }
+
+/// <summary>A comma expression: each operand evaluated in order, the last one's value its value.</summary>
+internal sealed class KernelSequence : KernelExpression
+{
+    internal readonly KernelExpression[] _expressions;
+
+    public KernelSequence(Expression expression, KernelExpression[] expressions) : base(expression)
+    {
+        _expressions = expressions;
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        var expressions = _expressions;
+        var last = expressions.Length - 1;
+        for (var i = 0; i < last; i++)
+        {
+            expressions[i].EvaluateDiscarded(frame);
+        }
+
+        return expressions[last].Evaluate(frame, out number);
+    }
+
+    internal override void EvaluateDiscarded(KernelFrame frame)
+    {
+        foreach (var expression in _expressions)
+        {
+            expression.EvaluateDiscarded(frame);
+        }
+    }
+}

@@ -433,6 +433,128 @@ public class FunctionKernelTests
           return out.join(",");
         }
         """,
+        // try, catch and finally: returns, breaks and continues through finally, rethrows, errors of callees and the runtime
+        """
+        var log = [];
+        function thrower(x) { if (x % 3 === 0) { throw new Error("t" + x); } return x; }
+        function tc(x) { var r = 0; try { r = thrower(x) * 2; } catch (e) { r = e.message; } finally { log.push("f" + x); } return r; }
+        function retFinally(x) { try { if (x > 2) { return "early" + x; } x = x + 1; } finally { log.push("rf" + x); } return "late" + x; }
+        function finallyOverrides(x) { try { return x; } finally { if (x > 3) { return "over" + x; } } }
+        function rethrow(x) { try { try { thrower(x); return "ok"; } catch (e) { log.push("inner " + e.message); throw e; } finally { log.push("innerf"); } } catch (e2) { return "outer " + e2.message; } }
+        function nativeThrow(x) { try { null.f(); } catch (e) { return e.constructor.name + x; } }
+        function noParam(x) { try { thrower(x); return 1; } catch { return 2; } }
+        function pattern(x) { try { throw { a: x, b: [x + 1] }; } catch ({ a, b: [c] }) { return a + c; } }
+        function badPattern(x) { try { throw null; } catch ({ a }) { return a; } finally { log.push("bp" + x); } }
+        function catchClosure(x) { try { throw x; } catch (e) { var f = function () { return e; }; e = e + 1; return f(); } }
+        function breakFinally(n) { var s = ""; for (var i = 0; i < n; i++) { try { if (i === 2) { continue; } if (i === 4) { break; } s += i; } finally { s += "f"; } } return s; }
+        function finallyThrows(x) { try { return x; } finally { if (x > 1) { throw new Error("fin" + x); } } }
+        function test() {
+          log = [];
+          var out = [];
+          for (var i = 0; i < 8; i++) {
+            out.push(tc(i), retFinally(i), finallyOverrides(i), rethrow(i), nativeThrow(i), noParam(i), pattern(i), catchClosure(i), breakFinally(i));
+            try { out.push(badPattern(i)); } catch (e) { out.push(e.constructor.name); }
+            try { out.push(finallyThrows(i)); } catch (e) { out.push(e.message + e.stack); }
+          }
+          return out.join(",") + log.join("|");
+        }
+        """,
+        // while, do-while, lexical for heads with closures over each iteration, labels, let and const in blocks, TDZ
+        """
+        function w(n) { var s = 0, i = 0; while (i < n) { i++; if (i % 3 === 0) { continue; } if (i > 20) { break; } s += i; } return s; }
+        function dw(n) { var s = 0; do { s += n; n--; } while (n > 0); return s; }
+        function lets(n) { let s = 0; for (let i = 0; i < n; i++) { const d = i * 2; s += d; } return s; }
+        function captured(n) { var fs = []; for (let i = 0; i < n; i++) { fs.push(function () { return i; }); i += 0; } var r = ""; for (var j = 0; j < fs.length; j++) { var f = fs[j]; r += f(); } return r; }
+        function constHead(n) { var s = 0; for (const k = n; s < k; ) { s++; } return s; }
+        function labels(n) { var s = ""; outer: for (var i = 0; i < n; i++) { for (var j = 0; j < n; j++) { if (j === i) { continue outer; } if (i + j > 6) { break outer; } s += i + "" + j + ";"; } } return s; }
+        function labeledWhile(n) { var s = 0; a: b: while (true) { n--; if (n < 0) { break a; } if (n % 2) { continue b; } s += n; } return s; }
+        function labeledBlock(n) { var r = "start"; blk: { if (n > 2) { break blk; } r = "inside" + n; } return r; }
+        function tdz(n) { try { x = n; let x = 1; return x; } catch (e) { return e.constructor.name; } }
+        function tdzRead(n) { { if (n > 3) { return y + 1; } let y = n; return y; } }
+        function shadow(n) { var x = "outer"; { let x = n; x = x + 1; } { const x = "c"; try { x = 2; } catch (e) { return x + e.constructor.name + n; } } return x; }
+        function loops(n) { var i = 0; while (true) { if (++i > n) break; } for (;;) { i++; if (i > n * 2) break; } do { i++; } while (i < n * 3); return i; }
+        function topLevel(n) { const a = n * 2; let b; b = a + 1; let [c, d] = [a, b]; return a + b + c + d; }
+        function test() {
+          var out = [];
+          for (var i = 0; i < 10; i++) {
+            out.push(w(i * 3), dw(i), lets(i), captured(i % 5), constHead(i), labels(i), labeledWhile(i), labeledBlock(i), tdz(i), shadow(i), loops(i), topLevel(i));
+            try { out.push(tdzRead(i)); } catch (e) { out.push(e.constructor.name + e.message); }
+          }
+          return out.join(",");
+        }
+        """,
+        // for-of over arrays, maps, sets, generators and custom iterators, closed on break, return and throw; for-in
+        """
+        var log = [];
+        function arrSum(a) { var s = 0; for (var x of a) { s += x; } return s; }
+        function letOf(a) { var s = ""; for (let x of a) { s += x; } for (const [k, v] of Object.entries({ p: 1, q: 2 })) { s += k + v; } return s; }
+        function mapSet(n) { var m = new Map([["a", n], ["b", n + 1]]), st = new Set([n, n, n + 2]); var s = 0; for (var [k, v] of m) { s += v; } for (var x of st) { s += x; } return s; }
+        function* gen(n) { try { for (var i = 0; i < n; i++) { yield i; } } finally { log.push("gen closed " + n); } }
+        function genOf(n) { var s = 0; for (var x of gen(n)) { if (x > 2) { break; } s += x; } return s; }
+        function custom(n) { var it = { i: 0, next: function () { this.i++; return this.i > n ? { done: true } : { done: false, value: this.i }; }, return: function () { log.push("return " + this.i); return {}; } }; it[Symbol.iterator] = function () { return this; }; var s = 0; for (var v of it) { if (v === 3) { return s; } s += v; } return s; }
+        function throwInBody(n) { try { for (var v of gen(n)) { if (v === 1) { throw new Error("body"); } } } catch (e) { return e.message; } return "none"; }
+        function handDriven(a) { var it = a[Symbol.iterator](), r = it.next(), s = ""; try { for (; !r.done; r = it.next()) { s += r.value; } } finally { s += "!"; } return s; }
+        function forIn(o) { var s = ""; for (var k in o) { s += k + o[k]; } for (let k in [5, 6]) { s += k; } for (const k in null) { s += "never"; } return s; }
+        function closures(a) { var fs = []; for (let x of a) { fs.push(() => x); } var s = ""; for (var f of fs) { s += f(); } return s; }
+        function assignTargets(a) { var o = {}, x; for (o.p of a) { } for (x of a) { } for ([x] of [[7]]) { } return o.p + "" + x; }
+        function notIterable(n) { try { for (var x of n) { } } catch (e) { return e.constructor.name; } }
+        function labeledOf(a) { var s = ""; outer: for (var x of a) { for (var y of a) { if (y > x) { continue outer; } s += x + "" + y; } } return s; }
+        function test() {
+          log = [];
+          var out = [];
+          for (var i = 0; i < 8; i++) {
+            out.push(arrSum([i, 2, 3]), letOf(["a", i]), mapSet(i), genOf(i), custom(i), throwInBody(i), handDriven("ab" + i), forIn({ a: 1, b: i }), closures([i, 1]), assignTargets([i, 9]), notIterable(i), labeledOf([1, 2, i]));
+          }
+          return out.join(",") + log.join("|");
+        }
+        """,
+        // switch: strict equality, fall-through, default anywhere, breaks and continues of loops around, labels
+        """
+        function sw(x) { var r = ""; switch (x) { case 1: r += "one"; case 2: r += "two"; break; default: r += "def"; case "3": r += "three"; break; case 4: return "four"; } return r; }
+        function swStr(k) { switch (k) { case "a": return 1; case "b": case "c": return 2; } return 0; }
+        function swInLoop(n) { var s = 0; for (var i = 0; i < n; i++) { switch (i % 4) { case 0: continue; case 1: s += 1; break; case 2: s += 10; default: s += 100; } } return s; }
+        function swLabel(n) { var s = ""; out: switch (n % 3) { case 0: s = "z"; break out; case 1: for (var i = 0; i < 3; i++) { if (i === 1) break out; s += i; } } return s; }
+        function swOrder(x) { var log = []; switch (log.push("d"), x) { case (log.push("a"), 1): log.push("A"); break; case (log.push("b"), 2): log.push("B"); } return log.join(""); }
+        function swNaN(x) { switch (x) { case NaN: return "nan"; case 0: return "zero"; case -0: return "negzero"; } return "none"; }
+        function swSeq(x) { var n = 0; switch (n++, x) { case 1: return (n++, String(n) + x, n * 10); } return (n += 2, x, n); }
+        function test() {
+          var out = [], vals = [1, 2, "3", 3, 4, 5, "a", "b", "c", NaN, -0, 0];
+          for (var i = 0; i < vals.length; i++) { out.push(sw(vals[i]), swStr(vals[i]), swInLoop(i), swLabel(i), swOrder(vals[i]), swNaN(vals[i]), swSeq(vals[i])); }
+          return out.join(",");
+        }
+        """,
+        // iterator closing whose return() throws or answers a primitive, for-in over changing objects, jumps in finally
+        """
+        var log = [];
+        function iterable(n, kind) { var i = 0; var it = { next: function () { i++; return { done: i > n, value: i }; }, return: function () { log.push("ret " + kind); if (kind === "throws") { throw new Error("ret"); } return kind === "prim" ? 1 : {}; } }; it[Symbol.iterator] = function () { return it; }; return it; }
+        function breakOut(kind) { var s = 0; for (var x of iterable(5, kind)) { if (x === 2) { break; } s += x; } return s; }
+        function throwOut(kind) { for (var x of iterable(5, kind)) { if (x === 2) { throw new Error("body " + kind); } } }
+        function returnOut(kind) { for (const x of iterable(5, kind)) { if (x === 3) { return x; } } return -1; }
+        function constWrite() { for (const x of [1]) { x = 2; } }
+        function forInChanging(n) { var o = { a: 1, b: 2, c: 3 }, s = ""; for (var k in o) { s += k; if (k === "a") { delete o.b; o.d = n; } } for (var c in "xy") { s += c; } var p = Object.create({ inherited: 1 }); p.own = 2; for (var q in p) { s += q; } return s; }
+        function finallyJumps(n) { var s = ""; for (var i = 0; i < n; i++) { try { if (i % 2) { return "ret" + i; } } finally { if (i === 1) { continue; } if (i === 3) { break; } s += "f" + i; } } return s; }
+        function nestedCatch(n) { var e = "outer"; try { throw n; } catch (e) { try { throw e + 1; } catch (e) { return e + "/" + typeof e; } } finally { log.push(e); } }
+        function bodyLets(n) { var fs = []; for (var i = 0; i < n; i++) { let j = i * 2; const k = j + 1; fs.push(function () { return j + k; }); } var r = 0; for (var m = 0; m < fs.length; m++) { var f = fs[m]; r += f(); } return r; }
+        function doContinue(n) { var s = 0, i = 0; do { i++; if (i % 2) { continue; } s += i; } while (i < n); return s; }
+        function defaultFirst(x) { var r = ""; switch (x) { default: r += "d"; case 1: r += "1"; break; case 2: r += "2"; } return r; }
+        function tryLoops(n) { var s = ""; outer: for (var i = 0; i < n; i++) { var it = [i, i + 1, i + 2][Symbol.iterator](), r = it.next(); try { for (; !r.done; r = it.next()) { if (r.value === 3) { continue outer; } if (r.value > 5) { break outer; } s += r.value; } } finally { s += "|"; } } return s; }
+        function continueInSwitch(n) { var s = ""; outer: for (var i = 0; i < n; i++) { switch (i % 3) { case 0: continue outer; case 1: s += "a"; break; default: s += "b"; } s += i; } return s; }
+        function test() {
+          log = [];
+          var out = [];
+          var kinds = ["plain", "throws", "prim"];
+          for (var i = 0; i < 6; i++) {
+            for (var j = 0; j < kinds.length; j++) {
+              try { out.push(breakOut(kinds[j])); } catch (e) { out.push(e.constructor.name + e.message); }
+              try { out.push(throwOut(kinds[j])); } catch (e) { out.push(e.constructor.name + e.message); }
+              try { out.push(returnOut(kinds[j])); } catch (e) { out.push(e.constructor.name + e.message); }
+            }
+            try { constWrite(); } catch (e) { out.push(e.constructor.name); }
+            out.push(forInChanging(i), finallyJumps(i), nestedCatch(i), bodyLets(i), doContinue(i * 2), defaultFirst(i % 4), continueInSwitch(i), tryLoops(i * 2));
+          }
+          return out.join(",") + log.join("|");
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()
@@ -553,13 +675,20 @@ public class FunctionKernelTests
     [TestCase("function f(a) { var b = a + 1; return () => arguments[0] + b; }", false)]
     [TestCase("function f(a) { function g() { return a; } return g(); }", false)]
     [TestCase("function f(a) { var C = class { }; return new C(); }", false)]
-    [TestCase("function f(a) { var b; try { b = a + 1; } catch (e) { } return b; }", false)]
+    [TestCase("function f(a) { var b; try { b = a + 1; } catch (e) { } return b; }", true)]
     [TestCase("function f(a) { var b = arguments.length; return b + a; }", false)]
     [TestCase("function f(a) { var b = eval('a'); return b; }", false)]
     [TestCase("function* f(a) { var b = a + 1; yield b; }", false)]
     [TestCase("async function f(a) { var b = a + 1; return b; }", false)]
     [TestCase("function f(a) { var b = a + 1; with (b) { } return b; }", false)]
-    [TestCase("function f(a) { var b = 0; for (var i = 0; i < a; i++) { b += i; } return b; }", false)]
+    [TestCase("function f(a) { var b = 0; for (var i = 0; i < a; i++) { b += i; } return b; }", true)]
+    [TestCase("function f(a) { let b = 0; for (const x of [a, 1]) { b += x; } while (b > 10) { b--; } return b; }", true)]
+    [TestCase("function f(a) { switch (a) { case 1: return 'one'; default: return 'other'; } }", true)]
+    [TestCase("function f(a) { var s = ''; for (var k in { x: a }) { s += k; } l: { break l; } return s; }", true)]
+    [TestCase("function f(a) { { function g() { return a; } } return g(); }", false)]
+    [TestCase("function f(a) { { class C { } } return a; }", false)]
+    [TestCase("function f(a) { switch (a) { case 1: let b = 2; return b; } return a; }", false)]
+    [TestCase("async function f(a) { for await (var x of [a]) { } return a; }", false)]
     public void OnlyTheSimplestBodiesAreCompiled(string declaration, bool compiled)
     {
         var engine = new Engine();
@@ -725,6 +854,106 @@ public class FunctionKernelTests
                 {
                     return "limit at " + engine.GetValue("progress");
                 }
+            }
+        }
+    }
+
+    [TestCase("var progress = ''; function f() { var t = 0; while (true) { t++; progress = t; } } f();")]
+    [TestCase("var progress = ''; function f() { var t = 0; for (;;) { t++; progress = t; } } f();")]
+    [TestCase("var progress = ''; function g(n) { var t = 0; try { for (let i = 0; i < n; i++) { t += i; progress = t; } } finally { progress = progress + 'f'; } return t; } function f() { var s = 0; for (var i = 0; i < 100; i++) { s += g(i % 7); } return s; } f();")]
+    [TestCase("var progress = ''; function* gen() { var i = 0; try { while (true) yield i++; } finally { progress = progress + 'closed'; } } function f() { var s = 0; for (var x of gen()) { s += x; progress = s; switch (x % 3) { case 0: s++; break; default: s--; } } return s; } f();")]
+    [TestCase("var progress = ''; function f() { var s = 0; outer: do { s++; for (const k in { a: 1, b: 2 }) { progress = k + s; if (s % 2) continue outer; } } while (true); } f();")]
+    public void StatementLimitStopsCompiledLoopsAtTheSameStatement(string script)
+    {
+        for (var limit = 1; limit < 120; limit += 7)
+        {
+            foreach (var mode in CodeModes)
+            {
+                Outcome(mode).Should().Be(Outcome(Mode.Interpreter), $"the limit of {limit} statements on {mode}");
+            }
+
+            string Outcome(Mode mode)
+            {
+                var engine = new Engine(o => o.LimitStatements(limit));
+                Configure(engine, mode);
+                try
+                {
+                    return engine.Evaluate(script).ToString();
+                }
+                catch (StatementsCountOverflowException)
+                {
+                    return "limit at " + engine.GetValue("progress");
+                }
+            }
+        }
+    }
+
+    [TestCase("function f() { var i = 0; while (true) { i++; } } f();")]
+    [TestCase("function f() { for (;;) { } } f();")]
+    [TestCase("function f() { var seen = 0; try { do { seen++; } while (true); } finally { seen = -1; } } f();")]
+    [TestCase("function f() { var s = 0; while (true) { try { s++; } catch (e) { } finally { continue; } } } f();")]
+    public void CancellationStopsCompiledLoops(string script)
+    {
+        // Modes that run a function on a kernel from its first call.
+        foreach (var mode in new[] { Mode.Tree, Mode.Code })
+        {
+            using var cts = new CancellationTokenSource();
+            var engine = new Engine(o => o.ObserveCancellation(cts.Token));
+            Configure(engine, mode);
+            cts.Cancel();
+            var act = () => engine.Execute(script);
+            act.Should().Throw<ExecutionCanceledException>(mode.ToString());
+            engine._functionKernelRuns.Should().BeGreaterThan(0, mode.ToString());
+        }
+    }
+
+    [TestCase("for (var i = 0; i < 5; i++) { switch (i % 3) { case 1: 'one'; break; default: i * 2; } }")]
+    [TestCase("var r = 0; for (var i = 0; i < 4; i++) { try { if (i === 2) throw i; r += i; } catch (e) { 'caught ' + e; } finally { 'finally'; } }")]
+    [TestCase("outer: for (var i = 0; i < 3; i++) { for (var x of [1, 2]) { if (x === 2) continue outer; x; } }")]
+    [TestCase("function f(n) { var s = 0; for (const k in { a: 1, b: n }) { s += k.length; } return (0, eval)('var t = 0; while (t < 3) { t++; t * 10; }') + s; } var o = []; for (var j = 0; j < 20; j++) o.push(f(j)); o.join()")]
+    public void CompletionValuesStayTheInterpreters(string script)
+    {
+        var interpreted = Evaluate(Mode.Interpreter);
+        foreach (var mode in CodeModes)
+        {
+            Evaluate(mode).Should().Be(interpreted, mode.ToString());
+        }
+
+        string Evaluate(Mode mode)
+        {
+            var engine = new Engine();
+            Configure(engine, mode);
+            var results = new List<string>();
+            for (var i = 0; i < 8; i++)
+            {
+                results.Add(engine.Evaluate(script).ToString());
+            }
+
+            return string.Join("|", results);
+        }
+    }
+
+    [Test]
+    public void RecursionLimitStopsAtTheSameDepthInLoopsAndTryBlocks()
+    {
+        const string Script = "var depth = 0, cleaned = 0; function f(n) { depth = n; try { for (var i = 0; i < 1; i++) { switch (n % 2) { case 0: f(n + 1); break; default: while (true) { f(n + 1); } } } } finally { cleaned++; } } f(0);";
+        foreach (var mode in CodeModes)
+        {
+            Outcome(mode).Should().Be(Outcome(Mode.Interpreter), mode.ToString());
+        }
+
+        static string Outcome(Mode mode)
+        {
+            var engine = new Engine(o => o.Constraints.MaxRecursionDepth = 40);
+            Configure(engine, mode);
+            try
+            {
+                engine.Execute(Script);
+                return "no limit";
+            }
+            catch (RecursionDepthOverflowException e)
+            {
+                return e.CallChain + " at " + engine.GetValue("depth") + " cleaned " + engine.GetValue("cleaned");
             }
         }
     }

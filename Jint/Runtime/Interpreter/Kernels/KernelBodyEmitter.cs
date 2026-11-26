@@ -42,6 +42,9 @@ internal sealed class KernelBodyEmitter
     private readonly Label _abrupt;
     private int _currentSite = -1;
 
+    // The loops and switches around the code being emitted, innermost last: a break's label, and a loop's continue.
+    private readonly List<(KernelStatement Node, Label Break, Label? Continue)> _targets = [];
+
     private KernelBodyEmitter(Key[]? layout, int[] localSlots)
     {
         _layout = layout;
@@ -261,6 +264,46 @@ internal sealed class KernelBodyEmitter
             case KernelReturnStatement:
                 throw new NotSupportedException("A return that does not complete the body.");
 
+            case KernelJumpStatement jump when Target(jump._code == KernelStatement.Break) is { } target:
+                EmitChecks(statement._statement);
+                il.Emit(OpCodes.Br, jump._code == KernelStatement.Break ? target.Break : target.Continue!.Value);
+                break;
+
+            case KernelWhileStatement loop:
+                EmitWhile(loop);
+                break;
+
+            case KernelSwitchStatement switchStatement:
+                EmitSwitch(switchStatement);
+                break;
+
+            case KernelLexicalDeclaration declaration when Array.TrueForAll(declaration._targets, target => target is not null && LocalSlot(target) >= 0):
+                EmitChecks(statement._statement);
+                for (var i = 0; i < declaration._targets.Length; i++)
+                {
+                    var value = Rent(typeof(JsValue));
+                    var number = Rent(typeof(double));
+                    if (declaration._initializers[i] is { } initializer)
+                    {
+                        EmitValue(initializer, value, number);
+                    }
+                    else
+                    {
+                        il.Emit(OpCodes.Ldsfld, Field(typeof(JsValue), nameof(JsValue.Undefined)));
+                        il.Emit(OpCodes.Stloc, value);
+                    }
+
+                    il.Emit(OpCodes.Ldloc, _slots);
+                    il.Emit(OpCodes.Ldc_I4, LocalSlot(declaration._targets[i]!));
+                    il.Emit(OpCodes.Ldloc, value);
+                    il.Emit(OpCodes.Ldloc, number);
+                    il.Emit(OpCodes.Call, Method(typeof(KernelTargets), nameof(KernelTargets.InitializeLocal)));
+                    Return(value);
+                    Return(number);
+                }
+
+                break;
+
             default:
                 {
                     // Run by its node; anything but a normal completion is left in the frame.
@@ -268,12 +311,164 @@ internal sealed class KernelBodyEmitter
                     EmitConstant(statement, typeof(KernelStatement));
                     il.Emit(OpCodes.Ldarg_1);
                     il.Emit(OpCodes.Callvirt, Method(typeof(KernelStatement), nameof(KernelStatement.Execute)));
-                    il.Emit(OpCodes.Brfalse, next);
-                    il.Emit(OpCodes.Leave, _abrupt);
+                    if (_targets.Count == 0)
+                    {
+                        il.Emit(OpCodes.Brfalse, next);
+                        il.Emit(OpCodes.Leave, _abrupt);
+                    }
+                    else
+                    {
+                        EmitCompletion(next);
+                    }
+
                     il.MarkLabel(next);
                     break;
                 }
         }
+    }
+
+    /// <summary>The innermost switch or loop an unlabelled break leaves, or loop a continue continues, or null.</summary>
+    private (KernelStatement Node, Label Break, Label? Continue)? Target(bool isBreak)
+    {
+        for (var i = _targets.Count - 1; i >= 0; i--)
+        {
+            if (isBreak || _targets[i].Continue is not null)
+            {
+                return _targets[i];
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The completion code on the stack of a statement run by its node inside loops or switches: a normal one goes on
+    /// to <paramref name="next"/>, a break or continue to the innermost target, an abrupt one to the target it names.
+    /// </summary>
+    private void EmitCompletion(Label next)
+    {
+        var il = _il;
+        var code = Rent(typeof(int));
+        il.Emit(OpCodes.Stloc, code);
+        il.Emit(OpCodes.Ldloc, code);
+        il.Emit(OpCodes.Brfalse, next);
+        var notBreak = il.DefineLabel();
+        var notContinue = il.DefineLabel();
+        il.Emit(OpCodes.Ldloc, code);
+        il.Emit(OpCodes.Ldc_I4, KernelStatement.Break);
+        il.Emit(OpCodes.Bne_Un, notBreak);
+        il.Emit(OpCodes.Br, Target(isBreak: true)!.Value.Break);
+        il.MarkLabel(notBreak);
+        il.Emit(OpCodes.Ldloc, code);
+        il.Emit(OpCodes.Ldc_I4, KernelStatement.Continue);
+        il.Emit(OpCodes.Bne_Un, notContinue);
+        if (Target(isBreak: false) is { } loop)
+        {
+            il.Emit(OpCodes.Br, loop.Continue!.Value);
+        }
+        else
+        {
+            il.Emit(OpCodes.Leave, _abrupt);
+        }
+
+        il.MarkLabel(notContinue);
+        Return(code);
+
+        // A labelled break or continue, or a return or throw: each target from the innermost out asked in turn.
+        for (var i = _targets.Count - 1; i >= 0; i--)
+        {
+            var target = _targets[i];
+            var leave = il.DefineLabel();
+            EmitConstant(target.Node, typeof(KernelStatement));
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Call, Method(typeof(KernelTargets), nameof(KernelTargets.Outcome)));
+            il.Emit(OpCodes.Switch, new[] { target.Continue ?? leave, target.Break });
+            il.MarkLabel(leave);
+        }
+
+        il.Emit(OpCodes.Leave, _abrupt);
+    }
+
+    /// <summary>A while or do-while loop, its checks and completions as KernelWhileStatement's.</summary>
+    private void EmitWhile(KernelWhileStatement loop)
+    {
+        var il = _il;
+        EmitChecks(loop._statement);
+        var head = il.DefineLabel();
+        var next = il.DefineLabel();
+        var end = il.DefineLabel();
+        _targets.Add((loop, end, next));
+        MarkTarget(head);
+        if (loop._doWhile)
+        {
+            EmitStatement(loop._body);
+            MarkTarget(next);
+            EmitBranch(loop._test, head, when: true);
+        }
+        else
+        {
+            MarkTarget(next);
+            EmitBranch(loop._test, end, when: false);
+            EmitStatement(loop._body);
+            il.Emit(OpCodes.Br, head);
+        }
+
+        _targets.RemoveAt(_targets.Count - 1);
+        MarkTarget(end);
+    }
+
+    /// <summary>A switch, its checks and completions as KernelSwitchStatement's: the tests in order, then the cases from the one matched.</summary>
+    private void EmitSwitch(KernelSwitchStatement statement)
+    {
+        var il = _il;
+        EmitChecks(statement._statement);
+        var input = Rent(typeof(JsValue));
+        var value = Rent(typeof(JsValue));
+        var number = Rent(typeof(double));
+        EmitValue(statement._discriminant, value, number);
+        EmitBox(value, number);
+        il.Emit(OpCodes.Stloc, input);
+        var tests = statement._tests;
+        var cases = new Label[tests.Length];
+        var end = il.DefineLabel();
+        var defaultIndex = -1;
+        for (var i = 0; i < tests.Length; i++)
+        {
+            cases[i] = il.DefineLabel();
+            if (tests[i] is not { } test)
+            {
+                defaultIndex = i;
+                continue;
+            }
+
+            EmitValue(test, value, number);
+            EmitBox(value, number);
+            il.Emit(OpCodes.Ldloc, input);
+            il.Emit(OpCodes.Call, Method(typeof(KernelTargets), nameof(KernelTargets.Matches)));
+            il.Emit(OpCodes.Brtrue, cases[i]);
+        }
+
+        Return(input);
+        Return(value);
+        Return(number);
+        il.Emit(OpCodes.Br, defaultIndex >= 0 ? cases[defaultIndex] : end);
+        _targets.Add((statement, end, null));
+        for (var i = 0; i < tests.Length; i++)
+        {
+            MarkTarget(cases[i]);
+            EmitStatement(statement._consequents[i]);
+        }
+
+        _targets.RemoveAt(_targets.Count - 1);
+        MarkTarget(end);
+    }
+
+    /// <summary>A label jumps reach from other statements: the site there stored again.</summary>
+    private void MarkTarget(Label label)
+    {
+        _il.MarkLabel(label);
+        _il.Emit(OpCodes.Ldc_I4, _currentSite);
+        _il.Emit(OpCodes.Stloc, _site);
     }
 
     private void SetSite(int site)

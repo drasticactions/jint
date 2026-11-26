@@ -7,9 +7,9 @@ namespace Jint.Runtime.Interpreter.Kernels;
 
 /// <summary>
 /// The state of one run of a kernel: the evaluation context, the environment the kernel was entered in, and where each
-/// name the kernel reads resolved, found the first time the run reads it. The resolution holds for the whole run: the
-/// kernel runs in one environment, which it never leaves (a block that declares something is left to the interpreter,
-/// which restores the environment), the slot layout of a declarative environment never changes, and the one thing
+/// name the kernel reads resolved, found the first time the run reads it. The resolution holds for the whole run: a
+/// name of a scope of the kernel is set by its scope as the scope is entered, every other name resolves from the
+/// environment the run was entered in, the slot layout of a declarative environment never changes, and the one thing
 /// that adds a binding to an existing environment, a sloppy direct eval or an Annex B function declaration, bumps
 /// <see cref="Engine._envBindingInjectionEpoch"/>, which every read of a resolution checks against its value when the
 /// name was resolved, resolving the name again when it moved.
@@ -31,6 +31,9 @@ internal sealed class KernelFrame
     internal GlobalEnvironment? Global;
     internal readonly Environment.BindingName[] Names;
     internal readonly KernelSlot[] Slots;
+
+    // For each name whether a scope of the kernel declares it (see KernelScope), or null where none does.
+    internal readonly bool[]? Scoped;
     internal Completion Abrupt;
     internal bool InUse;
 
@@ -38,9 +41,9 @@ internal sealed class KernelFrame
     // stay on the tree (Engine._loopKernelCodeThreshold).
     internal int CodeThreshold;
 
-    // Whether compiled code of this kernel is running in this frame, the code it completed the outermost loop with
+    // The kernel whose compiled code is running innermost in this frame, the code it completed the outermost loop with
     // when it was entered from a loop inside, and whether an exception is leaving the code through the tree.
-    internal bool InCode;
+    internal LoopKernel? InCodeOf;
     internal int FinishedCode;
     internal bool Escaping;
 
@@ -68,10 +71,11 @@ internal sealed class KernelFrame
     internal JsValue? ReturnValue;
     internal double ReturnNumber;
 
-    public KernelFrame(Environment.BindingName[] names)
+    public KernelFrame(Environment.BindingName[] names, bool[]? scoped = null)
     {
         Names = names;
         Slots = new KernelSlot[names.Length];
+        Scoped = scoped;
     }
 
     /// <summary>
@@ -90,6 +94,18 @@ internal sealed class KernelFrame
     internal void Resolve(int binding)
     {
         ref var slot = ref Slots[binding];
+        if (Scoped is { } scoped && scoped[binding])
+        {
+            // A scope's name, whose slot only the scope sets: no binding is injected into a scope's environment.
+            if (slot.Environment is null)
+            {
+                slot.Index = Unresolved;
+            }
+
+            slot.Epoch = Engine._envBindingInjectionEpoch;
+            return;
+        }
+
         slot.Environment = null;
         slot.Index = Unresolved;
         slot.Epoch = Engine._envBindingInjectionEpoch;
@@ -183,10 +199,16 @@ internal sealed class KernelFrame
         var startSlots = start._slots;
         var global = start._outerEnv as GlobalEnvironment;
         var slots = Slots;
+        var scoped = Scoped;
         for (var i = 0; i < slots.Length; i++)
         {
             var index = indices[i];
             ref var slot = ref slots[i];
+            if (scoped is not null && scoped[i])
+            {
+                continue;
+            }
+
             if (index >= 0)
             {
                 if (startSlots is not null && index < startSlots.Length)
@@ -255,6 +277,7 @@ internal struct KernelSlot
 internal abstract class KernelProgram
 {
     private readonly Environment.BindingName[] _names;
+    private readonly bool[]? _scoped;
     private KernelFrame? _frame;
 
     // Frames of runs inside a run (recursive calls), kept for the next ones.
@@ -265,9 +288,10 @@ internal abstract class KernelProgram
     private int[]? _layoutIndices;
     private bool _layoutKnown;
 
-    protected KernelProgram(Environment.BindingName[] names)
+    protected KernelProgram(Environment.BindingName[] names, bool[]? scoped)
     {
         _names = names;
+        _scoped = scoped;
     }
 
     /// <summary>The names the program reads, which its frames resolve.</summary>
@@ -285,7 +309,7 @@ internal abstract class KernelProgram
         var frame = _frame;
         if (frame is null)
         {
-            frame = _frame = new KernelFrame(_names);
+            frame = _frame = new KernelFrame(_names, _scoped);
         }
         else if (frame.InUse)
         {
@@ -293,7 +317,7 @@ internal abstract class KernelProgram
             frame = _spareFrames;
             if (frame is null)
             {
-                frame = new KernelFrame(_names);
+                frame = new KernelFrame(_names, _scoped);
             }
             else
             {
@@ -346,7 +370,7 @@ internal abstract class KernelProgram
             var indices = new int[_names.Length];
             for (var i = 0; i < indices.Length; i++)
             {
-                indices[i] = KernelFrame.IndexOf(layout, _names[i].Key);
+                indices[i] = _scoped is not null && _scoped[i] ? -1 : KernelFrame.IndexOf(layout, _names[i].Key);
             }
 
             _layout = layout;
@@ -392,7 +416,7 @@ internal abstract class KernelProgram
     /// <summary>A frame in use for a run in <paramref name="environment"/>, a call's own function environment, its names resolved.</summary>
     private protected KernelFrame NewFrame(EvaluationContext context, FunctionEnvironment environment)
     {
-        var frame = new KernelFrame(_names)
+        var frame = new KernelFrame(_names, _scoped)
         {
             InUse = true,
             Context = context,
@@ -431,7 +455,7 @@ internal abstract class KernelProgram
             frame.ReturnValue = null;
         }
 
-        frame.InCode = false;
+        frame.InCodeOf = null;
         frame.Escaping = false;
         frame.Work = 0;
         frame.InUse = false;
@@ -451,7 +475,7 @@ internal abstract class KernelProgram
         frame.Abrupt = default;
         frame.ReturnValue = null;
         frame.Start = null!;
-        frame.InCode = false;
+        frame.InCodeOf = null;
         frame.Escaping = false;
         frame.Work = 0;
         frame.InUse = false;
@@ -473,18 +497,22 @@ internal sealed class LoopKernel : KernelProgram
     // kernel; the statements checked and the iterations begun until then, and whether compiling failed.
     internal KernelCode? _code;
     internal int _iterations;
-    private long _work;
+    internal long _work;
     private readonly int _size;
     private bool _noCode;
 
     // The kernel's loops, by entry.
     internal readonly KernelForStatement[] _loops;
 
-    private LoopKernel(KernelForStatement loop, Environment.BindingName[] names, List<KernelForStatement> loops, int size) : base(names)
+    // Whether the loop runs in the frames of another program: a function body's, or an enclosing kernel's.
+    internal readonly bool _nested;
+
+    private LoopKernel(KernelForStatement loop, Environment.BindingName[] names, bool[]? scoped, List<KernelForStatement> loops, int size, bool nested) : base(names, scoped)
     {
         _loop = loop;
         _size = size;
         _loops = loops.ToArray();
+        _nested = nested;
 
         // Entry 0 is the outermost loop, whose code is also entered where it starts; every loop has one at its head.
         for (var i = 0; i < loops.Count; i++)
@@ -503,7 +531,41 @@ internal sealed class LoopKernel : KernelProgram
             return null;
         }
 
-        return new LoopKernel(loop, compiler.Names, compiler.Loops, compiler.Size);
+        var names = compiler.Names;
+        var scoped = compiler.Scoped;
+        AttachNested(compiler, names, scoped, skipRoot: 0);
+        return new LoopKernel(loop, names, scoped, LoopsOf(compiler, 0), compiler.Size, nested: false);
+    }
+
+    /// <summary>
+    /// Kernels for the outermost loops the compiler compiled (but <paramref name="skipRoot"/>), each with the loops in
+    /// it, which run in the frames of the program the compiler compiled.
+    /// </summary>
+    internal static void AttachNested(KernelCompiler compiler, Environment.BindingName[] names, bool[]? scoped, int skipRoot)
+    {
+        var loops = compiler.Loops;
+        for (var i = 0; i < loops.Count; i++)
+        {
+            if (compiler.LoopRoots[i] == i && i != skipRoot)
+            {
+                _ = new LoopKernel(loops[i], names, scoped, LoopsOf(compiler, i), compiler.RootSizes[i], nested: true);
+            }
+        }
+    }
+
+    /// <summary>The loops the outermost loop <paramref name="root"/> shares code with: itself and the loops in it, in order.</summary>
+    private static List<KernelForStatement> LoopsOf(KernelCompiler compiler, int root)
+    {
+        var own = new List<KernelForStatement>();
+        for (var j = root; j < compiler.Loops.Count; j++)
+        {
+            if (compiler.LoopRoots[j] == root)
+            {
+                own.Add(compiler.Loops[j]);
+            }
+        }
+
+        return own;
     }
 
     /// <summary>

@@ -45,11 +45,15 @@ internal sealed class KernelCode
     private readonly Entry _entry = null!;
     private readonly object[] _constants;
 
-    internal KernelCode(Entry entry, object[] constants)
+    internal KernelCode(Entry entry, object[] constants, LoopKernel? kernel)
     {
         _entry = entry;
         _constants = constants;
+        _kernel = kernel;
     }
+
+    // The kernel a loop's code belongs to.
+    private readonly LoopKernel? _kernel;
 
     internal KernelCode(BodyEntry entry, int size)
     {
@@ -79,14 +83,15 @@ internal sealed class KernelCode
     internal int Run(KernelFrame frame, int entry)
     {
         frame.Engine._loopKernelCodeRuns++;
-        frame.InCode = true;
+        var outer = frame.InCodeOf;
+        frame.InCodeOf = _kernel;
         try
         {
             return _entry(_constants, frame, entry);
         }
         finally
         {
-            frame.InCode = false;
+            frame.InCodeOf = outer;
         }
     }
 

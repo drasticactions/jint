@@ -13,7 +13,8 @@ public class FunctionCallOverheadBenchmark
 {
     private IsolatedScript _row;
 
-    [Params("singleReturn", "branchy", "propertyStore", "nestedCalls", "recursive", "closureControl", "closureCounter", "moduleMethod", "protoThis", "newSmall")]
+    [Params("singleReturn", "branchy", "propertyStore", "nestedCalls", "recursive", "closureControl", "closureCounter", "moduleMethod", "protoThis", "newSmall",
+        "tryFinally", "forOfArray", "handIterator", "stringSwitch")]
     public string Shape { get; set; } = "";
 
     [GlobalSetup]
@@ -30,6 +31,10 @@ public class FunctionCallOverheadBenchmark
             "moduleMethod" => "var M = (function () { var count = 0; function helper(x) { var y = x * 2; return y; } return { get: function (a, b) { count = count + 1; return helper(a) + count + b; } }; })(); function f(a, b) { var r = M.get(a, b); return r; }",
             "protoThis" => "function P(k) { this.k = k; } P.prototype.get = function (a, b) { var y = a + this.k; y = y + b; return y; }; var p = new P(1); function f(a, b) { var r = p.get(a, b); return r; }",
             "newSmall" => "function Pt(x, y) { this.x = x; this.y = y; } function f(a, b) { var q = new Pt(a, b); return q.x; }",
+            "tryFinally" => "var log = { n: 0 }; function f(a, b) { var r; try { r = a + b; } finally { log.n = r; } return r; }",
+            "forOfArray" => "var arr = [1, 2, 3, 4]; function f(a, b) { var s = a; for (var x of arr) { s += x; } return s + b; }",
+            "handIterator" => "var arr = [1, 2, 3]; function iter(a) { var i = 0; return { next: function () { return i < a.length ? { done: false, value: a[i++] } : { done: true }; } }; } function f(a, b) { var it = iter(arr), r = it.next(), s = a; try { for (; !r.done; r = it.next()) { s += r.value; } } finally { s += b; } return s; }",
+            "stringSwitch" => "var keys = ['a', 'bb', 'ccc', 'd']; function f(a, b) { var k = keys[a & 3], r; switch (k) { case 'a': r = 1; break; case 'bb': r = 2; break; case 'ccc': r = 3; break; default: r = 4; } return r + b; }",
             _ => "function f(a, b) { var g = function () { return a; }; var c = g() + b; return c; }",
         };
 

@@ -45,7 +45,7 @@ internal sealed class FunctionKernel : KernelProgram
     private long _work;
     private bool _noCode;
 
-    private FunctionKernel(KernelBlockStatement body, int loops, Key[]? layout, int[] localSlots, Environments.Environment.BindingName[] names, int size, bool createsClosures) : base(names)
+    private FunctionKernel(KernelBlockStatement body, int loops, Key[]? layout, int[] localSlots, Environments.Environment.BindingName[] names, bool[]? scoped, int size, bool createsClosures) : base(names, scoped)
     {
         _createsClosures = createsClosures;
         _body = body;
@@ -77,22 +77,22 @@ internal sealed class FunctionKernel : KernelProgram
             return null;
         }
 
-        var loops = compiler.Loops;
-        for (var i = 0; i < loops.Count; i++)
-        {
-            loops[i]._entry = i;
-        }
-
         MarkDirectReturns(root);
         var names = compiler.Names;
+        var scoped = compiler.Scoped;
+        var loops = compiler.Loops;
+
+        // An outermost loop and the loops in it share code, entered where the outermost loop starts.
+        LoopKernel.AttachNested(compiler, names, scoped, skipRoot: -1);
+
         var layout = state.UseFixedSlots ? state.SlotNames : null;
         var localSlots = new int[names.Length];
         for (var i = 0; i < names.Length; i++)
         {
-            localSlots[i] = layout is null ? -1 : KernelFrame.IndexOf(layout, names[i].Key);
+            localSlots[i] = layout is null || (scoped is not null && scoped[i]) ? -1 : KernelFrame.IndexOf(layout, names[i].Key);
         }
 
-        return new FunctionKernel(root, loops.Count, layout, localSlots, names, compiler.Size, createsClosures);
+        return new FunctionKernel(root, loops.Count, layout, localSlots, names, scoped, compiler.Size, createsClosures);
     }
 
     /// <summary>The body's code, compiled now once the tree has run the body often enough for it to pay; null otherwise.</summary>
@@ -152,8 +152,8 @@ internal sealed class FunctionKernel : KernelProgram
     }
 
     /// <summary>
-    /// Whether a kernel runs the body: no function declaration, class, loop (it has a loop kernel), <c>try</c>, <c>with</c>,
-    /// <c>using</c>, <c>yield</c> or <c>await</c>, and no direct <c>eval</c>, <c>arguments</c> or <c>super</c> in it or its arrows.
+    /// Whether a kernel runs the body: no function declaration, class, <c>with</c>, <c>using</c>, <c>for await</c>,
+    /// <c>yield</c> or <c>await</c>, and no direct <c>eval</c>, <c>arguments</c> or <c>super</c> in it or its arrows.
     /// </summary>
     private static bool CanCompile(FunctionBody body, out bool createsClosures)
     {
@@ -188,8 +188,8 @@ internal sealed class FunctionKernel : KernelProgram
                     {
                         case IFunction:
                         case ClassDeclaration or ClassExpression:
-                        case TryStatement or WithStatement:
-                        case ForStatement or WhileStatement or DoWhileStatement or ForInStatement or ForOfStatement:
+                        case WithStatement:
+                        case ForOfStatement { Await: true }:
                         case YieldExpression or AwaitExpression:
                         case VariableDeclaration { Kind: VariableDeclarationKind.Using or VariableDeclarationKind.AwaitUsing }:
                             return false;
@@ -207,7 +207,7 @@ internal sealed class FunctionKernel : KernelProgram
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     internal bool RunsInFrames(JintFunctionDefinition.State state) => !state.EnvironmentMayEscape && !_createsClosures;
 
-    /// <summary>Marks the return statements that complete the body, outside any loop, to leave their value in the frame.</summary>
+    /// <summary>Marks the return statements that complete the body, outside any try or for-in/of, to leave their value in the frame.</summary>
     private static void MarkDirectReturns(KernelStatement statement)
     {
         switch (statement)
@@ -229,6 +229,25 @@ internal sealed class FunctionKernel : KernelProgram
                     MarkDirectReturns(alternate);
                 }
 
+                break;
+            case KernelWhileStatement loop:
+                MarkDirectReturns(loop._body);
+                break;
+            case KernelForStatement loop:
+                MarkDirectReturns(loop._body);
+                break;
+            case KernelSwitchStatement switchStatement:
+                foreach (var consequent in switchStatement._consequents)
+                {
+                    MarkDirectReturns(consequent);
+                }
+
+                break;
+            case KernelLabeledStatement labeled:
+                MarkDirectReturns(labeled._body);
+                break;
+            case KernelScopeStatement scope:
+                MarkDirectReturns(scope._block);
                 break;
         }
     }
@@ -265,6 +284,14 @@ internal sealed class FunctionKernel : KernelProgram
                                          || (ifStatement._alternate is { } alternate && LeavesAStatementToTheInterpreter(alternate)),
         KernelForStatement loop => LeavesAStatementToTheInterpreter(loop._body)
                                    || (loop._initStatement is { } init && LeavesAStatementToTheInterpreter(init)),
+        KernelScopeStatement scope => LeavesAStatementToTheInterpreter(scope._block),
+        KernelWhileStatement loop => LeavesAStatementToTheInterpreter(loop._body),
+        KernelForInOfStatement loop => LeavesAStatementToTheInterpreter(loop._body),
+        KernelLabeledStatement labeled => LeavesAStatementToTheInterpreter(labeled._body),
+        KernelSwitchStatement switchStatement => Array.Exists(switchStatement._consequents, LeavesAStatementToTheInterpreter),
+        KernelTryStatement tryStatement => LeavesAStatementToTheInterpreter(tryStatement._block)
+                                           || (tryStatement._handler is { } handler && LeavesAStatementToTheInterpreter(handler))
+                                           || (tryStatement._finalizer is { } finalizer && LeavesAStatementToTheInterpreter(finalizer)),
         _ => false,
     };
 
@@ -280,7 +307,7 @@ internal sealed class FunctionKernel : KernelProgram
     {
         var frame = environment is not null ? EnterKept(context, environment) : Enter(context);
         var engine = frame.Engine;
-        frame.CodeThreshold = -1;
+        frame.CodeThreshold = engine._loopKernelCodeThreshold;
         engine._functionKernelRuns++;
 
         var observable = context.CompletionValuesObservable;
@@ -581,7 +608,7 @@ internal sealed class FunctionKernel : KernelProgram
 
         var frame = NewFrame(context, environment);
         frame.CallEnvironment = environment;
-        frame.CodeThreshold = -1;
+        frame.CodeThreshold = context.Engine._loopKernelCodeThreshold;
         if (depth < MaxCallFrames)
         {
             if (depth >= _callFrames.Length)
