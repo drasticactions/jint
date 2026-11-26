@@ -61,6 +61,9 @@ internal sealed class JintFunctionDefinition
 
     // The body's kernel (see FunctionKernel) and the calls left before it is built, counted from the first call.
     internal Kernels.FunctionKernel? _kernel;
+
+    // What kernel call sites of some argument count found the body computes in place, probed once for them all.
+    internal Kernels.KernelInlineProbe? _inlineProbe;
     internal int _kernelCountdown;
     private bool _kernelCountdownStarted;
 
@@ -97,6 +100,7 @@ internal sealed class JintFunctionDefinition
         _bodyExpression = null;
         _bodyStatementList = null;
         _kernel = null;
+        _inlineProbe = null;
         _kernelCountdown = 0;
         _kernelCountdownStarted = false;
 

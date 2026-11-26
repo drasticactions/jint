@@ -916,7 +916,7 @@ internal sealed class KernelEmitter
 
     private static bool IsPure(KernelExpression expression) => expression
         is KernelNumber or KernelConstant or KernelName or KernelBinary or KernelLogical or KernelUnary or KernelConditional
-        or KernelElement or KernelProperty;
+        or KernelElement or KernelProperty or KernelTypeOf;
 
     /// <summary>
     /// The value of <paramref name="expression"/> into <paramref name="value"/> and <paramref name="number"/>, as the
@@ -1111,8 +1111,12 @@ internal sealed class KernelEmitter
                 EmitBooleanValue(expression, bail, value);
                 return;
 
-            case KernelCall call:
+            case KernelCall { _key: null } call:
                 EmitCall(call, value, number);
+                return;
+
+            case KernelTypeOf typeOf:
+                EmitTypeOf(typeOf, bail!.Value, value);
                 return;
 
             default:
@@ -1132,6 +1136,39 @@ internal sealed class KernelEmitter
 
                 return;
         }
+    }
+
+    /// <summary><see cref="KernelTypeOf.Evaluate"/>: the type of the operand's value, or "undefined" for a name that does not resolve.</summary>
+    private void EmitTypeOf(KernelTypeOf typeOf, Label bail, LocalBuilder value)
+    {
+        var il = _il;
+        var operandBail = il.DefineLabel();
+        var done = il.DefineLabel();
+        var operand = Rent(typeof(JsValue));
+        var operandNumber = Rent(typeof(double));
+        EmitUnion(typeOf._argument, operandBail, operand, operandNumber);
+        il.Emit(OpCodes.Ldloc, operand);
+        il.Emit(OpCodes.Call, Method(typeof(KernelTypeOf), nameof(KernelTypeOf.Of)));
+        il.Emit(OpCodes.Stloc, value);
+        il.Emit(OpCodes.Br, done);
+        il.MarkLabel(operandBail);
+        if (typeOf._argument is KernelName name)
+        {
+            EmitConstant(name, typeof(KernelName));
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Call, Method(typeof(KernelName), nameof(KernelName.IsUnresolvable)));
+            il.Emit(OpCodes.Brfalse, bail);
+            il.Emit(OpCodes.Ldsfld, Field(typeof(JsString), nameof(JsString.UndefinedString)));
+            il.Emit(OpCodes.Stloc, value);
+        }
+        else
+        {
+            il.Emit(OpCodes.Br, bail);
+        }
+
+        il.MarkLabel(done);
+        Return(operandNumber);
+        Return(operand);
     }
 
     /// <summary>
@@ -1559,6 +1596,7 @@ internal sealed class KernelEmitter
             il.Emit(OpCodes.Brfalse, interpret);
             EmitHot(call._member, typeof(KernelProperty));
             il.Emit(OpCodes.Ldloc, thisValue);
+            il.Emit(OpCodes.Ldloc, _engine);
             il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.ReadCallee)));
             il.Emit(OpCodes.Stloc, callee);
         }
@@ -2114,15 +2152,53 @@ internal sealed class KernelEmitter
         {
             case KernelBinary { _isComparison: true } comparison:
                 {
+                    // Values other than Numbers are compared as KernelBinary.Equal compares them.
+                    var notNumbers = comparison._isEquality ? il.DefineLabel() : bail!.Value;
+                    var done = il.DefineLabel();
                     var left = Rent(typeof(double));
                     var right = Rent(typeof(double));
-                    EmitNumber(comparison._left, bail!.Value);
-                    il.Emit(OpCodes.Stloc, left);
-                    EmitNumber(comparison._right, bail.Value);
-                    il.Emit(OpCodes.Stloc, right);
-                    il.Emit(OpCodes.Ldloc, left);
-                    il.Emit(OpCodes.Ldloc, right);
-                    il.Emit(CompareBranch(comparison._operator, when), target);
+                    if (!comparison._neverNumbers)
+                    {
+                        EmitNumber(comparison._left, notNumbers);
+                        il.Emit(OpCodes.Stloc, left);
+                        EmitNumber(comparison._right, notNumbers);
+                        il.Emit(OpCodes.Stloc, right);
+                        il.Emit(OpCodes.Ldloc, left);
+                        il.Emit(OpCodes.Ldloc, right);
+                        il.Emit(CompareBranch(comparison._operator, when), target);
+                    }
+
+                    if (comparison._isEquality)
+                    {
+                        if (!comparison._neverNumbers)
+                        {
+                            il.Emit(OpCodes.Br, done);
+                        }
+
+                        il.MarkLabel(notNumbers);
+                        var leftValue = Rent(typeof(JsValue));
+                        var rightValue = Rent(typeof(JsValue));
+                        var test = Rent(typeof(int));
+                        EmitUnion(comparison._left, bail, leftValue, left);
+                        EmitUnion(comparison._right, bail, rightValue, right);
+                        il.Emit(OpCodes.Ldc_I4, (int) comparison._operator);
+                        il.Emit(OpCodes.Ldloc, leftValue);
+                        il.Emit(OpCodes.Ldloc, left);
+                        il.Emit(OpCodes.Ldloc, rightValue);
+                        il.Emit(OpCodes.Ldloc, right);
+                        il.Emit(OpCodes.Call, Method(typeof(KernelBinary), nameof(KernelBinary.Equal)));
+                        il.Emit(OpCodes.Stloc, test);
+                        il.Emit(OpCodes.Ldloc, test);
+                        il.Emit(OpCodes.Ldc_I4_0);
+                        il.Emit(OpCodes.Blt, bail!.Value);
+                        il.Emit(OpCodes.Ldloc, test);
+                        il.Emit(when ? OpCodes.Brtrue : OpCodes.Brfalse, target);
+                        Return(test);
+                        Return(rightValue);
+                        Return(leftValue);
+                    }
+
+                    il.MarkLabel(done);
                     Return(right);
                     Return(left);
                     return;

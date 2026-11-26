@@ -336,6 +336,7 @@ public sealed class ScriptFunction : Function, IConstructor
         ObjectInstance? proto = null)
         : base(engine, engine.Realm, function, env, thisMode)
     {
+        engine._environmentCaptures++;
         _prototype = proto ?? _engine.Realm.Intrinsics.Function.PrototypeObject;
         // The own "length" property exists from birth; its descriptor is materialized lazily
         // from the definition on first read (see Function._pendingDescriptor).
@@ -1188,11 +1189,7 @@ public sealed class ScriptFunction : Function, IConstructor
                 && currentPrototypeDescriptor is { } prototypeDescriptor
                 && !prototypeDescriptor.IsAccessorDescriptor())
             {
-                var prototype = prototypeDescriptor.Value as ObjectInstance ?? _realm.Intrinsics.Object.PrototypeObject;
-                thisArgument = new JsObject(_engine)
-                {
-                    _prototype = prototype
-                };
+                thisArgument = NewThis(prototypeDescriptor);
             }
             else
             {
@@ -1202,22 +1199,7 @@ public sealed class ScriptFunction : Function, IConstructor
                     static (Engine engine, Realm _, object? _) => new JsObject(engine));
             }
 
-            // Once the constructor is hot, start each fresh `this` in shape-building mode so this.x= /
-            // class fields transition a shared interned hidden class instead of building a dictionary.
-            // Cold constructors (below the promote threshold) stay on the dictionary path — unless the
-            // body is statically provably clean, in which case shaping starts already at instance #3.
-            if (thisArgument is JsObject thisObject && thisObject.Prototype is { } proto)
-            {
-                if (_ctorShaped || CheckCtorShapeEligibility(state))
-                {
-                    if (!ReferenceEquals(_ctorEmptyShapeProto, proto))
-                    {
-                        _ctorEmptyShape = _engine.GetEmptyShape(proto);
-                        _ctorEmptyShapeProto = proto;
-                    }
-                    thisObject.StartShapeBuilding(_ctorEmptyShape!);
-                }
-            }
+            StartShape(thisArgument, state);
         }
 
         var strict = _thisMode == FunctionThisMode.Strict;
@@ -1243,7 +1225,7 @@ public sealed class ScriptFunction : Function, IConstructor
                 {
                     // A body on a kernel holds no resources to dispose and makes no tail call.
                     var returned = kernel.Run(context, environment: null);
-                    if (constructorEnv._slots is { } slots && kernel.RunsInFrames(state))
+                    if (constructorEnv._slots is { } slots && kernel.KeepsEnvironmentPrivate(state))
                     {
                         // Nothing reaches the environment past the call: its cleared slots serve the next one.
                         ClearSlots(slots);
@@ -1310,6 +1292,78 @@ public sealed class ScriptFunction : Function, IConstructor
         }
 
         return (ObjectInstance) constructorEnv.GetThisBinding();
+    }
+
+    /// <summary>The object a <c>new</c> of this function makes, its prototype read from <paramref name="prototypeDescriptor"/>, a data property.</summary>
+    private JsObject NewThis(PropertyDescriptor prototypeDescriptor)
+        => new(_engine) { _prototype = prototypeDescriptor.Value as ObjectInstance ?? _realm.Intrinsics.Object.PrototypeObject };
+
+    /// <summary>
+    /// Once the constructor is hot, a fresh <c>this</c> starts in shape-building mode, so that its stores transition a
+    /// shared hidden class instead of building a dictionary; a body proved clean shapes from the third instance.
+    /// </summary>
+    private void StartShape(JsValue thisArgument, JintFunctionDefinition.State state)
+    {
+        if (thisArgument is JsObject thisObject && thisObject.Prototype is { } proto)
+        {
+            if (_ctorShaped || CheckCtorShapeEligibility(state))
+            {
+                if (!ReferenceEquals(_ctorEmptyShapeProto, proto))
+                {
+                    _ctorEmptyShape = _engine.GetEmptyShape(proto);
+                    _ctorEmptyShapeProto = proto;
+                }
+
+                thisObject.StartShapeBuilding(_ctorEmptyShape!);
+            }
+        }
+    }
+
+    /// <summary>
+    /// [[Construct]] (https://tc39.es/ecma262/#sec-ecmascript-function-objects-construct-argumentslist-newtarget) of this
+    /// function in a frame of <paramref name="kernel"/>; null, having run nothing, where its prototype is not data.
+    /// </summary>
+    internal ObjectInstance? ConstructKernelInFrame(JintExpression site, in NumberArguments arguments, JintFunctionDefinition.State state, FunctionKernel kernel)
+    {
+        var prototypeDescriptor = _prototypeDescriptor;
+        if (ReferenceEquals(prototypeDescriptor, _pendingDescriptor))
+        {
+            prototypeDescriptor = MaterializePrototypeDescriptor();
+        }
+
+        if (prototypeDescriptor is null || prototypeDescriptor.IsAccessorDescriptor())
+        {
+            return null;
+        }
+
+        var engine = _engine;
+        _functionDefinition!.EnsureTailCallMarkers(state, _strict);
+        var thisArgument = NewThis(prototypeDescriptor);
+        StartShape(thisArgument, state);
+
+        var frame = kernel.EnterCallFrame(engine._evaluationContext, this, state);
+        var environment = frame.CallEnvironment!;
+        if (!state.CanSkipThisBinding)
+        {
+            OrdinaryCallBindThis(environment, thisArgument);
+        }
+
+        thisArgument.InitializeInstanceElements(this);
+        Engine.FunctionDeclarationInstantiationInto(environment, state, in arguments);
+        kernel.BeginCall(frame);
+        engine.PushCallFrame(environment, site);
+        JsValue? result;
+        try
+        {
+            result = kernel.RunBody(frame, out _);
+        }
+        finally
+        {
+            engine.PopCallFrame();
+            kernel.LeaveCallFrame(frame, state, this);
+        }
+
+        return result as ObjectInstance ?? thisArgument;
     }
 
     private static ObjectInstance? ResolveConstructorReturn(

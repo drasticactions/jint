@@ -1011,8 +1011,22 @@ internal sealed class KernelCompiler
 
         KernelProperty? member = null;
         KernelExpression? callee = null;
+        KernelExpression? computedObject = null;
+        KernelExpression? computedKey = null;
         switch (call.Callee)
         {
+            case MemberExpression { Computed: true, Optional: false, Object: not Super } computed:
+                {
+                    computedObject = TryCompilePure(computed.Object);
+                    computedKey = computedObject is null ? null : TryCompilePure(computed.Property);
+                    if (computedKey is null)
+                    {
+                        return null;
+                    }
+
+                    break;
+                }
+
             case MemberExpression { Computed: false, Optional: false, Object: not Super, Property: Identifier property } memberCallee:
                 {
                     var obj = TryCompilePure(memberCallee.Object);
@@ -1044,7 +1058,7 @@ internal sealed class KernelCompiler
             arguments[i] = CompileValue(call.Arguments[i]);
         }
 
-        return new KernelCall(call, member, callee, arguments);
+        return new KernelCall(call, member, callee, arguments, computedObject, computedKey);
     }
 
     private KernelNew? TryCompileNew(NewExpression expression)
@@ -1135,6 +1149,12 @@ internal sealed class KernelCompiler
                     var left = TryCompilePure(logical.Left);
                     var right = left is null ? null : TryCompilePure(logical.Right);
                     return right is null ? null : new KernelLogical(logical, logical.Operator == Operator.LogicalAnd, left!, right);
+                }
+
+            case NonUpdateUnaryExpression { Operator: Operator.TypeOf } typeOf:
+                {
+                    var argument = TryCompilePure(typeOf.Argument);
+                    return argument is null ? null : new KernelTypeOf(typeOf, argument);
                 }
 
             case NonUpdateUnaryExpression unary when KernelUnary.IsSupported(unary.Operator):

@@ -80,11 +80,15 @@ internal sealed partial class ArrayIteratorPrototype : IteratorPrototype
         return instance;
     }
 
+    /// <summary>A values iterator of <paramref name="array"/> that has made <paramref name="position"/> steps.</summary>
+    internal IteratorInstance ConstructValuesAt(JsArray array, uint position)
+        => new ArrayIterator(Engine, array, ArrayIteratorType.Value) { _prototype = this, _position = position };
+
     private sealed class ArrayIterator : IteratorInstance
     {
         private readonly ArrayIteratorType _kind;
         private readonly JsArray _array;
-        private uint _position;
+        internal uint _position;
         private bool _closed;
 
         public ArrayIterator(Engine engine, JsArray array, ArrayIteratorType kind) : base(engine)

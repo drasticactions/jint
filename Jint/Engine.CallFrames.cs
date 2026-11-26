@@ -36,6 +36,12 @@ public partial class Engine
     /// <summary>How many frames the call stack has, counting those of kernel calls not pushed yet.</summary>
     internal int CallDepth => _callStack.Count + _framesNotPushed;
 
+    /// <summary>The realm of the running execution context, read without pushing the frames of kernel calls.</summary>
+    internal Realm RunningRealm
+        => _framesNotPushed != 0 && _realmInConstruction is null
+            ? ((Function) _frames[_frameCount - 1].Environment!._functionObject)._functionOrigin.Realm
+            : Realm;
+
     /// <summary>The execution context stack, with the frames of kernel calls pushed.</summary>
     private ExecutionContextStack ExecutionContexts
     {

@@ -14,7 +14,7 @@ public class FunctionCallOverheadBenchmark
     private IsolatedScript _row;
 
     [Params("singleReturn", "branchy", "propertyStore", "nestedCalls", "recursive", "closureControl", "closureCounter", "moduleMethod", "protoThis", "newSmall",
-        "tryFinally", "forOfArray", "handIterator", "stringSwitch")]
+        "tryFinally", "forOfArray", "handIterator", "stringSwitch", "closureSometimes", "arrayPush", "dispatchTable", "typeofChecks")]
     public string Shape { get; set; } = "";
 
     [GlobalSetup]
@@ -35,6 +35,10 @@ public class FunctionCallOverheadBenchmark
             "forOfArray" => "var arr = [1, 2, 3, 4]; function f(a, b) { var s = a; for (var x of arr) { s += x; } return s + b; }",
             "handIterator" => "var arr = [1, 2, 3]; function iter(a) { var i = 0; return { next: function () { return i < a.length ? { done: false, value: a[i++] } : { done: true }; } }; } function f(a, b) { var it = iter(arr), r = it.next(), s = a; try { for (; !r.done; r = it.next()) { s += r.value; } } finally { s += b; } return s; }",
             "stringSwitch" => "var keys = ['a', 'bb', 'ccc', 'd']; function f(a, b) { var k = keys[a & 3], r; switch (k) { case 'a': r = 1; break; case 'bb': r = 2; break; case 'ccc': r = 3; break; default: r = 4; } return r + b; }",
+            "closureSometimes" => "function f(a, b) { if (a % 8 !== 0) { return a + b; } var g = function () { return a; }; return g() + b; }",
+            "arrayPush" => "function f(a, b) { var arr = []; for (var i = 0; i < 4; i++) { arr.push(i + a); } return arr.length + b; }",
+            "dispatchTable" => "var handlers = [function (x) { return x + 1; }, function (x) { return x * 2; }, function (x) { return x - 3; }]; function f(a, b) { var r = handlers[a % 3](b); return r; }",
+            "typeofChecks" => "var cfg = { n: 1 }; function f(a, b) { var r = 0; if (typeof a === 'number') { r += a; } if (typeof cfg.n !== 'undefined') { r += b; } if (typeof missingGlobal === 'undefined') { r += 1; } return r; }",
             _ => "function f(a, b) { var g = function () { return a; }; var c = g() + b; return c; }",
         };
 

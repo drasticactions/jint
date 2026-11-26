@@ -203,9 +203,12 @@ internal sealed class FunctionKernel : KernelProgram
         return true;
     }
 
-    /// <summary>Whether calls run in the frames the kernel keeps: not where the body makes a closure.</summary>
+    /// <summary>Whether calls run in the frames the kernel keeps, a body that makes closures in a new environment once one was captured.</summary>
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-    internal bool RunsInFrames(JintFunctionDefinition.State state) => !state.EnvironmentMayEscape && !_createsClosures;
+    internal bool RunsInFrames(JintFunctionDefinition.State state) => _createsClosures ? state.UseFixedSlots : !state.EnvironmentMayEscape;
+
+    /// <summary>Whether nothing the body runs can reach its environment past the call.</summary>
+    internal bool KeepsEnvironmentPrivate(JintFunctionDefinition.State state) => !state.EnvironmentMayEscape && !_createsClosures;
 
     /// <summary>Marks the return statements that complete the body, outside any for-in or for-of, to leave their value in the frame.</summary>
     private static void MarkDirectReturns(KernelStatement statement)
@@ -377,7 +380,11 @@ internal sealed class FunctionKernel : KernelProgram
             }
 
             frame ??= NewCallFrame(context, function, state, depth);
-            if (!ReferenceEquals(frame.Outer, function._environment))
+            if (frame.CallEnvironment is null)
+            {
+                Renew(frame, function, state);
+            }
+            else if (!ReferenceEquals(frame.Outer, function._environment))
             {
                 Rebind(frame, function._environment);
             }
@@ -433,6 +440,11 @@ internal sealed class FunctionKernel : KernelProgram
         {
             _callDepth++;
         }
+
+        if (_createsClosures)
+        {
+            frame.CapturesAtEntry = frame.Engine._environmentCaptures;
+        }
     }
 
     /// <summary>Ends a call <see cref="BeginCall"/> entered: slots cleared, a closure's frame kept or let go of.</summary>
@@ -442,6 +454,12 @@ internal sealed class FunctionKernel : KernelProgram
         if (!frame.OwnedByInstance)
         {
             _callDepth--;
+        }
+
+        if (_createsClosures && frame.Engine._environmentCaptures != frame.CapturesAtEntry)
+        {
+            LeaveCaptured(frame);
+            return;
         }
 
         var environment = frame.CallEnvironment!;
@@ -485,6 +503,46 @@ internal sealed class FunctionKernel : KernelProgram
         {
             KeepOrRelease(frame, function);
         }
+    }
+
+    /// <summary>Ends a call whose environment something may have captured: the frame lets go of it, as it is, and takes a new one next time.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static void LeaveCaptured(KernelFrame frame)
+    {
+        var environment = frame.CallEnvironment!;
+        if (ReferenceEquals(environment.KernelFrame, frame))
+        {
+            environment.KernelFrame = null;
+        }
+
+        frame.Abrupt = default;
+        frame.ReturnValue = null;
+        frame.Work = 0;
+        frame.CallEnvironment = null;
+        frame.Forget();
+        frame.Start = null!;
+        if (frame.OwnedByInstance)
+        {
+            frame.InUse = false;
+        }
+    }
+
+    /// <summary>A frame whose environment was captured, given a new one for <paramref name="function"/>.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static void Renew(KernelFrame frame, Native.Function.ScriptFunction function, JintFunctionDefinition.State state)
+    {
+        var environment = new FunctionEnvironment(frame.Engine, function, JsValue.Undefined);
+        environment._outerEnv = function._environment;
+        if (state.UseFixedSlots)
+        {
+            environment._slotNames = state.SlotNames;
+            environment._slots = new Binding[state.SlotNames!.Length];
+        }
+
+        frame.CallEnvironment = environment;
+        frame.Start = environment;
+        frame.Outer = function._environment;
+        frame.ResolveLayout();
     }
 
     /// <summary>

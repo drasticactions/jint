@@ -735,7 +735,7 @@ internal sealed class KernelBodyEmitter
                     break;
                 }
 
-            case KernelCall call:
+            case KernelCall { _key: null } call:
                 EmitCall(call, value, number);
                 break;
 
@@ -884,6 +884,14 @@ internal sealed class KernelBodyEmitter
                 EmitSplit(value, number);
                 break;
 
+            case KernelTypeOf typeOf:
+                EmitTypeOf(typeOf, value, bail);
+                return;
+
+            case KernelBinary { _neverNumbers: true } equality:
+                EmitEquality(equality, value, bail);
+                return;
+
             case KernelBinary { _isComparison: true } comparison:
                 {
                     var no = il.DefineLabel();
@@ -1004,6 +1012,76 @@ internal sealed class KernelBodyEmitter
         Return(value);
     }
 
+    /// <summary><see cref="KernelTypeOf.Evaluate"/> into <paramref name="value"/>, or a jump to <paramref name="bail"/>.</summary>
+    private void EmitTypeOf(KernelTypeOf typeOf, LocalBuilder value, Label bail)
+    {
+        var il = _il;
+        var operandBail = il.DefineLabel();
+        var done = il.DefineLabel();
+        var operand = Rent(typeof(JsValue));
+        var operandNumber = Rent(typeof(double));
+        EmitPure(typeOf._argument, operand, operandNumber, operandBail);
+        il.Emit(OpCodes.Ldloc, operand);
+        il.Emit(OpCodes.Call, Method(typeof(KernelTypeOf), nameof(KernelTypeOf.Of)));
+        il.Emit(OpCodes.Stloc, value);
+        il.Emit(OpCodes.Br, done);
+        il.MarkLabel(operandBail);
+        if (typeOf._argument is KernelName name)
+        {
+            EmitConstant(name, typeof(KernelName));
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Call, Method(typeof(KernelName), nameof(KernelName.IsUnresolvable)));
+            il.Emit(OpCodes.Brfalse, bail);
+            il.Emit(OpCodes.Ldsfld, Field(typeof(JsString), nameof(JsString.UndefinedString)));
+            il.Emit(OpCodes.Stloc, value);
+        }
+        else
+        {
+            il.Emit(OpCodes.Br, bail);
+        }
+
+        il.MarkLabel(done);
+        Return(operand);
+        Return(operandNumber);
+    }
+
+    /// <summary>An equality with an operand that is never a Number, as <see cref="KernelBinary.Equal"/> answers it, into <paramref name="value"/>.</summary>
+    private void EmitEquality(KernelBinary equality, LocalBuilder value, Label bail)
+    {
+        var il = _il;
+        var leftValue = Rent(typeof(JsValue));
+        var leftNumber = Rent(typeof(double));
+        var rightValue = Rent(typeof(JsValue));
+        var rightNumber = Rent(typeof(double));
+        var test = Rent(typeof(int));
+        var no = il.DefineLabel();
+        var end = il.DefineLabel();
+        EmitPure(equality._left, leftValue, leftNumber, bail);
+        EmitPure(equality._right, rightValue, rightNumber, bail);
+        il.Emit(OpCodes.Ldc_I4, (int) equality._operator);
+        il.Emit(OpCodes.Ldloc, leftValue);
+        il.Emit(OpCodes.Ldloc, leftNumber);
+        il.Emit(OpCodes.Ldloc, rightValue);
+        il.Emit(OpCodes.Ldloc, rightNumber);
+        il.Emit(OpCodes.Call, Method(typeof(KernelBinary), nameof(KernelBinary.Equal)));
+        il.Emit(OpCodes.Stloc, test);
+        il.Emit(OpCodes.Ldloc, test);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Blt, bail);
+        il.Emit(OpCodes.Ldloc, test);
+        il.Emit(OpCodes.Brfalse, no);
+        EmitBoolean(true, value);
+        il.Emit(OpCodes.Br, end);
+        il.MarkLabel(no);
+        EmitBoolean(false, value);
+        il.MarkLabel(end);
+        Return(test);
+        Return(leftValue);
+        Return(leftNumber);
+        Return(rightValue);
+        Return(rightNumber);
+    }
+
     /// <summary>A pure comparison of two Numbers left on the stack; operands that are not Numbers jump to <paramref name="bail"/>.</summary>
     private void EmitCompare(KernelBinary comparison, Label bail)
     {
@@ -1092,7 +1170,7 @@ internal sealed class KernelBodyEmitter
         var il = _il;
         switch (expression)
         {
-            case KernelRoot { _pure: KernelBinary { _isComparison: true } comparison } root:
+            case KernelRoot { _pure: KernelBinary { _isComparison: true, _neverNumbers: false } comparison } root:
                 {
                     var bail = il.DefineLabel();
                     var end = il.DefineLabel();
@@ -1403,6 +1481,7 @@ internal sealed class KernelBodyEmitter
             il.Emit(OpCodes.Brfalse, interpret);
             EmitConstant(call._member, typeof(KernelProperty));
             il.Emit(OpCodes.Ldloc, thisValue);
+            il.Emit(OpCodes.Ldloc, _engine);
             il.Emit(OpCodes.Call, Method(typeof(KernelProperty), nameof(KernelProperty.ReadCallee)));
             il.Emit(OpCodes.Stloc, callee);
         }

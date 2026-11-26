@@ -234,3 +234,11 @@ internal sealed class KernelInlineBody
         return stack[0];
     }
 }
+
+/// <summary>What <see cref="KernelInlineBody.TryCreate"/> answered for a definition and an argument count, with its site.</summary>
+internal sealed class KernelInlineProbe(int argumentCount, KernelInlineBody? body, KernelInlineSite? site)
+{
+    internal readonly int ArgumentCount = argumentCount;
+    internal readonly KernelInlineBody? Body = body;
+    internal readonly KernelInlineSite? Site = site;
+}

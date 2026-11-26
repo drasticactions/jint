@@ -82,10 +82,8 @@ internal sealed class KernelElement : KernelExpression
 }
 
 /// <summary>
-/// A pure <c>object.name</c>: an own property of an ordinary object in shape mode, a data property of a built-in
-/// object such as <c>Math</c>, the length of an array, or the length of a typed array while its prototype chain
-/// answers it with the built-in getter of <c>%TypedArray%.prototype</c>. Anything else answers
-/// <see cref="KernelExpression.Bail"/>.
+/// A pure <c>object.name</c>: a data property of an object, own or up its prototype chain, a method of a string or
+/// Number, or a length of an array, string or typed array; anything else answers <see cref="KernelExpression.Bail"/>.
 /// </summary>
 internal sealed class KernelProperty : KernelExpression
 {
@@ -131,11 +129,11 @@ internal sealed class KernelProperty : KernelExpression
             return Bail;
         }
 
-        return Read(target, out number);
+        return Read(target, out number, frame.Engine);
     }
 
-    /// <summary>The property of an evaluated base, or <see cref="KernelExpression.Bail"/>.</summary>
-    internal JsValue? Read(JsValue target, out double number)
+    /// <summary>The property of an evaluated base, or <see cref="KernelExpression.Bail"/>; a primitive's needs <paramref name="engine"/>.</summary>
+    internal JsValue? Read(JsValue target, out double number, Engine? engine = null)
     {
         number = 0;
         if (target is JsObject plain)
@@ -194,16 +192,70 @@ internal sealed class KernelProperty : KernelExpression
             }
         }
 
-        if (target is ObjectInstance builtin && (builtin._type & InternalTypes.BuiltinShapeMode) != InternalTypes.Empty)
+        if (target is ObjectInstance other)
         {
-            return ReadBuiltin(builtin);
+            return (other._type & InternalTypes.BuiltinShapeMode) != InternalTypes.Empty ? ReadBuiltin(other) : ReadOther(other);
         }
 
-        return Bail;
+        return engine is null ? Bail : ReadPrimitive(target, engine, out number);
     }
 
     /// <summary><see cref="Read"/> for the callee of a call.</summary>
-    internal JsValue? ReadCallee(JsValue target) => Read(target, out _);
+    internal JsValue? ReadCallee(JsValue target, Engine engine) => Read(target, out _, engine);
+
+    /// <summary>An own data property of an array or a function, or one up its prototype chain.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private JsValue ReadOther(ObjectInstance receiver)
+    {
+        var type = receiver._type;
+        if ((type & (InternalTypes.Array | InternalTypes.Function)) == InternalTypes.Empty
+            || (type & (InternalTypes.ExoticGet | InternalTypes.OwnValueHook | InternalTypes.OrdinaryGet)) != InternalTypes.Empty)
+        {
+            return Bail;
+        }
+
+        // The engine's own types only: a host's may answer own properties with code of its own.
+        var runtimeType = receiver.GetType();
+        if (!ReferenceEquals(runtimeType, _otherType))
+        {
+            if (runtimeType.Assembly != typeof(KernelProperty).Assembly)
+            {
+                return Bail;
+            }
+
+            _otherType = runtimeType;
+        }
+
+        if (receiver is not JsArray { _properties: null })
+        {
+            var descriptor = receiver.GetOwnProperty(_name);
+            if (!ReferenceEquals(descriptor, PropertyDescriptor.Undefined))
+            {
+                return IsPlainData(descriptor) ? descriptor._value ?? Bail : Bail;
+            }
+        }
+
+        return ReadFrom(receiver.GetPrototypeOf());
+    }
+
+    /// <summary>A string's length, or a method of a string or a Number from the running realm's prototype.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private JsValue? ReadPrimitive(JsValue target, Engine engine, out double number)
+    {
+        number = 0;
+        if (target is JsString text)
+        {
+            if (_isLength)
+            {
+                number = text.Length;
+                return null;
+            }
+
+            return ReadFrom(engine.RunningRealm.Intrinsics.String.PrototypeObject);
+        }
+
+        return target is JsNumber ? ReadFrom(engine.RunningRealm.Intrinsics.Number.PrototypeObject) : Bail;
+    }
 
     /// <summary>A lazy slot's value: a closure not made yet is made now; a host's slot answers Bail.</summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -245,22 +297,35 @@ internal sealed class KernelProperty : KernelExpression
     private int _protoHolderSlot;
     private PropertyDescriptor? _protoDescriptor;
 
-    /// <summary>The member of the prototype of an object without an own property of the name, or Bail.</summary>
+    // The links of the chain before the holder, with their versions; null where the holder is the first.
+    private ObjectInstance[]? _protoLinks;
+    private uint[]? _protoLinkVersions;
+    private const int MaxProtoLinks = 8;
+
+    // The last engine type ReadOther read own properties of.
+    private Type? _otherType;
+
+    /// <summary>The member up the prototype chain of an object without an own property of the name, or Bail.</summary>
+    private JsValue ReadInherited(JsObject receiver) => ReadFrom(receiver._prototype);
+
+    /// <summary>The member of the first object of the chain that starts at <paramref name="start"/> to have it, or Bail.</summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private JsValue ReadInherited(JsObject receiver)
+    private JsValue ReadFrom(ObjectInstance? start)
     {
-        var holder = receiver._prototype;
-        if (holder is null)
+        if (start is null)
         {
             return Bail;
         }
 
-        if (!ReferenceEquals(holder, _protoHolder) || holder._propertiesVersion != _protoHolderVersion)
+        var holder = _protoLinks is { } links ? PastLinks(start, links, _protoLinkVersions!) : start;
+        if (holder is null || !ReferenceEquals(holder, _protoHolder) || holder._propertiesVersion != _protoHolderVersion)
         {
-            if (!CacheInherited(holder))
+            if (!CacheInherited(start))
             {
                 return Bail;
             }
+
+            holder = _protoHolder!;
         }
 
         if (_protoDescriptor is { } descriptor)
@@ -278,60 +343,133 @@ internal sealed class KernelProperty : KernelExpression
         return (shaped._type & InternalTypes.HasLazySlots) == InternalTypes.Empty ? value : ReadLazy(shaped, _protoHolderSlot, value);
     }
 
-    /// <summary>Records where <paramref name="holder"/> keeps the member as an own data property, or false.</summary>
-    private bool CacheInherited(ObjectInstance holder)
+    /// <summary>The object past <paramref name="links"/> from <paramref name="start"/>, or null where the chain or a version moved.</summary>
+    private static ObjectInstance? PastLinks(ObjectInstance start, ObjectInstance[] links, uint[] versions)
+    {
+        ObjectInstance? reached = start;
+        for (var i = 0; i < links.Length; i++)
+        {
+            var link = links[i];
+            if (!ReferenceEquals(reached, link) || link._propertiesVersion != versions[i])
+            {
+                return null;
+            }
+
+            reached = link.GetPrototypeOf();
+        }
+
+        return reached;
+    }
+
+    /// <summary>
+    /// Records the first object of the chain from <paramref name="start"/> that has the member, which must be an own
+    /// data property, and the links before it, each of which must witness the member's absence by its version; or false.
+    /// </summary>
+    private bool CacheInherited(ObjectInstance start)
     {
         _protoHolder = null;
         _protoHolderShape = null;
         _protoDescriptor = null;
-        if ((holder._type & (InternalTypes.ExoticGet | InternalTypes.OwnValueHook)) != InternalTypes.Empty
-            || !ObjectInstance.VersionWitnessesOwnProperty(holder, _name))
+        _protoLinks = null;
+        _protoLinkVersions = null;
+        var holder = start;
+        var passed = 0;
+        while (true)
         {
-            return false;
+            if ((holder._type & (InternalTypes.ExoticGet | InternalTypes.OwnValueHook)) != InternalTypes.Empty
+                || !ObjectInstance.VersionWitnessesOwnProperty(holder, _name))
+            {
+                return false;
+            }
+
+            var found = CacheOwn(holder);
+            if (found > 0)
+            {
+                break;
+            }
+
+            if (found < 0 || ++passed > MaxProtoLinks || holder.GetPrototypeOf() is not { } next)
+            {
+                return false;
+            }
+
+            holder = next;
         }
 
+        if (passed > 0)
+        {
+            var links = new ObjectInstance[passed];
+            var versions = new uint[passed];
+            var link = start;
+            for (var i = 0; i < passed; i++)
+            {
+                links[i] = link;
+                versions[i] = link._propertiesVersion;
+                link = link.GetPrototypeOf()!;
+            }
+
+            _protoLinks = links;
+            _protoLinkVersions = versions;
+        }
+
+        _protoHolder = holder;
+        _protoHolderVersion = holder._propertiesVersion;
+        return true;
+    }
+
+    /// <summary>1 with where <paramref name="holder"/> keeps the member recorded, 0 where it has none, -1 where it cannot be recorded.</summary>
+    private int CacheOwn(ObjectInstance holder)
+    {
         if (holder is JsObject plain)
         {
             if ((plain._type & InternalTypes.ShapeMode) != InternalTypes.Empty)
             {
                 if (!plain.ShapeOf.TryGetSlot(in _key, out var slot))
                 {
-                    return false;
+                    return 0;
                 }
 
                 _protoHolderShape = plain.ShapeOf;
                 _protoHolderSlot = slot;
+                return 1;
             }
-            else if ((plain._type & InternalTypes.PlainObject) != InternalTypes.Empty
-                     && plain._properties is { } properties
-                     && properties.TryGetValue(_key, out var descriptor)
-                     && IsPlainData(descriptor))
+
+            if ((plain._type & InternalTypes.PlainObject) == InternalTypes.Empty)
             {
-                _protoDescriptor = descriptor;
+                return -1;
             }
-            else
+
+            if (plain._properties is not { } named || !named.TryGetValue(_key, out var own))
             {
-                return false;
+                return 0;
             }
+
+            if (!IsPlainData(own))
+            {
+                return -1;
+            }
+
+            _protoDescriptor = own;
+            return 1;
         }
-        else
+
+        // Materializing a lazy built-in member runs no script; a value write changes a descriptor kept by name.
+        var descriptor = holder.GetOwnProperty(_name);
+        if (descriptor == PropertyDescriptor.Undefined)
         {
-            // Materializing a lazy built-in member runs no script; a value write changes a descriptor kept by name.
-            var descriptor = holder.GetOwnProperty(_name);
-            if (descriptor == PropertyDescriptor.Undefined
-                || !IsPlainData(descriptor)
-                || (holder is not BuiltinShapeObject
-                    && (holder._properties is not { } properties || !properties.TryGetValue(_key, out var kept) || !ReferenceEquals(kept, descriptor))))
-            {
-                return false;
-            }
-
-            _protoDescriptor = descriptor;
+            return 0;
         }
 
-        _protoHolder = holder;
-        _protoHolderVersion = holder._propertiesVersion;
-        return true;
+        if (!IsPlainData(descriptor)
+            || (holder is not BuiltinShapeObject
+                && ((holder._type & InternalTypes.BuiltinShapeMode) == InternalTypes.Empty || !ReferenceEquals(holder.GetOwnProperty(_name), descriptor))
+                && (holder._properties is not { } properties || !properties.TryGetValue(_key, out var kept) || !ReferenceEquals(kept, descriptor))))
+        {
+            return -1;
+        }
+
+        _protoDescriptor = descriptor;
+        return 1;
     }
 
     private JsValue ReadBuiltin(ObjectInstance builtin)
@@ -423,24 +561,25 @@ internal sealed class KernelProperty : KernelExpression
 }
 
 /// <summary>
-/// A call (https://tc39.es/ecma262/#sec-function-calls-runtime-semantics-evaluation) of a callee read purely, a name
-/// or a property, with arguments that spread nothing. The callee is evaluated first; one the kernel does not call
-/// itself (a bound function, a host or proxy callable, anything not callable) leaves the whole call to the
-/// interpreter's handler, which evaluates the callee again, unobservably, and then the arguments. Otherwise the
-/// arguments are evaluated once, in order, and the call is made as JintCallExpression makes it: a built-in with a fast
-/// call shape through that lane, without an argument list and, when its shape says the call is a leaf for these
-/// values, without a call stack frame; an interpreted function with its call stack frame and a pooled argument list.
+/// A call (https://tc39.es/ecma262/#sec-function-calls-runtime-semantics-evaluation) of a callee read purely, made as
+/// JintCallExpression makes it; a callee that is not a function leaves the whole call to the interpreter.
 /// </summary>
 internal sealed class KernelCall : KernelExpression
 {
     internal readonly KernelExpression? _base;
     internal readonly KernelProperty? _member;
     internal readonly KernelExpression? _callee;
+    internal readonly KernelExpression? _key;
     internal readonly KernelExpression[] _arguments;
     private JintExpression? _handler;
 
+    // The built-in last called and how: its fast call shape, or a span or an argument list where it has none.
     internal Function? _fastCallee;
     internal FastCallShape _fastShape;
+    internal byte _builtinLane;
+    internal const byte FastLane = 0;
+    internal const byte VariadicLane = 1;
+    internal const byte ListLane = 2;
 
     // JintCallExpression's register lane for an interpreted callee of at most four arguments: the definition last
     // probed, and its state when the lane serves it.
@@ -459,11 +598,12 @@ internal sealed class KernelCall : KernelExpression
     internal const int ScriptCallWork = 16;
     internal const int BuiltinCallWork = 2;
 
-    public KernelCall(CallExpression expression, KernelProperty? member, KernelExpression? callee, KernelExpression[] arguments) : base(expression)
+    public KernelCall(CallExpression expression, KernelProperty? member, KernelExpression? callee, KernelExpression[] arguments, KernelExpression? obj = null, KernelExpression? key = null) : base(expression)
     {
         _member = member;
-        _base = member?.Object;
+        _base = member?.Object ?? obj;
         _callee = callee;
+        _key = key;
         _arguments = arguments;
         _argumentKinds = new byte[arguments.Length];
         for (var i = 0; i < arguments.Length; i++)
@@ -489,14 +629,30 @@ internal sealed class KernelCall : KernelExpression
         JsValue? callee;
         if (_member is not null)
         {
+            var target = _base!.Evaluate(frame, out var targetNumber);
+            if (target is null)
+            {
+                target = JsNumber.Create(targetNumber);
+            }
+            else if (ReferenceEquals(target, Bail))
+            {
+                return Interpret(frame);
+            }
+
+            thisValue = target;
+            callee = _member.ReadCallee(target, frame.Engine);
+        }
+        else if (_key is not null)
+        {
             var target = _base!.Evaluate(frame, out _);
             if (target is null || ReferenceEquals(target, Bail))
             {
                 return Interpret(frame);
             }
 
+            var key = _key.Evaluate(frame, out var keyNumber);
             thisValue = target;
-            callee = _member.ReadCallee(target);
+            callee = ReadElement(target, key, keyNumber);
         }
         else
         {
@@ -518,24 +674,22 @@ internal sealed class KernelCall : KernelExpression
         frame.Work += BuiltinCallWork;
         if (!ReferenceEquals(function, _fastCallee))
         {
-            if (function._functionDefinition is not null || _arguments.Length > 2)
+            if (function._functionDefinition is not null)
             {
                 return Interpret(frame);
             }
 
-            var shape = function.GetFastCallShape(_arguments.Length);
-            if (!shape.Supported || shape.Variadic)
-            {
-                return Interpret(frame);
-            }
-
-            _fastCallee = function;
-            _fastShape = shape;
-            _intrinsic = _arguments.Length == 1 ? KernelIntrinsics.Identify(function) : KernelIntrinsics.None;
+            ProbeBuiltin(function);
         }
 
         // Before any argument runs: an argument can call back into this kernel and record another callee here.
         var fastShape = _fastShape;
+        var lane = _builtinLane;
+        if (lane == ListLane)
+        {
+            return CallWithList(frame, function, thisValue);
+        }
+
         var intrinsic = _intrinsic;
         if (intrinsic != KernelIntrinsics.None)
         {
@@ -564,10 +718,151 @@ internal sealed class KernelCall : KernelExpression
 
         if (fastShape.IsLeafFor(thisValue, arg0, arg1))
         {
-            return function.CallFast(thisValue, arg0, arg1);
+            return lane == VariadicLane ? CallVariadic(function, thisValue, arg0, arg1) : function.CallFast(thisValue, arg0, arg1);
         }
 
         return CallWithFrame(frame, function, thisValue, arg0, arg1);
+    }
+
+    /// <summary>Records how a built-in is called at this site: through its fast call shape, with a span or with a list.</summary>
+    private void ProbeBuiltin(Function function)
+    {
+        var count = _arguments.Length;
+        var shape = count <= 2 ? function.GetFastCallShape(count) : default;
+        _fastCallee = function;
+        _fastShape = shape;
+        _builtinLane = !shape.Supported ? ListLane : shape.Variadic ? VariadicLane : FastLane;
+        _intrinsic = count == 1 && _builtinLane == FastLane ? KernelIntrinsics.Identify(function) : KernelIntrinsics.None;
+    }
+
+    /// <summary>The fast call shape compiled code may call the site's built-in through directly: none where it takes a span or a list.</summary>
+    private FastCallShape CodeShape => _builtinLane == FastLane ? _fastShape : default;
+
+    /// <summary>
+    /// The callee of <c>object[key](...)</c> read purely: a present element of an array, or an own data property of an
+    /// ordinary object named by a string; anything else is Bail.
+    /// </summary>
+    private static JsValue? ReadElement(JsValue target, JsValue? key, double keyNumber)
+    {
+        if (KernelExpression.IsNumber(key, ref keyNumber))
+        {
+            if (target is JsArray array)
+            {
+                var index = (uint) keyNumber;
+                if (index == keyNumber && index != uint.MaxValue && array.TryGetValueFast(index, out var element))
+                {
+                    return element;
+                }
+            }
+
+            return Bail;
+        }
+
+        if (key is not JsString name || target is not JsObject plain || ReferenceEquals(key, Bail))
+        {
+            return Bail;
+        }
+
+        Key property = name.ToString();
+        var type = plain._type;
+        if ((type & InternalTypes.ShapeMode) != InternalTypes.Empty)
+        {
+            if (!plain.ShapeOf.TryGetSlot(in property, out var slot))
+            {
+                return Bail;
+            }
+
+            var value = plain.GetSlot(slot);
+            return (type & InternalTypes.HasLazySlots) == InternalTypes.Empty ? value : ReadLazySlot(plain, slot, value);
+        }
+
+        if ((type & (InternalTypes.PlainObject | InternalTypes.ExoticGet | InternalTypes.OwnValueHook)) == InternalTypes.PlainObject
+            && plain._properties is { } properties
+            && properties.TryGetValue(property, out var descriptor)
+            && (descriptor._flags & PropertyFlag.CustomJsValue) == PropertyFlag.None
+            && descriptor.IsDataDescriptor())
+        {
+            return descriptor._value ?? Bail;
+        }
+
+        return Bail;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static JsValue ReadLazySlot(JsObject owner, int slot, JsValue value)
+    {
+        if (value is JsObject.LayoutSlots)
+        {
+            return Bail;
+        }
+
+        return value is JsObject.UnmaterializedSlots ? owner.GetSlotForRead(slot) : value;
+    }
+
+    /// <summary>A built-in of a variadic fast call shape called with its arguments as a span.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private JsValue CallVariadic(Function function, JsValue thisValue, JsValue arg0, JsValue arg1)
+    {
+        var buffer = new TwoArguments();
+        buffer[0] = arg0;
+        buffer[1] = arg1;
+        return function.CallFastVariadic(thisValue, ((ReadOnlySpan<JsValue>) buffer).Slice(0, _arguments.Length));
+    }
+
+    /// <summary>Two arguments in a row, for a span.</summary>
+    [InlineArray(2)]
+    private struct TwoArguments
+    {
+        private JsValue _element0;
+    }
+
+    /// <summary>A built-in, host or bound function called with its arguments in a pooled list, as JintCallExpression calls one without a fast call shape.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private JsValue CallWithList(KernelFrame frame, Function function, JsValue thisValue)
+    {
+        var engine = frame.Engine;
+        var arguments = _arguments;
+        var values = arguments.Length == 0 ? [] : engine._jsValueArrayPool.RentArray(arguments.Length);
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            values[i] = Box(arguments[i].Evaluate(frame, out var n), n);
+        }
+
+        return CallListed(frame, function, thisValue, values);
+    }
+
+    /// <summary>The call of <see cref="CallWithList"/>, the arguments evaluated into <paramref name="values"/>, which it returns to the pool.</summary>
+    private JsValue CallListed(KernelFrame frame, Function function, JsValue thisValue, JsValue[] values)
+    {
+        var engine = frame.Engine;
+        var oldSyntaxElement = engine.MarkLastSyntaxElement();
+        frame.Context.PrepareFor(_expression);
+
+        var callStack = engine.CallStack;
+        var recursionDepth = callStack.Push(function, CallHandler, engine.ExecutionContext);
+        if (recursionDepth > engine._maxRecursionDepth)
+        {
+            engine.AbandonImplicitMemoryOperation();
+            Throw.RecursionDepthOverflowException(callStack);
+        }
+
+        JsValue result;
+        try
+        {
+            result = function.Call(thisValue, values);
+        }
+        finally
+        {
+            callStack.TryPopAndDiscard();
+        }
+
+        if (values.Length > 0)
+        {
+            engine._jsValueArrayPool.ReturnArray(values);
+        }
+
+        engine.RestoreLastSyntaxElement(in oldSyntaxElement);
+        return result;
     }
 
     /// <summary>
@@ -607,25 +902,22 @@ internal sealed class KernelCall : KernelExpression
             return 3;
         }
 
-        if (!ReferenceEquals(function, _fastCallee))
+        if (_arguments.Length > 2)
         {
-            if (function._functionDefinition is not null || _arguments.Length > 2)
-            {
-                return 0;
-            }
-
-            var probedShape = function.GetFastCallShape(_arguments.Length);
-            if (!probedShape.Supported || probedShape.Variadic)
-            {
-                return 0;
-            }
-
-            _fastCallee = function;
-            _fastShape = probedShape;
-            _intrinsic = _arguments.Length == 1 ? KernelIntrinsics.Identify(function) : KernelIntrinsics.None;
+            return 0;
         }
 
-        shape = _fastShape;
+        if (!ReferenceEquals(function, _fastCallee))
+        {
+            if (function._functionDefinition is not null)
+            {
+                return 0;
+            }
+
+            ProbeBuiltin(function);
+        }
+
+        shape = CodeShape;
         return 1;
     }
 
@@ -677,25 +969,22 @@ internal sealed class KernelCall : KernelExpression
             return false;
         }
 
-        if (!ReferenceEquals(function, _fastCallee))
+        if (_arguments.Length > 2)
         {
-            if (function._functionDefinition is not null || _arguments.Length > 2)
-            {
-                return false;
-            }
-
-            var probed = function.GetFastCallShape(_arguments.Length);
-            if (!probed.Supported || probed.Variadic)
-            {
-                return false;
-            }
-
-            _fastCallee = function;
-            _fastShape = probed;
-            _intrinsic = _arguments.Length == 1 ? KernelIntrinsics.Identify(function) : KernelIntrinsics.None;
+            return false;
         }
 
-        shape = _fastShape;
+        if (!ReferenceEquals(function, _fastCallee))
+        {
+            if (function._functionDefinition is not null)
+            {
+                return false;
+            }
+
+            ProbeBuiltin(function);
+        }
+
+        shape = CodeShape;
         return true;
     }
 
@@ -937,11 +1226,18 @@ internal sealed class KernelCall : KernelExpression
     {
         _inlineBody = null;
         _inlineSite = null;
-        if (_registerState is not null && _registerDefinition is { } definition
-            && KernelInlineBody.TryCreate(definition, _arguments.Length) is { } body)
+        if (_registerState is not null && _registerDefinition is { } definition)
         {
-            _inlineBody = body;
-            _inlineSite = new KernelInlineSite(definition, body.MathKinds.ToArray());
+            var count = _arguments.Length;
+            var probe = definition._inlineProbe;
+            if (probe is null || probe.ArgumentCount != count)
+            {
+                var body = KernelInlineBody.TryCreate(definition, count);
+                probe = definition._inlineProbe = new KernelInlineProbe(count, body, body is null ? null : new KernelInlineSite(definition, body.MathKinds.ToArray()));
+            }
+
+            _inlineBody = probe.Body;
+            _inlineSite = probe.Site;
         }
     }
 
@@ -1173,6 +1469,24 @@ internal sealed class KernelCall : KernelExpression
     [MethodImpl(MethodImplOptions.NoInlining)]
     internal JsValue CallWithFrame(KernelFrame frame, Function function, JsValue thisValue, JsValue arg0, JsValue arg1)
     {
+        // The lane of this built-in, which an argument may have recorded another callee over.
+        var lane = ReferenceEquals(function, _fastCallee) ? _builtinLane : LaneOf(function);
+        if (lane == ListLane)
+        {
+            var count = _arguments.Length;
+            var values = count == 0 ? [] : frame.Engine._jsValueArrayPool.RentArray(count);
+            if (count > 0)
+            {
+                values[0] = arg0;
+                if (count > 1)
+                {
+                    values[1] = arg1;
+                }
+            }
+
+            return CallListed(frame, function, thisValue, values);
+        }
+
         var engine = frame.Engine;
         var oldSyntaxElement = engine.MarkLastSyntaxElement();
         frame.Context.PrepareFor(_expression);
@@ -1188,7 +1502,7 @@ internal sealed class KernelCall : KernelExpression
         JsValue result;
         try
         {
-            result = function.CallFast(thisValue, arg0, arg1);
+            result = lane == VariadicLane ? CallVariadic(function, thisValue, arg0, arg1) : function.CallFast(thisValue, arg0, arg1);
         }
         finally
         {
@@ -1197,6 +1511,14 @@ internal sealed class KernelCall : KernelExpression
 
         engine.RestoreLastSyntaxElement(in oldSyntaxElement);
         return result;
+    }
+
+    /// <summary>How a built-in is called at a site of this many arguments; see <see cref="ProbeBuiltin"/>.</summary>
+    private byte LaneOf(Function function)
+    {
+        var count = _arguments.Length;
+        var shape = count <= 2 ? function.GetFastCallShape(count) : default;
+        return !shape.Supported ? ListLane : shape.Variadic ? VariadicLane : FastLane;
     }
 
     // The call's handler, whose node the call stack frame reports the call at.
@@ -1235,6 +1557,11 @@ internal sealed class KernelNew : KernelExpression
 
         var engine = frame.Engine;
         var arguments = _arguments;
+        if (function is ScriptFunction script && FramedState(frame, script, out var kernel) is { } state)
+        {
+            return ConstructInFrame(frame, script, state, kernel!);
+        }
+
         var values = arguments.Length == 0 ? [] : engine._jsValueArrayPool.RentArray(arguments.Length);
         for (var i = 0; i < arguments.Length; i++)
         {
@@ -1255,6 +1582,76 @@ internal sealed class KernelNew : KernelExpression
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private JsValue Interpret(KernelFrame frame) => Handler.GetValue(frame.Context);
+
+    /// <summary>The state of an ordinary function whose body runs on a kernel in its frames, which a <c>new</c> then calls straight into; or null.</summary>
+    private JintFunctionDefinition.State? FramedState(KernelFrame frame, ScriptFunction function, out FunctionKernel? kernel)
+    {
+        var engine = frame.Engine;
+        kernel = function._functionDefinition?._kernel;
+        return _arguments.Length <= 4
+               && function._constructorKind == ConstructorKind.Base
+               && !function._isClassConstructor
+               && kernel is not null
+               && function._functionDefinition!.BuiltState is { SupportsRegisterCall: true } state
+               && kernel.RunsInFrames(state)
+               && engine.CanPushCallFrame
+               && !frame.Context.CompletionValuesObservable
+               && engine._stackGuard.HasVerifiedHeadroom()
+            ? state
+            : null;
+    }
+
+    /// <summary>The <c>new</c> of <paramref name="function"/> in a frame of its kernel, its arguments evaluated in order.</summary>
+    private JsValue ConstructInFrame(KernelFrame frame, ScriptFunction function, JintFunctionDefinition.State state, FunctionKernel kernel)
+    {
+        var arguments = _arguments;
+        var count = arguments.Length;
+        double n0 = 0, n1 = 0, n2 = 0, n3 = 0;
+        var v0 = count >= 1 ? arguments[0].Evaluate(frame, out n0) : null;
+        var v1 = count >= 2 ? arguments[1].Evaluate(frame, out n1) : null;
+        var v2 = count >= 3 ? arguments[2].Evaluate(frame, out n2) : null;
+        var v3 = count >= 4 ? arguments[3].Evaluate(frame, out n3) : null;
+        var values = new NumberArguments(v0, n0, v1, n1, v2, n2, v3, n3, count);
+
+        var engine = frame.Engine;
+        var oldPositions = engine.MarkLastSyntaxPositions();
+        var oldSource = engine._lastSyntaxLocation.SourceFile;
+        var instance = function.ConstructKernelInFrame(Handler, in values, state, kernel);
+        if (instance is null)
+        {
+            // A prototype that is not a data property: [[Construct]] reads it, with the arguments already evaluated.
+            var list = count == 0 ? [] : engine._jsValueArrayPool.RentArray(count);
+            if (count > 0)
+            {
+                list[0] = Box(v0, n0);
+            }
+
+            if (count > 1)
+            {
+                list[1] = Box(v1, n1);
+            }
+
+            if (count > 2)
+            {
+                list[2] = Box(v2, n2);
+            }
+
+            if (count > 3)
+            {
+                list[3] = Box(v3, n3);
+            }
+
+            frame.Context.PrepareFor(_expression);
+            instance = engine.Construct(function, list, function, Handler);
+            if (count > 0)
+            {
+                engine._jsValueArrayPool.ReturnArray(list);
+            }
+        }
+
+        engine.RestoreLastSyntaxElement(oldPositions, oldSource);
+        return instance;
+    }
 }
 
 /// <summary>

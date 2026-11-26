@@ -191,7 +191,10 @@ public class ArrayInstance : ObjectInstance, IEnumerable<JsValue>
     /// no <c>return</c> to call (sebastienros/jint#4406).
     /// </summary>
     internal bool OriginalIteratorInheritsNoReturnMethod
-        => (_constructor?._realm ?? _engine.Realm).Intrinsics.ArrayIteratorPrototype.InstancesInheritNoReturnMethod();
+        => OriginalIteratorPrototype.InstancesInheritNoReturnMethod();
+
+    /// <summary>The <c>%ArrayIteratorPrototype%</c> of the iterator <see cref="HasOriginalIterator"/> found would create.</summary>
+    internal ArrayIteratorPrototype OriginalIteratorPrototype => (_constructor?._realm ?? _engine.Realm).Intrinsics.ArrayIteratorPrototype;
 
     /// <summary>
     /// Checks whether there have been changes to object prototype chain which could render fast access patterns impossible.

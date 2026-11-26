@@ -719,13 +719,29 @@ internal sealed class KernelForInOfStatement : KernelStatement
         }
         else
         {
-            iterator = value.GetIterator(engine.Realm);
+            // An array whose iterator is the original one is stepped by index, as that iterator steps it.
+            JsValue? iteratorMethod = null;
+            if (value is JsArray array && array.HasOriginalIterator(out iteratorMethod))
+            {
+                return Iterate(frame, null, array);
+            }
+
+            if (!value.TryGetIteratorFromRead(engine.Realm, iteratorMethod, out var found))
+            {
+                Throw.TypeError(engine.Realm, "The value is not iterable");
+            }
+
+            iterator = found!;
         }
 
-        return Iterate(frame, iterator);
+        return Iterate(frame, iterator, null);
     }
 
-    private int Iterate(KernelFrame frame, IteratorInstance iterator)
+    /// <summary>
+    /// The loop over <paramref name="iterator"/>, or over <paramref name="array"/> stepped as its array iterator steps
+    /// (https://tc39.es/ecma262/#sec-createarrayiterator), closed through an iterator made where it stopped.
+    /// </summary>
+    private int Iterate(KernelFrame frame, IteratorInstance? iterator, JsArray? array)
     {
         var engine = frame.Engine;
         var scope = _scope;
@@ -733,12 +749,24 @@ internal sealed class KernelForInOfStatement : KernelStatement
         DeclarativeEnvironment? environment = null;
         var completionType = CompletionType.Normal;
         var close = false;
+        uint position = 0;
         try
         {
             while (true)
             {
                 close = false;
-                if (!iterator.TryStepValue(out var next))
+                JsValue? next;
+                if (array is not null)
+                {
+                    if (position >= array.GetLength())
+                    {
+                        return Normal;
+                    }
+
+                    next = array.GetElement(position);
+                    position++;
+                }
+                else if (!iterator!.TryStepValue(out next))
                 {
                     return Normal;
                 }
@@ -822,7 +850,14 @@ internal sealed class KernelForInOfStatement : KernelStatement
 
             if (close)
             {
-                iterator.Close(completionType);
+                if (array is null)
+                {
+                    iterator!.Close(completionType);
+                }
+                else if (engine._builtinIteratorChainMayHaveReturn && !array.OriginalIteratorInheritsNoReturnMethod)
+                {
+                    array.OriginalIteratorPrototype.ConstructValuesAt(array, position).Close(completionType);
+                }
             }
 
             if (environment is not null && scope!.HasSlots)

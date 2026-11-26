@@ -89,6 +89,7 @@ public sealed partial class JsObject
 
         sentinel.Definitions = next;
         _type |= InternalTypes.HasLazySlots;
+        _engine._environmentCaptures++;
         return true;
     }
 

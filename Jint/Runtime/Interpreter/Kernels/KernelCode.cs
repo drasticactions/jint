@@ -668,7 +668,7 @@ internal static class KernelCodeRuntime
     }
 
     /// <summary>The callee of a method call, read as <see cref="KernelProperty.ReadCallee"/> reads it.</summary>
-    internal static JsValue? ReadCallee(KernelProperty property, JsValue target)
+    internal static JsValue? ReadCallee(KernelProperty property, JsValue target, Engine engine)
     {
         if (target is JsObject plain
             && (plain._type & (InternalTypes.ShapeMode | InternalTypes.HasLazySlots)) == InternalTypes.ShapeMode
@@ -677,7 +677,7 @@ internal static class KernelCodeRuntime
             return plain.GetSlot(property._cachedSlot);
         }
 
-        return property.ReadCallee(target);
+        return property.ReadCallee(target, engine);
     }
 
     /// <summary>Whether a value an expression answered is a Number, unboxed into <paramref name="number"/>.</summary>

@@ -66,6 +66,9 @@ internal sealed class JintUnaryExpression : JintExpression
         return null;
     }
 
+    /// <summary>The result of <c>typeof</c> for a value.</summary>
+    internal static JsString TypeOfString(JsValue value) => JintTypeOfExpression.GetTypeOfString(value);
+
     private sealed class JintTypeOfExpression : JintExpression
     {
         private readonly JintExpression _argument;
@@ -117,7 +120,7 @@ internal sealed class JintUnaryExpression : JintExpression
             return GetTypeOfString(v);
         }
 
-        private static JsString GetTypeOfString(JsValue v)
+        internal static JsString GetTypeOfString(JsValue v)
         {
             if (v.IsUndefined())
             {

@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Jint.Native;
+using Jint.Native.Object;
 using Jint.Runtime.Environments;
 using Jint.Runtime.Interpreter.Expressions;
 using Environment = Jint.Runtime.Environments.Environment;
@@ -222,6 +223,80 @@ internal sealed class KernelName : KernelExpression
 
         number = 0;
         return false;
+    }
+
+    // Where IsUnresolvable last found the name absent: the global environment and the versions it checked.
+    private GlobalEnvironment? _absentGlobal;
+    private int _absentLexicalVersion;
+    private ObjectInstance[]? _absentChain;
+    private uint[]? _absentVersions;
+
+    /// <summary>
+    /// Whether the name resolved to the global environment and neither its declarations nor any link of the global
+    /// object's prototype chain has it: a reference to it is unresolvable. False where finding out could run anything.
+    /// </summary>
+    internal bool IsUnresolvable(KernelFrame frame)
+    {
+        ref var slot = ref frame.Slots[_binding];
+        if (slot.Index != KernelFrame.GlobalBinding
+            || slot.Epoch != frame.Engine._envBindingInjectionEpoch
+            || frame.Global is not { _globalObject: { } globalObject } globalEnv)
+        {
+            return false;
+        }
+
+        if (ReferenceEquals(globalEnv, _absentGlobal) && globalEnv._lexicalMutations == _absentLexicalVersion && ChainHolds(globalObject))
+        {
+            return true;
+        }
+
+        _absentGlobal = null;
+        if (globalEnv._declarativeRecord.HasBinding(_name.Key))
+        {
+            return false;
+        }
+
+        var links = new List<ObjectInstance>();
+        for (ObjectInstance? link = globalObject; link is not null; link = link.GetPrototypeOf())
+        {
+            if ((link._type & (InternalTypes.ExoticGet | InternalTypes.OwnValueHook)) != InternalTypes.Empty
+                || link.GetType().Assembly != typeof(KernelName).Assembly
+                || !ReferenceEquals(link.GetOwnProperty(_name.Value), Descriptors.PropertyDescriptor.Undefined))
+            {
+                return false;
+            }
+
+            links.Add(link);
+        }
+
+        if (links.TrueForAll(link => ObjectInstance.VersionWitnessesOwnProperty(link, _name.Value)))
+        {
+            _absentChain = links.ToArray();
+            _absentVersions = Array.ConvertAll(_absentChain, link => link._propertiesVersion);
+            _absentLexicalVersion = globalEnv._lexicalMutations;
+            _absentGlobal = globalEnv;
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether the chain IsUnresolvable recorded starts at <paramref name="globalObject"/> and is unchanged.</summary>
+    private bool ChainHolds(ObjectInstance globalObject)
+    {
+        var chain = _absentChain!;
+        var versions = _absentVersions!;
+        ObjectInstance? link = globalObject;
+        for (var i = 0; i < chain.Length; i++)
+        {
+            if (!ReferenceEquals(link, chain[i]) || link._propertiesVersion != versions[i])
+            {
+                return false;
+            }
+
+            link = link.GetPrototypeOf();
+        }
+
+        return link is null;
     }
 
     private JsValue ReadGlobal(KernelFrame frame)

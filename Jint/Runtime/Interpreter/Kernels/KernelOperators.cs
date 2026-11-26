@@ -30,6 +30,8 @@ internal sealed class KernelBinary : KernelExpression
         _left = left;
         _right = right;
         _isComparison = IsComparison(op);
+        _isEquality = op is Operator.StrictEquality or Operator.StrictInequality or Operator.Equality or Operator.Inequality;
+        _neverNumbers = _isEquality && (NeverNumber(left) || NeverNumber(right));
         _leftName = left as KernelName;
         _rightName = right as KernelName;
         _leftNumber = left as KernelNumber;
@@ -41,6 +43,51 @@ internal sealed class KernelBinary : KernelExpression
     // How KernelOperand reads the operands.
     internal readonly byte _leftKind;
     internal readonly byte _rightKind;
+
+    // Whether the operator is an equality, and whether an operand is never a Number.
+    internal readonly bool _isEquality;
+    internal readonly bool _neverNumbers;
+
+    private static bool NeverNumber(KernelExpression operand) => operand is KernelTypeOf or KernelConstant { _value: not JsNumber };
+
+    /// <summary>
+    /// An equality of operands that are not both Numbers: 1 or 0 for values it compares without running script (any
+    /// two for strict equality, two of one type for loose equality), -1 for Bail.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private int EqualValues(KernelFrame frame)
+    {
+        var left = _left.Evaluate(frame, out var leftNumber);
+        if (ReferenceEquals(left, Bail))
+        {
+            return -1;
+        }
+
+        var right = _right.Evaluate(frame, out var rightNumber);
+        return ReferenceEquals(right, Bail) ? -1 : Equal(_operator, left, leftNumber, right, rightNumber);
+    }
+
+    /// <summary><see cref="EqualValues"/> of two evaluated operands, a Number in the number where the value is null.</summary>
+    internal static int Equal(Operator op, JsValue? left, double leftNumber, JsValue? right, double rightNumber)
+    {
+        var leftValue = Box(left, leftNumber);
+        var rightValue = Box(right, rightNumber);
+        bool equal;
+        if (op is Operator.StrictEquality or Operator.StrictInequality)
+        {
+            equal = leftValue == rightValue;
+        }
+        else if (leftValue.Type == rightValue.Type)
+        {
+            equal = leftValue.Equals(rightValue);
+        }
+        else
+        {
+            return -1;
+        }
+
+        return equal == (op is Operator.StrictEquality or Operator.Equality) ? 1 : 0;
+    }
 
     internal static bool IsSupported(Operator op) => op switch
     {
@@ -56,9 +103,15 @@ internal sealed class KernelBinary : KernelExpression
 
     internal override JsValue? Evaluate(KernelFrame frame, out double number)
     {
-        if (!TryOperands(frame, out var left, out var right))
+        if (_neverNumbers || !TryOperands(frame, out var left, out var right))
         {
             number = 0;
+            if (_isEquality)
+            {
+                var equal = EqualValues(frame);
+                return equal < 0 ? Bail : equal == 1 ? JsBoolean.True : JsBoolean.False;
+            }
+
             return Bail;
         }
 
@@ -74,9 +127,9 @@ internal sealed class KernelBinary : KernelExpression
 
     internal override int Test(KernelFrame frame)
     {
-        if (!TryOperands(frame, out var left, out var right))
+        if (_neverNumbers || !TryOperands(frame, out var left, out var right))
         {
-            return -1;
+            return _isEquality ? EqualValues(frame) : -1;
         }
 
         if (_isComparison)
@@ -247,6 +300,40 @@ internal sealed class KernelUnary : KernelExpression
 
         return base.Test(frame);
     }
+}
+
+/// <summary>
+/// A pure <c>typeof</c> (https://tc39.es/ecma262/#sec-typeof-operator): the type of a pure operand's value, and
+/// "undefined" for a name no environment, global declaration or link of the global object's prototype chain has.
+/// </summary>
+internal sealed class KernelTypeOf : KernelExpression
+{
+    internal readonly KernelExpression _argument;
+
+    public KernelTypeOf(Expression expression, KernelExpression argument) : base(expression)
+    {
+        _argument = argument;
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        var value = _argument.Evaluate(frame, out number);
+        number = 0;
+        if (value is null)
+        {
+            return JsString.NumberString;
+        }
+
+        if (ReferenceEquals(value, Bail))
+        {
+            return _argument is KernelName name && name.IsUnresolvable(frame) ? JsString.UndefinedString : Bail;
+        }
+
+        return JintUnaryExpression.TypeOfString(value);
+    }
+
+    /// <summary>The type of a value an operand answered, a Number where it is null.</summary>
+    internal static JsString Of(JsValue? value) => value is null ? JsString.NumberString : JintUnaryExpression.TypeOfString(value);
 }
 
 /// <summary>

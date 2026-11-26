@@ -563,6 +563,177 @@ public class FunctionKernelTests
           return out.join(",") + log.join("|");
         }
         """,
+        // built-in methods, members up long prototype chains, methods replaced or shadowed mid-run, built-in errors
+        """
+        var log = [];
+        var popOriginal = Array.prototype.pop, pushOriginal = Array.prototype.push;
+        function Base() {}
+        Base.prototype.hello = function (x) { return "b" + x; };
+        function Mid() {}
+        Mid.prototype = Object.create(Base.prototype);
+        function Leaf() { this.v = 1; }
+        Leaf.prototype = Object.create(Mid.prototype);
+        var leaf = new Leaf();
+        function arrays(n) {
+          var a = [], s = 0;
+          for (var i = 0; i < n; i++) { a.push(i, i * 2); a.push(i); s += a.length; }
+          var b = a.slice(1, 4), j = a.join("-"), k = a.indexOf(n - 1), p = a.pop(), q = a.length;
+          a.splice(0, 1, "x"); a.unshift(9); a.reverse();
+          return b.join() + "|" + j + "|" + k + "|" + p + "|" + q + "|" + a.concat([7]).join() + "|" + a.includes(9) + s;
+        }
+        function strings(s, n) {
+          var out = "", c = 0;
+          for (var i = 0; i < s.length; i++) { c += s.charCodeAt(i); out += s.charAt(i).toUpperCase(); }
+          return out + c + s.indexOf("b") + s.slice(1, n) + s.split("").length + n.toFixed(2) + n.toString(16) + s.length;
+        }
+        function methods(o, n) {
+          var r = [];
+          r.push(o.hasOwnProperty("v"), o.hasOwnProperty("hello"), leaf.hello(n), Object.prototype.toString.call(o), Math.max.apply(null, [n, 3, 1]), [].concat.call([1], n).length);
+          var f = function (a, b) { return (this && this.v) + a + b; };
+          r.push(f.call(o, n, 1), f.apply(o, [n, 2]), f.bind(o, 5)(n), String.fromCharCode(65 + n % 26), leaf.toString(), leaf.valueOf() === leaf);
+          return r.join();
+        }
+        function shadowMid(on) { if (on) { Mid.prototype.hello = function (x) { return "m" + x; }; } else { delete Mid.prototype.hello; } }
+        function popGetter(on) {
+          if (on) { Object.defineProperty(Array.prototype, "pop", { get: function () { log.push("get pop"); return function () { return "popped"; }; }, configurable: true }); }
+          else { Object.defineProperty(Array.prototype, "pop", { value: popOriginal, writable: true, configurable: true, enumerable: false }); }
+        }
+        function replaced(n) {
+          var a = [1, 2], r = [];
+          if (n === 3) { Array.prototype.push = function (x) { pushOriginal.call(log, "pushed " + x); return pushOriginal.call(this, x * 10); }; }
+          if (n === 4) { a.push = function (x) { log.push("own " + x); return 0; }; }
+          if (n === 5) { popGetter(true); }
+          if (n === 6) { shadowMid(true); }
+          a.push(n);
+          r.push(a.join(), a.pop(), leaf.hello(n));
+          if (n === 3) { Array.prototype.push = pushOriginal; }
+          if (n === 5) { popGetter(false); }
+          if (n === 6) { shadowMid(false); }
+          return r.join();
+        }
+        function errors(n) {
+          var r = [];
+          try { [].reduce(function () {}); } catch (e) { r.push(e.constructor.name + e.message); }
+          try { var o = null; o.missing(); } catch (e) { r.push(e.constructor.name + e.message); }
+          try { (n).missing(); } catch (e) { r.push(e.constructor.name + e.message); }
+          try { "s".charAt.call(null, 1); } catch (e) { r.push(e.constructor.name + e.message); }
+          try { leaf.nothing(n); } catch (e) { r.push(e.constructor.name + e.message); }
+          return r.join("/");
+        }
+        function test() {
+          log = [];
+          var out = [];
+          for (var i = 0; i < 9; i++) { out.push(arrays(i), strings("ab" + i, i), methods(i % 2 ? leaf : {}, i), replaced(i), errors(i)); }
+          return out.join(",") + log.join("|");
+        }
+        """,
+        // typeof of values and undeclared names, equality of other values than Numbers, calls of computed members
+        """
+        var g = 1, fns = [function (x) { return x + 1; }, function (x) { return x * 2; }, Math.abs];
+        var table = { add: function (a, b) { return a + b; }, sub: function (a, b) { return a - b; } };
+        var proto = { inherited: function () { return "i"; } };
+        var child = Object.create(proto);
+        child.own = function () { return this === child; };
+        function declareLate(on) { if (on) { globalThis.lateName = 1; } else { delete globalThis.lateName; } }
+        function types(i) {
+          var vals = [1, "s", null, undefined, {}, [], function () {}, true, Symbol.iterator, 2.5];
+          var v = vals[i % vals.length], r = typeof v;
+          return r + (typeof v === "function") + (typeof v == "object") + (typeof notDeclaredAnywhere) + (typeof g) + (typeof Math) + (typeof toString) + (v === null) + (v !== undefined) + (v == null) + (v === "s") + (r != "number");
+        }
+        function dispatch(i) {
+          var k = i % 3, name = i % 2 ? "add" : "sub", s = 0, r = "";
+          s += fns[k](i);
+          s += table[name](i, 2);
+          r += child["own"]() + child["inherited"]();
+          try { table["missing"](); } catch (e) { r += e.constructor.name + e.message; }
+          try { fns[9](); } catch (e) { r += e.constructor.name + e.message; }
+          var sym = {};
+          sym[Symbol.iterator] = function () { return "it"; };
+          r += sym[Symbol.iterator]();
+          var nk = { 1: function () { return "one"; } };
+          r += nk[1]() + fns[k].call(null, i);
+          return s + r;
+        }
+        function late(i) { if (i === 5) { declareLate(true); } return typeof lateName + (typeof lateName === "undefined"); }
+        function test() {
+          var out = [];
+          for (var i = 0; i < 14; i++) { out.push(types(i), dispatch(i), late(i)); }
+          declareLate(false);
+          return out.join(",");
+        }
+        """,
+        // for-of over arrays with holes, changes while iterating, early exits, and return, next or @@iterator replaced
+        """
+        var log = [];
+        var aip = Object.getPrototypeOf([][Symbol.iterator]());
+        var nextOriginal = aip.next, iteratorOriginal = Array.prototype[Symbol.iterator];
+        function sum(a) { var s = 0; for (var x of a) { s += x; } return s; }
+        function protoIndex(on) { if (on) { Array.prototype[1] = "p"; } else { delete Array.prototype[1]; } }
+        function addReturn(tag) { aip.return = function () { log.push(tag + " " + this.next().value); return {}; }; }
+        function dropReturn() { delete aip.return; }
+        function holes(n) { var a = [1, , 3]; a.length = n % 5; protoIndex(true); var s = ""; for (var x of a) { s += x; } protoIndex(false); return s; }
+        function mutate(n) { var a = [1, 2, 3], s = ""; for (var x of a) { s += x; if (x === 1) { a.push(n); } if (x === 2 && n % 2) { a.pop(); } } return s; }
+        function breaks(n) { var a = [1, 2, 3, 4], s = 0; for (const x of a) { if (x > n % 4) { break; } s += x; } return s; }
+        function withReturn(n) {
+          var s = 0;
+          if (n === 2) { addReturn("early"); }
+          for (var x of [1, 2, 3]) { if (x === 2) { if (n === 4) { addReturn("late"); } break; } s += x; }
+          dropReturn();
+          return s;
+        }
+        function replacedIterator(n) {
+          var a = [1, 2, 3], s = "";
+          if (n === 3) { a[Symbol.iterator] = function* () { yield "own"; }; }
+          if (n === 6) { Array.prototype[Symbol.iterator] = function* () { yield "proto"; }; }
+          if (n === 7) { aip.next = function () { var r = nextOriginal.call(this); log.push("next"); return r; }; }
+          for (var x of a) { s += x; }
+          if (n === 6) { Array.prototype[Symbol.iterator] = iteratorOriginal; }
+          if (n === 7) { aip.next = nextOriginal; }
+          return s;
+        }
+        function throwsInBody(n) { try { for (var x of [1, 2]) { if (x === 2) { throw new Error("t" + n); } } } catch (e) { return e.message; } return "none"; }
+        function notArray(n) { var s = ""; for (var c of "ab" + n) { s += c; } for (var [k, v] of new Map([[n, 1]])) { s += k + v; } return s; }
+        function test() {
+          log = [];
+          var out = [];
+          for (var i = 0; i < 9; i++) { out.push(sum([i, 2, 3]), holes(i), mutate(i), breaks(i), withReturn(i), replacedIterator(i), throwsInBody(i), notArray(i)); }
+          return out.join(",") + log.join("|");
+        }
+        """,
+        // bodies that make closures in some calls only, constructors with and without closures, error stacks in closures
+        """
+        function counter(start) { var n = start; return { inc: function () { n++; return n; }, get: () => n }; }
+        function maybeClosure(a, b) { if (a % 3 !== 0) { return a + b; } var g = function () { return a * b; }; return g(); }
+        function keepClosure(a) { var x = a * 2, y = "y" + a; var f = function () { return x + y; }; x++; return f; }
+        function closuresInLoop(n) { var fs = []; for (var i = 0; i < n; i++) { var j = i; fs.push(function () { return j; }); } var s = ""; for (var k = 0; k < fs.length; k++) { s += fs[k](); } return s; }
+        function letLoop(n) { var fs = []; for (let i = 0; i < n; i++) { fs.push(() => i); } var s = ""; for (var k = 0; k < fs.length; k++) { s += fs[k](); } return s; }
+        var holder = { v: 1, m: function (a) { var f = () => this.v + a; return f(); } };
+        function rec(n) { if (n <= 0) { return function () { return "base"; }; } var inner = rec(n - 1); var me = function () { return n + inner(); }; return me; }
+        function evalInClosure(a) { var hidden = a * 3; var f = function () { return eval("hidden + 1"); }; return f(); }
+        function earlyReturn(a) { var t = a; if (a > 2) { return function () { return t; }; } t = t + 100; return t; }
+        function writer(a) { var v = a; var set = function (x) { v = x; }; set(v + 1); var w = v; set(w * 2); return v + w; }
+        function Point(x, y) { this.x = x; this.y = y; }
+        function WithMethod(x) { this.x = x; this.get = function () { return x; }; }
+        function Captures(x) { var self = this; this.get = () => self.x + x; this.x = x; }
+        function Returns(x) { this.x = x; if (x > 3) { return { other: x }; } }
+        function Throws(x) { this.x = x; if (x === 2) { throw new Error("ctor " + x); } }
+        function stack(n) { var f = function () { return new Error("s" + n).stack; }; return f(); }
+        function test() {
+          var out = [], made = [], counters = [counter(1), counter(10)];
+          for (var i = 0; i < 9; i++) {
+            var f = keepClosure(i);
+            made.push(f);
+            var e = earlyReturn(i);
+            out.push(counters[i % 2].inc(), counters[i % 2].get(), maybeClosure(i, 2), f(), closuresInLoop(i % 4), letLoop(i % 4), holder.m(i), rec(i % 3)(), evalInClosure(i), typeof e === "function" ? e() : e, writer(i));
+            var p = new Point(i, 2), w = new WithMethod(i), c = new Captures(i), r = new Returns(i);
+            out.push(p.x + p.y, w.get(), c.get(), r.x === undefined ? r.other : r.x);
+            try { out.push(new Throws(i).x); } catch (err) { out.push(err.message); }
+          }
+          for (var k = 0; k < made.length; k++) { out.push(made[k]()); }
+          out.push(stack(1), stack(2));
+          return out.join(",");
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()

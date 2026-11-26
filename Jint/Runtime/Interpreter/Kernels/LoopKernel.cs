@@ -62,6 +62,9 @@ internal sealed class KernelFrame
     // Whether a closure instance keeps the frame for its calls.
     internal bool OwnedByInstance;
 
+    // Engine._environmentCaptures when a call that may make closures began, to tell whether its environment was captured.
+    internal int CapturesAtEntry;
+
     // The value a function body's return statement left, a Number in ReturnNumber where it is null.
     internal JsValue? ReturnValue;
     internal double ReturnNumber;

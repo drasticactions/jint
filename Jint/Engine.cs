@@ -2289,6 +2289,9 @@ public sealed partial class Engine : IDisposable
     internal int _functionKernelRuns;
     internal int _functionKernelCodeRuns;
 
+    // How many closures and deferred closures have captured an environment: a kernel call that saw it move keeps none.
+    internal int _environmentCaptures;
+
     // Call environments of functions whose environment nothing can capture
     // (JintFunctionDefinition.State.ReusesEnvironmentAcrossInstances), parked after a call by an instance that does not
     // keep its own, for the next call of any instance of the same definition: the methods a constructor makes for each
