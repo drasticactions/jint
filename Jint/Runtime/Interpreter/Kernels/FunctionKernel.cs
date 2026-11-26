@@ -325,28 +325,28 @@ internal sealed class FunctionKernel : KernelProgram
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     internal KernelFrame EnterCallFrame(EvaluationContext context, Native.Function.ScriptFunction function, JintFunctionDefinition.State state)
     {
-        if (function.TakeKernelEnvironment() is { } kept && EnterKeptFrame(context, function, state, kept) is { } own)
-        {
-            return own;
-        }
-
         var depth = _callDepth;
         var frames = _callFrames;
         var frame = (uint) depth < (uint) frames.Length ? frames[depth] : null;
-        if (frame is null)
+        if (frame is null || !ReferenceEquals(frame.Outer, function._environment))
         {
-            frame = NewCallFrame(context, function, state, depth);
+            // A frame bound elsewhere: the one a closure instance kept, or this one bound again.
+            if (function.TakeKernelEnvironment() is { } kept && EnterKeptFrame(context, function, state, kept) is { } own)
+            {
+                return own;
+            }
+
+            frame ??= NewCallFrame(context, function, state, depth);
+            if (!ReferenceEquals(frame.Outer, function._environment))
+            {
+                Rebind(frame, function._environment);
+            }
         }
 
         var environment = frame.CallEnvironment!;
         if (!ReferenceEquals(environment._functionObject, function))
         {
             environment._functionObject = function;
-        }
-
-        if (!ReferenceEquals(frame.Outer, function._environment))
-        {
-            Rebind(frame, function._environment);
         }
 
         frame.Engine._functionKernelRuns++;
