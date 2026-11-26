@@ -436,6 +436,33 @@ internal sealed class KernelArithmeticEffect : KernelExpression
     }
 }
 
+/// <summary><c>left instanceof right</c> (https://tc39.es/ecma262/#sec-instanceofoperator): each operand once, in order.</summary>
+internal sealed class KernelInstanceOf : KernelExpression
+{
+    internal readonly KernelExpression _left;
+    internal readonly KernelExpression _right;
+
+    public KernelInstanceOf(NonLogicalBinaryExpression expression, KernelExpression left, KernelExpression right) : base(expression)
+    {
+        _left = left;
+        _right = right;
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        number = 0;
+        return Test(frame) == 1 ? JsBoolean.True : JsBoolean.False;
+    }
+
+    internal override int Test(KernelFrame frame)
+    {
+        var left = Box(_left.Evaluate(frame, out var leftNumber), leftNumber);
+        var right = Box(_right.Evaluate(frame, out var rightNumber), rightNumber);
+        frame.Context.PrepareFor(_expression);
+        return left.InstanceofOperator(right) ? 1 : 0;
+    }
+}
+
 /// <summary><c>test ? consequent : alternate</c> with an operand that is not pure: the test, then one branch, once each.</summary>
 internal sealed class KernelConditionalEffect : KernelExpression
 {

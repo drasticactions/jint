@@ -394,7 +394,7 @@ internal static class KernelCodeRuntime
     /// reaches, whose bindings only the function's own code reads and writes; 0 for any other.
     /// </summary>
     internal static int KeptAcrossCalls(DeclarativeEnvironment? environment, int bits)
-        => environment is FunctionEnvironment { _functionObject: Native.Function.ScriptFunction { _functionDefinition.BuiltState: { UseFixedSlots: true, EnvironmentMayEscape: false } } }
+        => environment is FunctionEnvironment { _functionObject: Native.Function.ScriptFunction { _functionDefinition.BuiltState: { UseFixedSlots: true, EnvironmentMayEscape: false, ArgumentsMayAliasParameters: false } } }
             ? bits
             : 0;
 

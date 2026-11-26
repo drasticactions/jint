@@ -14,7 +14,8 @@ public class FunctionCallOverheadBenchmark
     private IsolatedScript _row;
 
     [Params("singleReturn", "branchy", "propertyStore", "nestedCalls", "recursive", "closureControl", "closureCounter", "moduleMethod", "protoThis", "newSmall",
-        "tryFinally", "forOfArray", "handIterator", "stringSwitch", "closureSometimes", "arrayPush", "dispatchTable", "typeofChecks")]
+        "tryFinally", "forOfArray", "handIterator", "stringSwitch", "closureSometimes", "arrayPush", "dispatchTable", "typeofChecks",
+        "argumentsRead", "restParameter", "applyArguments", "defaultParameter", "destructuredParameter", "spreadCall")]
     public string Shape { get; set; } = "";
 
     [GlobalSetup]
@@ -39,6 +40,12 @@ public class FunctionCallOverheadBenchmark
             "arrayPush" => "function f(a, b) { var arr = []; for (var i = 0; i < 4; i++) { arr.push(i + a); } return arr.length + b; }",
             "dispatchTable" => "var handlers = [function (x) { return x + 1; }, function (x) { return x * 2; }, function (x) { return x - 3; }]; function f(a, b) { var r = handlers[a % 3](b); return r; }",
             "typeofChecks" => "var cfg = { n: 1 }; function f(a, b) { var r = 0; if (typeof a === 'number') { r += a; } if (typeof cfg.n !== 'undefined') { r += b; } if (typeof missingGlobal === 'undefined') { r += 1; } return r; }",
+            "argumentsRead" => "function f(a, b) { var s = 0; for (var i = 0; i < arguments.length; i++) { s += arguments[i]; } return s; }",
+            "restParameter" => "function f(...xs) { var r = xs.length + xs[0]; return r; }",
+            "applyArguments" => "function g(a, b) { var r = a + b; return r; } function f(a, b) { var r = g.apply(this, arguments); return r; }",
+            "defaultParameter" => "function f(a, b, c = a + 1) { var r = b + c; return r; }",
+            "destructuredParameter" => "var pt = { x: 1, y: 2 }; function g({ x, y }, b) { var r = x + y + b; return r; } function f(a, b) { var r = g(pt, a); return r; }",
+            "spreadCall" => "var extra = [1, 2]; function g(a, b, c) { var r = a + b + c; return r; } function f(a, b) { var r = g(a, ...extra); return r; }",
             _ => "function f(a, b) { var g = function () { return a; }; var c = g() + b; return c; }",
         };
 

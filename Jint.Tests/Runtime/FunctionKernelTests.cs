@@ -739,6 +739,138 @@ public class FunctionKernelTests
           return out.join(",");
         }
         """,
+        // arithmetic over calls in loops: Numbers, strings, valueOf, calls that change the operands, throws
+        """
+        var log = [], total = 0;
+        function num(x) { return x * 2; }
+        function str(x) { return "s" + x; }
+        function obj(x) { return { valueOf: function () { log.push("v" + x); return x; } }; }
+        function bump(x) { total += 1; return x; }
+        function thrower(x) { if (x === 7) { throw new Error("t" + x); } return x; }
+        function captured() { var s = 1; var add = function (x) { s = 100; return x; }; for (var i = 0; i < 5; i++) { s = s + add(i); } return s; }
+        function run() {
+          log = []; total = 0;
+          var s = 0, t = "", u = 1, w = 0;
+          for (var i = 0; i < 12; i++) {
+            s = s + num(i);
+            t = t + str(i);
+            u = u * obj(i % 3 + 1) - num(1);
+            w = w - bump(i) + total;
+            s = num(i) % 5 + s;
+            total = total + bump(1) * 2;
+          }
+          var e = "";
+          try { for (var j = 0; j < 9; j++) { s = s + thrower(j); } } catch (err) { e = err.message; }
+          return [s, t, u, w, total, e, captured(), log.join("")].join(",");
+        }
+        """,
+        // arguments: length and index reads, mapped parameters, strict and rest lists, forwarding, escapes, holes
+        """
+        function sum() { var s = 0; for (var i = 0; i < arguments.length; i++) { s += arguments[i]; } return s; }
+        function alias(a, b) { arguments[0] = b; a = a + 1; return a + arguments[0] + arguments.length; }
+        function aliasStrict(a, b) { "use strict"; arguments[0] = b; return a + arguments[0]; }
+        function rest(a, ...more) { return arguments.length + more.length + (arguments[1] === more[0]); }
+        function forward() { return sum.apply(this, arguments); }
+        function keep() { return arguments; }
+        function set(x) { x[0] = "w"; }
+        function writes(a) { var args = arguments; set(args); return a; }
+        function holes(a, b, c) { return [arguments[5], arguments[-1], arguments[1.5], arguments.length, typeof arguments[2]].join(":"); }
+        function callee() { return typeof arguments.callee; }
+        function iter() { var s = ""; for (var x of arguments) { s += x; } return s; }
+        function mutateLength() { arguments.length = 1; return arguments.length + ":" + arguments[1]; }
+        function lateClosure(a) { var f = () => arguments[0]; a = 9; return f(); }
+        function throws(a) { if (a > 5) { throw new Error("e" + arguments.length); } return arguments[0]; }
+        function nested(a) { return sum(a, a) + sum.apply(null, arguments) + alias(a, a); }
+        function loopAlias(a) { var s = 0; for (var i = 0; i < 4; i++) { a = a + 1; s += arguments[0]; arguments[0] = s; } return s + a; }
+        var o = { m: function () { return this.k + arguments.length; }, k: 3 };
+        function test() {
+          var out = [];
+          for (var i = 0; i < 9; i++) {
+            out.push(sum(i, 1, 2), sum(), alias(i, 2), alias(i), aliasStrict(i, 2), rest(i, 7, 8), forward(i, i), keep(i, 2)[1], keep(i).length, writes(i));
+            out.push(holes(i, 2), callee(), iter(i, "x"), mutateLength(1, 2, 3), lateClosure(i), nested(i), o.m(1, 2), loopAlias(i));
+            try { out.push(throws(i, 2)); } catch (e) { out.push(e.message, e.stack); }
+          }
+          return out.join(",");
+        }
+        """,
+        // spread calls over arrays, holes, strings, iterators, replaced iterators and getters; instanceof; destructuring
+        """
+        var log = [];
+        function three(a, b, c) { return [a, b, c, arguments.length].join("/"); }
+        function iterable(n) { var i = 0; return { [Symbol.iterator]() { return { next() { log.push("n" + i); return i < n ? { done: false, value: i++ } : { done: true }; } }; } }; }
+        var obj = { m(...xs) { return this.tag + xs.length; }, tag: "t" };
+        function spreads(a) {
+          var arr = [a, a + 1], holes = [a, , a + 2], replaced = [7, 8];
+          replaced[Symbol.iterator] = function* () { log.push("own"); yield 1; };
+          var r = [three(...arr), three(a, ...arr), three(1, 2, ...holes), three(...iterable(a % 3)), three(..."xy"), three(...replaced), obj.m(...arr), Math.max(...arr), [].concat(...arr).length];
+          r.push(String.prototype.concat.call("p", ...arr));
+          try { three(...a); } catch (e) { r.push(e.message); }
+          return r.join(",");
+        }
+        class Base { }
+        function check(v) { return (v instanceof Base) + ":" + (v instanceof Object) + ":" + ([] instanceof Array); }
+        var custom = { [Symbol.hasInstance](v) { log.push("has" + v); return v > 2; } };
+        function instances(a) {
+          var r = check(new Base()) + check(a) + (a instanceof custom ? "y" : "n");
+          try { r += a instanceof 5; } catch (e) { r += e.message; }
+          return r;
+        }
+        function destructure(a) {
+          var [x, y = 5, ...rest] = [a, undefined, 1, 2];
+          var { p, q: { r = "d" } = {}, ...others } = { p: a, s: 1, t: 2 };
+          let [m, n] = iterable(2);
+          var u, v;
+          [u, v] = [v, a];
+          ({ u, v = u } = { u: a * 2 });
+          var getters = { get g() { log.push("g"); return a; } };
+          var { g } = getters;
+          try { var [z] = null; } catch (e) { log.push(e.message); }
+          return [x, y, rest.length, p, r, Object.keys(others).join(""), m, n, u, v, g].join(";");
+        }
+        function blocks(n) {
+          var fs = [];
+          for (var i = 0; i < n; i++) { let v = i * 2; const w = v + 1; if (i % 2) { fs.push(() => v + w); } else { v = -v; } }
+          { let x = n; var g = () => x; x = n + 1; fs.push(g); }
+          return fs.map(f => f()).join(":");
+        }
+        function test() {
+          log = [];
+          var out = [];
+          for (var i = 0; i < 9; i++) { out.push(spreads(i), instances(i), destructure(i), blocks(i)); }
+          return out.join("|") + log.join("");
+        }
+        """,
+        // default and destructured parameters: earlier parameters, the temporal dead zone, getters, iterators, closures
+        """
+        var log = [];
+        function def(a, b = 1) { var r = a + b; return r; }
+        function defPrev(a, b = a * 2, c = a + b) { var r = [a, b, c].join("/"); return r; }
+        function defUndef(a = 5) { var r = a; return r; }
+        function tdz(a = b, b = 1) { var r = a + b; return r; }
+        function destr({ x, y = 3 }, [p, , q = 9] = [], ...rest) { var r = [x, y, p, q, rest.length].join("/"); return r; }
+        function getters({ g }) { var r = g; return r; }
+        var getterObj = { get g() { log.push("g"); return 1; } };
+        function iterParam([a, b]) { var r = a + b; return r; }
+        function closureDefault(a, f = () => a) { var a2 = a; a = 7; return f() + a2; }
+        function varShadow(a = 1) { var a; return a; }
+        function defThis(a = this.k) { var r = a; return r; }
+        function defCall(a = log.push("d")) { var r = a; return r; }
+        function nullDestr({ x }) { var r = x; return r; }
+        function argsAndDefault(a, b = 2) { var r = arguments.length + a + b; return r; }
+        var holder = { k: 4, m: defThis };
+        function test() {
+          log = [];
+          var out = [];
+          for (var i = 0; i < 9; i++) {
+            out.push(def(i), def(i, 2), defPrev(i), defPrev(i, undefined, 1), defUndef(undefined), defUndef(i), destr({ x: i }, [1, 2], 3, 4), destr({ x: i, y: 0 }));
+            out.push(getters(getterObj), iterParam([i, 1]), iterParam(new Set([i, 2])), closureDefault(i), varShadow(), varShadow(i), holder.m(), holder.m(i), defCall(), argsAndDefault(i));
+            try { out.push(tdz()); } catch (e) { out.push(e.name); }
+            out.push(tdz(1, 2));
+            try { out.push(nullDestr(null)); } catch (e) { out.push(e.name + e.message); }
+          }
+          return out.join(",") + log.join("");
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()
@@ -856,11 +988,19 @@ public class FunctionKernelTests
     [TestCase("function f(a) { return a < 1 ? a : f(a - 1) + 1; }", true)]
     [TestCase("function f(a) { var g = function () { return a; }; return g(); }", true)]
     [TestCase("function f(a) { var b = a + 1; return () => b; }", true)]
-    [TestCase("function f(a) { var b = a + 1; return () => arguments[0] + b; }", false)]
+    [TestCase("function f(a) { var b = a + 1; return () => arguments[0] + b; }", true)]
     [TestCase("function f(a) { function g() { return a; } return g(); }", false)]
     [TestCase("function f(a) { var C = class { }; return new C(); }", false)]
     [TestCase("function f(a) { var b; try { b = a + 1; } catch (e) { } return b; }", true)]
-    [TestCase("function f(a) { var b = arguments.length; return b + a; }", false)]
+    [TestCase("function f(a) { var b = arguments.length; return b + a; }", true)]
+    [TestCase("function f(a) { var s = 0; for (var i = 0; i < arguments.length; i++) { s += arguments[i]; } return s; }", true)]
+    [TestCase("function f(a) { return g.apply(this, arguments); } function g(x) { return x; }", true)]
+    [TestCase("function f(a) { return g(a, ...[a, 1]); } function g(x, y) { return x + y; }", true)]
+    [TestCase("function f(a) { var [x, y] = [a, 1]; [x, y] = [y, x]; return x + y; }", true)]
+    [TestCase("function f(a) { var b = a instanceof Object ? 1 : 2; return b; }", true)]
+    [TestCase("function f(a, b = 1) { var c = a + b; return c; }", true)]
+    [TestCase("function f({ x, y }, [z] = [1]) { var c = x + y + z; return c; }", true)]
+    [TestCase("function f(a, g = () => a) { var c = g(); return c; }", false)]
     [TestCase("function f(a) { var b = eval('a'); return b; }", false)]
     [TestCase("function* f(a) { var b = a + 1; yield b; }", false)]
     [TestCase("async function f(a) { var b = a + 1; return b; }", false)]

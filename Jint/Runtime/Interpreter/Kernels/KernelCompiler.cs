@@ -905,6 +905,9 @@ internal sealed class KernelCompiler
                     return new KernelArithmeticEffect(binary, left ?? CompileValue(binary.Left), right ?? CompileValue(binary.Right));
                 }
 
+            case NonLogicalBinaryExpression { Operator: Operator.InstanceOf } instanceOf:
+                return new KernelInstanceOf(instanceOf, CompileValue(instanceOf.Left), CompileValue(instanceOf.Right));
+
             case ConditionalExpression conditional when TryCompilePure(conditional) is null:
                 {
                     var test = TryCompileEffect(conditional.Test);
@@ -1001,11 +1004,12 @@ internal sealed class KernelCompiler
             return null;
         }
 
-        foreach (var argument in call.Arguments)
+        var count = call.Arguments.Count;
+        for (var i = 0; i < count; i++)
         {
-            if (argument is SpreadElement)
+            if (call.Arguments[i] is SpreadElement)
             {
-                return null;
+                return i == count - 1 && i <= KernelSpreadCall.MaxLeading ? TryCompileSpreadCall(call) : null;
             }
         }
 
@@ -1059,6 +1063,48 @@ internal sealed class KernelCompiler
         }
 
         return new KernelCall(call, member, callee, arguments, computedObject, computedKey);
+    }
+
+    /// <summary>A call of a name or a named member whose last argument is a spread.</summary>
+    private KernelSpreadCall? TryCompileSpreadCall(CallExpression call)
+    {
+        KernelProperty? member = null;
+        KernelExpression? callee = null;
+        switch (call.Callee)
+        {
+            case MemberExpression { Computed: false, Optional: false, Object: not Super, Property: Identifier property } memberCallee:
+                {
+                    var obj = TryCompilePure(memberCallee.Object);
+                    if (obj is null)
+                    {
+                        return null;
+                    }
+
+                    member = new KernelProperty(memberCallee, obj, property.Name);
+                    break;
+                }
+
+            case Identifier identifier when !string.Equals(identifier.Name, "eval", StringComparison.Ordinal):
+                callee = TryCompilePure(identifier);
+                if (callee is null)
+                {
+                    return null;
+                }
+
+                break;
+
+            default:
+                return null;
+        }
+
+        var arguments = new KernelExpression[call.Arguments.Count];
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            var argument = call.Arguments[i];
+            arguments[i] = CompileValue(argument is SpreadElement spread ? spread.Argument : argument);
+        }
+
+        return new KernelSpreadCall(call, member, callee, arguments);
     }
 
     private KernelNew? TryCompileNew(NewExpression expression)
@@ -1117,6 +1163,11 @@ internal sealed class KernelCompiler
                         return new KernelConstant(identifier, calculated);
                     }
 
+                    if (IsArguments(identifier))
+                    {
+                        return new KernelArgumentsValue(identifier, Name(identifier));
+                    }
+
                     return IsEvalOrArguments(identifier) ? null : Name(identifier);
                 }
 
@@ -1169,6 +1220,17 @@ internal sealed class KernelCompiler
                     var consequent = test is null ? null : TryCompilePure(conditional.Consequent);
                     var alternate = consequent is null ? null : TryCompilePure(conditional.Alternate);
                     return alternate is null ? null : new KernelConditional(conditional, test!, consequent!, alternate);
+                }
+
+            case MemberExpression { Optional: false, Object: Identifier argumentsObject } member when IsArguments(argumentsObject):
+                {
+                    if (!member.Computed)
+                    {
+                        return member.Property is Identifier { Name: "length" } ? new KernelArgumentsRead(member, Name(argumentsObject), null) : null;
+                    }
+
+                    var index = TryCompilePure(member.Property);
+                    return index is null ? null : new KernelArgumentsRead(member, Name(argumentsObject), index);
                 }
 
             case MemberExpression { Optional: false, Object: not Super } member:
@@ -1238,4 +1300,6 @@ internal sealed class KernelCompiler
 
     private static bool IsEvalOrArguments(Identifier identifier)
         => identifier.Name is "eval" or "arguments";
+
+    private static bool IsArguments(Identifier identifier) => string.Equals(identifier.Name, "arguments", StringComparison.Ordinal);
 }

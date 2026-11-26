@@ -1116,6 +1116,10 @@ internal sealed class KernelEmitter
                 EmitCall(call, value, number);
                 return;
 
+            case KernelArithmeticEffect arithmetic:
+                EmitArithmeticEffect(arithmetic, value, number);
+                return;
+
             case KernelTypeOf typeOf:
                 EmitTypeOf(typeOf, bail!.Value, value);
                 return;
@@ -2092,6 +2096,51 @@ internal sealed class KernelEmitter
                     return;
                 }
         }
+    }
+
+    /// <summary><see cref="KernelArithmeticEffect.Evaluate"/>: each operand once, in order; two Numbers combined directly.</summary>
+    private void EmitArithmeticEffect(KernelArithmeticEffect arithmetic, LocalBuilder value, LocalBuilder number)
+    {
+        var il = _il;
+        var leftValue = Rent(typeof(JsValue));
+        var leftNumber = Rent(typeof(double));
+        var rightValue = Rent(typeof(JsValue));
+        var rightNumber = Rent(typeof(double));
+        var slow = il.DefineLabel();
+        var done = il.DefineLabel();
+        EmitUnion(arithmetic._left, null, leftValue, leftNumber);
+        EmitUnion(arithmetic._right, null, rightValue, rightNumber);
+        il.Emit(OpCodes.Ldloc, leftValue);
+        il.Emit(OpCodes.Ldloca, leftNumber);
+        il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.IsNumber)));
+        il.Emit(OpCodes.Brfalse, slow);
+        il.Emit(OpCodes.Ldloc, rightValue);
+        il.Emit(OpCodes.Ldloca, rightNumber);
+        il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.IsNumber)));
+        il.Emit(OpCodes.Brfalse, slow);
+        EmitArithmetic(arithmetic._operator, leftNumber, rightNumber);
+        il.Emit(OpCodes.Stloc, number);
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Stloc, value);
+        il.Emit(OpCodes.Br, done);
+        il.MarkLabel(slow);
+        EmitBeforeForeign();
+        EmitConstant(arithmetic);
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Ldloc, leftValue);
+        il.Emit(OpCodes.Ldloc, leftNumber);
+        il.Emit(OpCodes.Call, BoxMethod);
+        il.Emit(OpCodes.Ldloc, rightValue);
+        il.Emit(OpCodes.Ldloc, rightNumber);
+        il.Emit(OpCodes.Call, BoxMethod);
+        il.Emit(OpCodes.Call, Method(typeof(KernelArithmeticEffect), nameof(KernelArithmeticEffect.ApplyValues)));
+        il.Emit(OpCodes.Stloc, value);
+        EmitAfterForeign();
+        il.MarkLabel(done);
+        Return(rightNumber);
+        Return(rightValue);
+        Return(leftNumber);
+        Return(leftValue);
     }
 
     /// <summary><see cref="KernelBinary"/>'s Apply of two Numbers in locals, left on the stack.</summary>

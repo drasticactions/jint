@@ -212,6 +212,22 @@ public sealed class JsArguments : ObjectInstance
         return base.Get(property, receiver);
     }
 
+    /// <summary>The length [[Get]] reads while no property was materialized, or -1 after.</summary>
+    internal int VirtualLength => _virtualMode ? _args.Length : -1;
+
+    /// <summary>The element [[Get]] reads at an index below the length while no property was materialized, or null.</summary>
+    internal JsValue? VirtualElement(uint index)
+    {
+        if (!_virtualMode || index >= (uint) _args.Length)
+        {
+            return null;
+        }
+
+        return _func is not null && !_mapDetached && TryGetMappedName(index, out var name)
+            ? _env.GetBindingValue(name, strict: false)
+            : _args[index];
+    }
+
     /// <summary>The argument values as [[Get]] reads them while no property was materialized, or null after.</summary>
     internal JsValue[]? CopyVirtualValues()
     {

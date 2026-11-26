@@ -170,12 +170,35 @@ internal sealed class JintFunctionDefinition
 
             // https://tc39.es/ecma262/#sec-runtime-semantics-evaluatefunctionbody
             argumentsInstance = context.Engine.FunctionDeclarationInstantiation(context, functionObject, argumentsList, state);
+            if (state.UseFixedSlots && Kernel(context.Engine, state) is { } kernel && Kernels.KernelProgram.CanRun(context))
+            {
+                return RunKernel(context, kernel, argumentsInstance, state);
+            }
+
             result = (_bodyStatementList ?? BuildBodyStatementList(context)).ExecuteSynchronousFunctionBody(context);
         }
 
         // The argument is evaluated only when there is an arguments object to tell.
         argumentsInstance?.FunctionWasCalled(environmentOutlivesCall: state.EnvironmentMayEscape);
         return result;
+    }
+
+    /// <summary>The instantiated body run on its kernel, the arguments object told the call ended however it ends.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private Completion RunKernel(EvaluationContext context, Kernels.FunctionKernel kernel, JsArguments? argumentsInstance, State state)
+    {
+        JsValue value;
+        try
+        {
+            var environment = state.EnvironmentMayEscape ? null : context.Engine.ExecutionContext.LexicalEnvironment as FunctionEnvironment;
+            value = kernel.Run(context, environment);
+        }
+        finally
+        {
+            argumentsInstance?.FunctionWasCalled(environmentOutlivesCall: state.EnvironmentMayEscape);
+        }
+
+        return new Completion(CompletionType.Return, value, _body);
     }
 
     /// <summary>
@@ -789,6 +812,9 @@ internal sealed class JintFunctionDefinition
         /// </summary>
         public bool ArgumentsMayOutliveCall;
 
+        /// <summary>Whether a fixed-slot function's arguments object may be mapped to its parameter slots.</summary>
+        public bool ArgumentsMayAliasParameters;
+
         public bool RequiresInputArgumentsOwnership;
         public List<Key>? VarNames;
         public FunctionToInitialize[]? FunctionsToInitialize;
@@ -1030,7 +1056,8 @@ internal sealed class JintFunctionDefinition
         // function's arguments object in strict mode as much as in sloppy mode — the strict eval
         // gets a variable environment of its own, not a fresh `arguments`.
         var evalUsage = EvalContextAstVisitor.Usage.None;
-        if (!strict || (argumentsObjectReachable && !state.ArgumentsObjectNeeded))
+        var evalScanned = !strict || (argumentsObjectReachable && !state.ArgumentsObjectNeeded);
+        if (evalScanned)
         {
             evalUsage = EvalContextAstVisitor.Scan(function);
         }
@@ -1068,6 +1095,17 @@ internal sealed class JintFunctionDefinition
         }
 
         state.ParameterBindings = parameterBindings;
+
+        // Parameter expressions no closure or eval can observe bind in the function's own environment.
+        if (state.HasParameterExpressions
+            && !state.HasDuplicates
+            && !state.NeedsEvalContext
+            && !function.Async
+            && !function.Generator
+            && ParameterExpressionsStayPrivate(function, state.VarNames, lexicalNames, state.FunctionNames))
+        {
+            state.HasParameterExpressions = false;
+        }
 
         var varsToInitialize = new List<State.VariableValuePair>();
         if (!state.HasParameterExpressions)
@@ -1191,11 +1229,17 @@ internal sealed class JintFunctionDefinition
 
         // Fixed-slot qualification: use array-based binding storage for simple functions, and for a list of
         // identifiers ending in a rest identifier, whose rest slot the instantiation fills with a new array.
-        if ((state.IsSimpleParameterList || state.HasOnlyTrailingRestIdentifier)
+        // An arguments object takes the last slot; patterns and defaults bind by name, in the general arm.
+        var argumentsSlot = state.ArgumentsObjectNeeded
+                            && !function.Async
+                            && !function.Generator
+                            && (evalScanned ? evalUsage : EvalContextAstVisitor.Scan(function)) == EvalContextAstVisitor.Usage.None;
+        var bindsByPosition = state.IsSimpleParameterList || state.HasOnlyTrailingRestIdentifier;
+        if ((bindsByPosition || (!function.Async && !function.Generator))
             && !state.HasDuplicates
             && !state.HasParameterExpressions
             && !state.NeedsEvalContext
-            && !state.ArgumentsObjectNeeded
+            && (!state.ArgumentsObjectNeeded || argumentsSlot)
             && state.FunctionsToInitialize is null)
         {
             // Count lexical declaration bindings (let/const only, no function/class declarations)
@@ -1214,7 +1258,7 @@ internal sealed class JintFunctionDefinition
                 lexicalBindingCount = -1;
             }
 
-            var totalSlots = state.ParameterNames.Length + varsToInitialize.Count + lexicalBindingCount;
+            var totalSlots = state.ParameterNames.Length + varsToInitialize.Count + lexicalBindingCount + (argumentsSlot ? 1 : 0);
             if (lexicalBindingCount >= 0 && totalSlots > 0 && totalSlots <= MaxFixedSlots)
             {
                 var slotNames = new Key[totalSlots];
@@ -1259,13 +1303,20 @@ internal sealed class JintFunctionDefinition
                     }
                 }
 
+                if (argumentsSlot)
+                {
+                    slotNames[totalSlots - 1] = KnownKeys.Arguments;
+                    nonParameterSlotTemplate[^1] = new Binding(JsValue.Undefined, canBeDeleted: false, mutable: true, strict: false);
+                    state.ArgumentsMayAliasParameters = state.IsSimpleParameterList && state.ParameterNames.Length > 0;
+                }
+
                 state.SlotNames = slotNames;
                 state.ParameterSlotCount = state.ParameterNames.Length;
                 state.RestParameterSlot = state.HasOnlyTrailingRestIdentifier ? state.ParameterNames.Length - 1 : -1;
                 state.VarSlotCount = varsToInitialize.Count;
                 state.NonParameterSlotTemplate = nonParameterSlotTemplate;
                 state.UseFixedSlots = true;
-                state.CanUseFastFDI = true;
+                state.CanUseFastFDI = !argumentsSlot && bindsByPosition;
             }
         }
 
@@ -1752,6 +1803,52 @@ Start:
 
             break;
         }
+    }
+
+    /// <summary>
+    /// Whether no parameter makes a closure or a class, calls eval directly, or names <c>arguments</c> or a name the
+    /// body declares, so that nothing can tell its environment from the body's.
+    /// </summary>
+    private static bool ParameterExpressionsStayPrivate(IFunction function, List<Key>? varNames, List<Key>? lexicalNames, HashSet<Key> functionNames)
+    {
+        if (functionNames.Contains(KnownKeys.Arguments) || lexicalNames?.Contains(KnownKeys.Arguments) == true || varNames?.Contains(KnownKeys.Arguments) == true)
+        {
+            return false;
+        }
+
+        var pending = new Stack<Node>();
+        foreach (var parameter in function.Params.AsSpan())
+        {
+            pending.Push(parameter);
+        }
+
+        while (pending.Count > 0)
+        {
+            var node = pending.Pop();
+            switch (node)
+            {
+                case IFunction or ClassDeclaration or ClassExpression:
+                case CallExpression { Callee: Identifier { Name: "eval" } }:
+                    return false;
+                case Identifier identifier:
+                    {
+                        Key key = identifier.Name;
+                        if (key == KnownKeys.Arguments || functionNames.Contains(key) || varNames?.Contains(key) == true || lexicalNames?.Contains(key) == true)
+                        {
+                            return false;
+                        }
+
+                        break;
+                    }
+            }
+
+            foreach (var child in node.ChildNodes)
+            {
+                pending.Push(child);
+            }
+        }
+
+        return true;
     }
 
     private static void ProcessParameters(

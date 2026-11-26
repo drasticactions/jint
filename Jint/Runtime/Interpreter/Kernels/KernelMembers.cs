@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Jint.Native;
+using Jint.Native.Array;
 using Jint.Native.Function;
 using Jint.Native.Object;
 using Jint.Native.TypedArray;
@@ -78,6 +79,80 @@ internal sealed class KernelElement : KernelExpression
         }
 
         return Bail;
+    }
+}
+
+/// <summary>
+/// A pure <c>arguments.length</c> or <c>arguments[index]</c> of an arguments object none of whose properties was
+/// materialized, read as its [[Get]] reads it; anything else answers <see cref="KernelExpression.Bail"/>.
+/// </summary>
+internal sealed class KernelArgumentsRead : KernelExpression
+{
+    internal readonly KernelName _arguments;
+    internal readonly KernelExpression? _index;
+
+    public KernelArgumentsRead(Expression expression, KernelName arguments, KernelExpression? index) : base(expression)
+    {
+        _arguments = arguments;
+        _index = index;
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        number = 0;
+        if (_arguments.PeekSlot(frame) is not JsArguments arguments)
+        {
+            return Bail;
+        }
+
+        if (_index is null)
+        {
+            var length = arguments.VirtualLength;
+            if (length < 0)
+            {
+                return Bail;
+            }
+
+            number = length;
+            return null;
+        }
+
+        var key = _index.Evaluate(frame, out var keyNumber);
+        if (!IsNumber(key, ref keyNumber))
+        {
+            return Bail;
+        }
+
+        var index = (uint) keyNumber;
+        if (index != keyNumber || index == uint.MaxValue)
+        {
+            return Bail;
+        }
+
+        return arguments.VirtualElement(index) ?? Bail;
+    }
+}
+
+/// <summary>A pure read of an arguments object, which is materialized first as the interpreter's read of it does.</summary>
+internal sealed class KernelArgumentsValue : KernelExpression
+{
+    internal readonly KernelName _arguments;
+
+    public KernelArgumentsValue(Expression expression, KernelName arguments) : base(expression)
+    {
+        _arguments = arguments;
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        number = 0;
+        if (_arguments.PeekSlot(frame) is not JsArguments arguments)
+        {
+            return _arguments.Evaluate(frame, out number);
+        }
+
+        arguments.Materialize();
+        return arguments;
     }
 }
 
@@ -1539,6 +1614,235 @@ internal sealed class KernelCall : KernelExpression
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     internal JsValue Interpret(KernelFrame frame) => (_handler ??= JintExpression.Build(_expression)).GetValue(frame.Context);
+}
+
+/// <summary>
+/// A call whose last argument is a spread, of a callee read purely: the list made as the interpreter makes it, an array
+/// whose iteration is the built-in one read by index; a callee that is not a function leaves the call to the interpreter.
+/// </summary>
+internal sealed class KernelSpreadCall : KernelExpression
+{
+    internal const int MaxLeading = 3;
+
+    internal readonly KernelExpression? _base;
+    internal readonly KernelProperty? _member;
+    internal readonly KernelExpression? _callee;
+    internal readonly KernelExpression[] _arguments;
+    private readonly SpreadElement _spread;
+    private JintSpreadExpression? _spreadHandler;
+    private JintExpression? _handler;
+
+    public KernelSpreadCall(CallExpression expression, KernelProperty? member, KernelExpression? callee, KernelExpression[] arguments) : base(expression)
+    {
+        _member = member;
+        _base = member?.Object;
+        _callee = callee;
+        _arguments = arguments;
+        _spread = (SpreadElement) expression.Arguments[expression.Arguments.Count - 1];
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        number = 0;
+        if (!frame.Engine._stackGuard.TryEnterOnCurrentStack())
+        {
+            return Interpret(frame);
+        }
+
+        JsValue thisValue;
+        JsValue? callee;
+        if (_member is not null)
+        {
+            var target = _base!.Evaluate(frame, out var targetNumber);
+            if (target is null)
+            {
+                target = JsNumber.Create(targetNumber);
+            }
+            else if (ReferenceEquals(target, Bail))
+            {
+                return Interpret(frame);
+            }
+
+            thisValue = target;
+            callee = _member.ReadCallee(target, frame.Engine);
+        }
+        else
+        {
+            thisValue = JsValue.Undefined;
+            callee = _callee!.Evaluate(frame, out _);
+        }
+
+        if (callee is not Function function || (function is not ScriptFunction && function._functionDefinition is not null))
+        {
+            return Interpret(frame);
+        }
+
+        frame.Work += function is ScriptFunction ? KernelCall.ScriptCallWork : KernelCall.BuiltinCallWork;
+        var values = Arguments(frame, out var rented);
+        if (function is ScriptFunction script && values.Length <= 4 && InFrameState(frame, script, out var kernel) is { } state)
+        {
+            return CallInFrame(frame, script, thisValue, values, rented, state, kernel!, out number);
+        }
+
+        return Call(frame, function, thisValue, values, rented);
+    }
+
+    /// <summary>The argument list: the leading arguments, then the spread's values.</summary>
+    private JsValue[] Arguments(KernelFrame frame, out bool rented)
+    {
+        var engine = frame.Engine;
+        var arguments = _arguments;
+        var leading = arguments.Length - 1;
+        var a0 = leading > 0 ? Box(arguments[0].Evaluate(frame, out var n0), n0) : null;
+        var a1 = leading > 1 ? Box(arguments[1].Evaluate(frame, out var n1), n1) : null;
+        var a2 = leading > 2 ? Box(arguments[2].Evaluate(frame, out var n2), n2) : null;
+        var argument = Box(arguments[leading].Evaluate(frame, out var n), n);
+
+        var oldSyntaxElement = engine.MarkLastSyntaxElement();
+        frame.Context.PrepareFor(_expression);
+        JsValue? iteratorMethod = null;
+        if (argument is JsArray array && array.HasOriginalIterator(out iteratorMethod))
+        {
+            var length = array.GetLength();
+            if (engine._hasMaxArraySize)
+            {
+                ArrayInstance.ValidateListLength(engine, (ulong) leading + length);
+            }
+
+            if (length <= int.MaxValue - MaxLeading)
+            {
+                var values = engine._jsValueArrayPool.RentArray(leading + (int) length);
+                Lead(values, leading, a0, a1, a2);
+                for (var j = 0; j < (int) length; j++)
+                {
+                    values[leading + j] = array.GetElement((uint) j);
+                }
+
+                engine.RestoreLastSyntaxElement(in oldSyntaxElement);
+                rented = true;
+                return values;
+            }
+        }
+
+        var target = new List<JsValue>(leading + 4);
+        if (leading > 0)
+        {
+            target.Add(a0!);
+            if (leading > 1)
+            {
+                target.Add(a1!);
+                if (leading > 2)
+                {
+                    target.Add(a2!);
+                }
+            }
+        }
+
+        var iterator = (_spreadHandler ??= new JintSpreadExpression(_spread)).GetIterator(engine.Realm, argument, iteratorMethod);
+        ExpressionCache.SpreadInto(engine, target, iterator);
+        if (engine._hasMaxArraySize)
+        {
+            ArrayInstance.ValidateListLength(engine, (uint) target.Count);
+        }
+
+        engine.RestoreLastSyntaxElement(in oldSyntaxElement);
+        rented = false;
+        return target.ToArray();
+    }
+
+    private static void Lead(JsValue[] values, int leading, JsValue? a0, JsValue? a1, JsValue? a2)
+    {
+        if (leading > 0)
+        {
+            values[0] = a0!;
+            if (leading > 1)
+            {
+                values[1] = a1!;
+                if (leading > 2)
+                {
+                    values[2] = a2!;
+                }
+            }
+        }
+    }
+
+    /// <summary>The register state of a function whose body runs on a kernel in its frames, or null.</summary>
+    private static JintFunctionDefinition.State? InFrameState(KernelFrame frame, ScriptFunction function, out FunctionKernel? kernel)
+    {
+        var engine = frame.Engine;
+        kernel = function._functionDefinition!._kernel;
+        return kernel is not null
+               && !function._isClassConstructor
+               && function._functionDefinition.BuiltState is { SupportsRegisterCall: true } state
+               && engine.CanPushCallFrame
+               && kernel.RunsInFrames(state)
+               && !frame.Context.CompletionValuesObservable
+               && engine._stackGuard.HasVerifiedHeadroom()
+            ? state
+            : null;
+    }
+
+    /// <summary>The call of a function whose body runs on a kernel, in a frame of the kernel, as a call without spread makes it.</summary>
+    private JsValue? CallInFrame(KernelFrame frame, ScriptFunction function, JsValue thisValue, JsValue[] values, bool rented, JintFunctionDefinition.State state, FunctionKernel kernel, out double number)
+    {
+        var engine = frame.Engine;
+        var count = values.Length;
+        var arguments = new NumberArguments(
+            count > 0 ? values[0] : null, 0,
+            count > 1 ? values[1] : null, 0,
+            count > 2 ? values[2] : null, 0,
+            count > 3 ? values[3] : null, 0,
+            count);
+        var oldPositions = engine.MarkLastSyntaxPositions();
+        var oldSource = engine._lastSyntaxLocation.SourceFile;
+        var result = function.CallKernelInFrame(CallHandler, thisValue, in arguments, state, kernel, out number);
+        engine.RestoreLastSyntaxElement(oldPositions, oldSource);
+        if (rented && count > 0)
+        {
+            engine._jsValueArrayPool.ReturnArray(values);
+        }
+
+        return result;
+    }
+
+    /// <summary>The call with its list, through a call stack frame as JintCallExpression makes it.</summary>
+    private JsValue Call(KernelFrame frame, Function function, JsValue thisValue, JsValue[] values, bool rented)
+    {
+        var engine = frame.Engine;
+        var oldSyntaxElement = engine.MarkLastSyntaxElement();
+        frame.Context.PrepareFor(_expression);
+
+        var callStack = engine.CallStack;
+        var recursionDepth = callStack.Push(function, CallHandler, engine.ExecutionContext);
+        if (recursionDepth > engine._maxRecursionDepth)
+        {
+            engine.AbandonImplicitMemoryOperation();
+            Throw.RecursionDepthOverflowException(callStack);
+        }
+
+        JsValue result;
+        try
+        {
+            result = function is ScriptFunction script ? script.CallWithStackFrame(thisValue, values) : function.Call(thisValue, values);
+        }
+        finally
+        {
+            callStack.TryPopAndDiscard();
+        }
+
+        if (rented && values.Length > 0)
+        {
+            engine._jsValueArrayPool.ReturnArray(values);
+        }
+
+        engine.RestoreLastSyntaxElement(in oldSyntaxElement);
+        return result;
+    }
+
+    private JintExpression CallHandler => _handler ??= JintExpression.Build(_expression);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private JsValue Interpret(KernelFrame frame) => CallHandler.GetValue(frame.Context);
 }
 
 /// <summary>

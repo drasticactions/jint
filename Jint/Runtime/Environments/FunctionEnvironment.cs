@@ -175,10 +175,11 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
 
         if (_slots is not null)
         {
+            // Without the arguments, the parameters are bound by name later and wait uninitialized.
             for (uint i = 0; i < (uint) parameterNames.Length; i++)
             {
-                var parameterValue = arguments?.At((int) i, Undefined) ?? Undefined;
-                _slots[i] = new Binding(parameterValue, canBeDeleted: false, mutable: true, strict: false);
+                var parameterValue = arguments is null ? (hasDuplicates ? Undefined : null) : arguments.At((int) i, Undefined);
+                _slots[i] = new Binding(parameterValue!, canBeDeleted: false, mutable: true, strict: false);
             }
             return;
         }
@@ -619,6 +620,12 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void SetItemSafely(Key name, JsValue argument, bool initiallyEmpty)
     {
+        if (_slots is not null && FindSlotIndex(name) is >= 0 and var slot)
+        {
+            _slots[slot] = new Binding(argument, canBeDeleted: false, mutable: true, strict: false);
+            return;
+        }
+
         if (initiallyEmpty)
         {
             _dictionary ??= new HybridDictionary<Binding>();

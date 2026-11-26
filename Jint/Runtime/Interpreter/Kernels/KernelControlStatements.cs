@@ -31,6 +31,9 @@ internal sealed class KernelScope
 
     internal List<Key> KeyList => _keyList ??= [.. _keys];
 
+    // Whether a closure may capture an environment with slots of the scope, which is then not kept for the next entry.
+    private readonly bool _capturable;
+
     /// <summary>The scope of a block that declares let and const names.</summary>
     internal KernelScope(int[] bindings, Key[] keys, JintBlockStatement.BlockState state)
     {
@@ -39,6 +42,24 @@ internal sealed class KernelScope
         _slotNames = state.SlotNames;
         _slotTemplates = state.SlotTemplates;
         _declarations = state.DeclarationCache;
+        if (_slotNames is null && state.DeclarationCache is { } declarations && keys.Length is > 0 and <= 16)
+        {
+            var templates = new Binding[keys.Length];
+            var index = 0;
+            foreach (var declaration in declarations.Declarations)
+            {
+                foreach (var _ in declaration.BoundNames)
+                {
+                    templates[index++] = declaration.IsConstantDeclaration
+                        ? new Binding(null!, canBeDeleted: false, mutable: false, strict: true)
+                        : new Binding(null!, canBeDeleted: false, mutable: true, strict: false);
+                }
+            }
+
+            _slotNames = keys;
+            _slotTemplates = templates;
+            _capturable = true;
+        }
     }
 
     /// <summary>The scope of a loop head or a catch parameter, in slots where nothing can capture it.</summary>
@@ -172,6 +193,17 @@ internal sealed class KernelScope
         Unbind(frame);
         Park(environment);
     }
+
+    /// <summary>The environment left, kept for the next entry only where no closure was made since <paramref name="captures"/>.</summary>
+    internal void Leave(KernelFrame frame, DeclarativeEnvironment environment, Environment outer, int captures)
+    {
+        frame.Engine.UpdateLexicalEnvironment(outer);
+        Unbind(frame);
+        if (!_capturable || frame.Engine._environmentCaptures == captures)
+        {
+            Park(environment);
+        }
+    }
 }
 
 /// <summary>A block that declares let and const names, run in an environment of its own as JintBlockStatement runs it.</summary>
@@ -190,6 +222,7 @@ internal sealed class KernelScopeStatement : KernelStatement
     {
         _runs++;
         var outer = frame.Engine.ExecutionContext.LexicalEnvironment;
+        var captures = frame.Engine._environmentCaptures;
         var environment = _scope.Enter(frame, outer);
         try
         {
@@ -197,7 +230,7 @@ internal sealed class KernelScopeStatement : KernelStatement
         }
         finally
         {
-            _scope.Leave(frame, environment, outer);
+            _scope.Leave(frame, environment, outer, captures);
         }
     }
 }

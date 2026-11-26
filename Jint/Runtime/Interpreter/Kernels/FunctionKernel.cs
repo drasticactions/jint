@@ -153,7 +153,7 @@ internal sealed class FunctionKernel : KernelProgram
 
     /// <summary>
     /// Whether a kernel runs the body: no function declaration, class, <c>with</c>, <c>using</c>, <c>for await</c>,
-    /// <c>yield</c> or <c>await</c>, and no direct <c>eval</c>, <c>arguments</c> or <c>super</c> in it or its arrows.
+    /// <c>yield</c> or <c>await</c>, and no direct <c>eval</c> or <c>super</c> in it or its arrows.
     /// </summary>
     private static bool CanCompile(FunctionBody body, out bool createsClosures)
     {
@@ -177,7 +177,6 @@ internal sealed class FunctionKernel : KernelProgram
                         pending.Push((node, true));
                         continue;
                     case Super or MetaProperty:
-                    case Identifier { Name: "arguments" }:
                     case CallExpression { Callee: Identifier { Name: "eval" } }:
                         return false;
                 }
@@ -287,13 +286,13 @@ internal sealed class FunctionKernel : KernelProgram
     }
 
     /// <summary>
-    /// Whether a statement of the body other than a <c>throw</c> or a function stored to a property is run by the
-    /// interpreter as a whole, which code would only enter and leave again: such a body stays on the interpreter.
+    /// Whether a statement of the body other than a <c>throw</c>, a destructuring or a function stored to a property is
+    /// run by the interpreter as a whole, which code would only enter and leave again: such a body stays on the interpreter.
     /// </summary>
     private static bool LeavesAStatementToTheInterpreter(KernelStatement statement) => statement switch
     {
-        KernelInterpretedStatement { _statement: not ThrowStatement } => true,
-        KernelExpressionStatement { _expression: KernelInterpreted { _expression: not AssignmentExpression { Left: MemberExpression, Right: FunctionExpression or ArrowFunctionExpression } } } => true,
+        KernelInterpretedStatement { _statement: not ThrowStatement and not VariableDeclaration { Kind: VariableDeclarationKind.Var } } => true,
+        KernelExpressionStatement { _expression: KernelInterpreted { _expression: not AssignmentExpression { Left: MemberExpression, Right: FunctionExpression or ArrowFunctionExpression } and not AssignmentExpression { Left: DestructuringPattern } } } => true,
         KernelReturnStatement { _argument: KernelInterpreted } => true,
         KernelBlockStatement block => Array.Exists(block._statements, LeavesAStatementToTheInterpreter),
         KernelIfStatement ifStatement => LeavesAStatementToTheInterpreter(ifStatement._consequent)

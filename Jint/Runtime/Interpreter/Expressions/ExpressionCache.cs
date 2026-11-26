@@ -421,6 +421,15 @@ internal sealed class ExpressionCache
         return target;
     }
 
+    /// <summary>Steps <paramref name="iterator"/> to its end, its values added to <paramref name="target"/>, as a spread argument does.</summary>
+    internal static void SpreadInto(Engine engine, List<JsValue> target, IteratorInstance iterator)
+    {
+        IteratorProtocol protocol = engine._hasMaxArraySize
+            ? new BoundedArraySpreadProtocol(engine, target, iterator)
+            : new ArraySpreadProtocol(engine, target, iterator);
+        protocol.Execute();
+    }
+
     private sealed class ArraySpreadProtocol : IteratorProtocol
     {
         private readonly List<JsValue> _instance;

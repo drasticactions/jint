@@ -195,6 +195,34 @@ internal sealed class KernelName : KernelExpression
         return frame.Slots[_binding].Index == KernelFrame.GlobalBinding ? ReadGlobal(frame) : Bail;
     }
 
+    /// <summary>The plain value in the name's slot, one with a read hook included; null where no slot holds one.</summary>
+    internal JsValue? PeekSlot(KernelFrame frame)
+    {
+        ref var slot = ref frame.Slots[_binding];
+        if (slot.Environment is null || slot.Epoch != frame.Engine._envBindingInjectionEpoch)
+        {
+            if (!frame.NeedsResolving(_binding))
+            {
+                return null;
+            }
+
+            frame.Resolve(_binding);
+            if (slot.Environment is null)
+            {
+                return null;
+            }
+        }
+
+        var slots = slot.Environment._slots;
+        if (slots is null || (uint) slot.Index >= (uint) slots.Length)
+        {
+            return null;
+        }
+
+        ref var binding = ref slots[slot.Index];
+        return binding.IsPlainValue ? binding.PeekValue : null;
+    }
+
     /// <summary>The Number a slot holds, unboxed or boxed; false for anything else, which <see cref="Evaluate"/> answers.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal bool TryReadNumber(KernelFrame frame, out double number)

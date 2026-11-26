@@ -184,6 +184,18 @@ internal sealed partial class FunctionPrototype : Function
             return thisObject.Call(thisArg, Arguments.Empty);
         }
 
+        if (!_engine._hasMaxArraySize && PooledList(argArray) is { } pooled)
+        {
+            // The list is a pooled array, as a call expression's callee gets one.
+            var pooledResult = thisObject.Call(thisArg, pooled);
+            if (pooled.Length > 0)
+            {
+                _engine._jsValueArrayPool.ReturnArray(pooled);
+            }
+
+            return pooledResult;
+        }
+
         var argList = argArray is JsArguments arguments && arguments.CopyVirtualValues() is { } values
             && (!_engine._hasMaxArraySize || values.Length <= _engine.Options.Constraints.MaxArraySize)
             ? values
@@ -194,6 +206,41 @@ internal sealed partial class FunctionPrototype : Function
         var result = thisObject.Call(thisArg, argList);
 
         return result;
+    }
+
+    /// <summary>CreateListFromArrayLike of a short array or of an arguments object read virtually, in a pooled array; null for anything else.</summary>
+    private JsValue[]? PooledList(JsValue argArray)
+    {
+        const int MaxPooled = 8;
+        if (argArray is JsArray array)
+        {
+            var length = array.GetLength();
+            if (length > MaxPooled)
+            {
+                return null;
+            }
+
+            var values = _engine._jsValueArrayPool.RentArray((int) length);
+            for (uint i = 0; i < length; i++)
+            {
+                values[i] = array.GetElement(i);
+            }
+
+            return values;
+        }
+
+        if (argArray is JsArguments arguments && arguments.VirtualLength is >= 0 and <= MaxPooled and var count)
+        {
+            var values = _engine._jsValueArrayPool.RentArray(count);
+            for (var i = 0; i < count; i++)
+            {
+                values[i] = arguments.VirtualElement((uint) i)!;
+            }
+
+            return values;
+        }
+
+        return null;
     }
 
     /// <summary>
