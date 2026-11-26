@@ -6,13 +6,8 @@ using Environment = Jint.Runtime.Environments.Environment;
 namespace Jint.Runtime.Interpreter.Kernels;
 
 /// <summary>
-/// The state of one run of a kernel: the evaluation context, the environment the kernel was entered in, and where each
-/// name the kernel reads resolved, found the first time the run reads it. The resolution holds for the whole run: a
-/// name of a scope of the kernel is set by its scope as the scope is entered, every other name resolves from the
-/// environment the run was entered in, the slot layout of a declarative environment never changes, and the one thing
-/// that adds a binding to an existing environment, a sloppy direct eval or an Annex B function declaration, bumps
-/// <see cref="Engine._envBindingInjectionEpoch"/>, which every read of a resolution checks against its value when the
-/// name was resolved, resolving the name again when it moved.
+/// The state of one run of a kernel: its context, entry environment and where each name it reads resolved, rechecked
+/// against <see cref="Engine._envBindingInjectionEpoch"/>.
 /// </summary>
 internal sealed class KernelFrame
 {
