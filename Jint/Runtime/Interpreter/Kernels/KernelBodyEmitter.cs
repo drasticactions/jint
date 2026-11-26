@@ -927,6 +927,7 @@ internal sealed class KernelBodyEmitter
                     EmitPure(property._object, target, scratch, bail);
                     EmitConstant(property, typeof(KernelProperty));
                     EmitBox(target, scratch);
+                    il.Emit(OpCodes.Ldloc, _engine);
                     il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.ReadProperty)));
                     EmitSplit(value, number);
                     Return(target);
@@ -1539,7 +1540,19 @@ internal sealed class KernelBodyEmitter
         }
         else
         {
-            il.Emit(OpCodes.Br, interpret);
+            // More arguments than the fast lane takes: the tree's list lane, which evaluates them.
+            EmitConstant(call, typeof(KernelCall));
+            il.Emit(OpCodes.Ldloc, callee);
+            il.Emit(OpCodes.Call, Method(typeof(KernelCall), nameof(KernelCall.ListBuiltin)));
+            il.Emit(OpCodes.Brfalse, interpret);
+            EmitConstant(call, typeof(KernelCall));
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Ldloc, callee);
+            il.Emit(OpCodes.Call, Method(typeof(Unsafe), nameof(Unsafe.As), 1, typeof(Function)));
+            il.Emit(OpCodes.Ldloc, thisValue);
+            il.Emit(OpCodes.Call, Method(typeof(KernelCall), nameof(KernelCall.CallWithListFromCode)));
+            il.Emit(OpCodes.Stloc, value);
+            il.Emit(OpCodes.Br, end);
         }
 
         // The arguments, once, in order; then the lane's call, the register lane's where there is a function.

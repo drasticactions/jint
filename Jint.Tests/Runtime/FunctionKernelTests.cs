@@ -620,10 +620,15 @@ public class FunctionKernelTests
           try { leaf.nothing(n); } catch (e) { r.push(e.constructor.name + e.message); }
           return r.join("/");
         }
+        function manyArguments(n) {
+          var a = [], s = 0, add = function (x, y) { return this.v + x + y; };
+          for (var i = 0; i < n * 3; i++) { a.push(i, i + 1, i + 2); s += add.call(leaf, i, 2); a.splice(0, 1, "x", "y"); s += Math.max(i, 3, 7, i % 5); }
+          return a.join() + s;
+        }
         function test() {
           log = [];
           var out = [];
-          for (var i = 0; i < 9; i++) { out.push(arrays(i), strings("ab" + i, i), methods(i % 2 ? leaf : {}, i), replaced(i), errors(i)); }
+          for (var i = 0; i < 9; i++) { out.push(arrays(i), strings("ab" + i, i), methods(i % 2 ? leaf : {}, i), replaced(i), errors(i), manyArguments(i)); }
           return out.join(",") + log.join("|");
         }
         """,

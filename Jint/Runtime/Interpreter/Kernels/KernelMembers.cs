@@ -866,10 +866,8 @@ internal sealed class KernelCall : KernelExpression
     }
 
     /// <summary>
-    /// For compiled code, the steps of <see cref="Evaluate"/> between the callee and the arguments: 0 to leave the
-    /// whole call to the interpreter, 1 for a built-in through its fast lane (<paramref name="shape"/>), 2 for an
-    /// interpreted function through the register lane (<paramref name="state"/>), 3 for one with an argument list. The
-    /// lane's state is taken before any argument runs, as <see cref="Evaluate"/> takes it.
+    /// For compiled code, the lane <see cref="Evaluate"/> takes, chosen before any argument runs: 0 the interpreter, 1 a
+    /// built-in's fast lane, 2 the register lane, 3 an interpreted function's argument list, 4 a built-in's.
     /// </summary>
     internal int Prepare(JsValue? callee, out FastCallShape shape, out JintFunctionDefinition.State? state)
     {
@@ -902,11 +900,6 @@ internal sealed class KernelCall : KernelExpression
             return 3;
         }
 
-        if (_arguments.Length > 2)
-        {
-            return 0;
-        }
-
         if (!ReferenceEquals(function, _fastCallee))
         {
             if (function._functionDefinition is not null)
@@ -918,7 +911,7 @@ internal sealed class KernelCall : KernelExpression
         }
 
         shape = CodeShape;
-        return 1;
+        return _arguments.Length > 2 ? 4 : 1;
     }
 
     /// <summary>For compiled code: the register lane's state for <paramref name="function"/>, probed as <see cref="CallScript"/> probes it, or null.</summary>
@@ -987,6 +980,26 @@ internal sealed class KernelCall : KernelExpression
         shape = CodeShape;
         return true;
     }
+
+    /// <summary>For compiled code: whether <paramref name="callee"/> is a function other than a script function, recorded as the site's built-in.</summary>
+    internal bool ListBuiltin(JsValue? callee)
+    {
+        if (callee is not Function function || function._functionDefinition is not null)
+        {
+            return false;
+        }
+
+        if (!ReferenceEquals(function, _fastCallee))
+        {
+            ProbeBuiltin(function);
+        }
+
+        return true;
+    }
+
+    /// <summary><see cref="CallWithList"/> for compiled code.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal JsValue CallWithListFromCode(KernelFrame frame, Function function, JsValue thisValue) => CallWithList(frame, function, thisValue);
 
     /// <summary>Whether a built-in's fast lane needs no call stack frame for these values: it then runs no script.</summary>
     internal static bool IsLeaf(FastCallShape shape, JsValue thisValue, JsValue arg0, JsValue arg1) => shape.IsLeafFor(thisValue, arg0, arg1);

@@ -52,7 +52,7 @@ internal sealed class KernelBinary : KernelExpression
 
     /// <summary>
     /// An equality of operands that are not both Numbers: 1 or 0 for values it compares without running script (any
-    /// two for strict equality, two of one type for loose equality), -1 for Bail.
+    /// two for strict equality, two of one type or one null or undefined for loose equality), -1 for Bail.
     /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
     private int EqualValues(KernelFrame frame)
@@ -80,6 +80,12 @@ internal sealed class KernelBinary : KernelExpression
         else if (leftValue.Type == rightValue.Type)
         {
             equal = leftValue.Equals(rightValue);
+        }
+        else if (leftValue.IsNullOrUndefined() || rightValue.IsNullOrUndefined())
+        {
+            // https://tc39.es/ecma262/#sec-islooselyequal converts nothing when an operand is null or undefined.
+            var other = leftValue.IsNullOrUndefined() ? rightValue : leftValue;
+            equal = other.IsNullOrUndefined() || (other._type & InternalTypes.IsHTMLDDA) != InternalTypes.Empty;
         }
         else
         {

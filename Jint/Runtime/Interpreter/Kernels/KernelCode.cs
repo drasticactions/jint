@@ -641,7 +641,7 @@ internal static class KernelCodeRuntime
 
     /// <summary><see cref="KernelProperty.Read"/>, with the shape its node last read and a typed array's length inline.</summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
-    internal static KernelResult ReadProperty(KernelProperty property, JsValue target)
+    internal static KernelResult ReadProperty(KernelProperty property, JsValue target, Engine engine)
     {
         if (target is JsObject plain
             && (plain._type & (InternalTypes.ShapeMode | InternalTypes.HasLazySlots)) == InternalTypes.ShapeMode
@@ -664,7 +664,7 @@ internal static class KernelCodeRuntime
             }
         }
 
-        return ReadPropertySlow(property, target);
+        return ReadPropertySlow(property, target, engine);
     }
 
     /// <summary>The callee of a method call, read as <see cref="KernelProperty.ReadCallee"/> reads it.</summary>
@@ -685,9 +685,9 @@ internal static class KernelCodeRuntime
     internal static bool IsNumber(JsValue? value, ref double number) => KernelExpression.IsNumber(value, ref number);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static KernelResult ReadPropertySlow(KernelProperty property, JsValue target)
+    private static KernelResult ReadPropertySlow(KernelProperty property, JsValue target, Engine engine)
     {
-        var value = property.Read(target, out var number);
+        var value = property.Read(target, out var number, engine);
         return new KernelResult(value, number);
     }
 

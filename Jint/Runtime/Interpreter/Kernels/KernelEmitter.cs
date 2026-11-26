@@ -1065,6 +1065,7 @@ internal sealed class KernelEmitter
                     il.MarkLabel(generic);
                     EmitHot(property, typeof(KernelProperty));
                     il.Emit(OpCodes.Ldloc, target);
+                    il.Emit(OpCodes.Ldloc, _engine);
                     il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.ReadProperty)));
                     EmitResult(value, number, bail);
                     il.MarkLabel(read);
@@ -1291,6 +1292,7 @@ internal sealed class KernelEmitter
         il.Emit(OpCodes.Beq, cached);
         EmitHot(call._member!, typeof(KernelProperty));
         il.Emit(OpCodes.Ldloc, thisValue);
+        il.Emit(OpCodes.Ldloc, _engine);
         il.Emit(OpCodes.Call, Method(typeof(KernelCodeRuntime), nameof(KernelCodeRuntime.ReadProperty)));
         EmitResult(callee, thisNumber, generic);
         il.Emit(OpCodes.Ldloc, callee);
@@ -1625,14 +1627,24 @@ internal sealed class KernelEmitter
         var builtinSeen = call._fastCallee is not null && arguments.Length <= 2;
         var registersSeen = call._registerState is not null && arguments.Length <= 4;
         var listSeen = call._registerDefinition is not null && (call._registerState is null || arguments.Length > 4);
-        for (var k = 1; k <= 3; k++)
+        var builtinListSeen = call._fastCallee is not null && arguments.Length > 2;
+        for (var k = 1; k <= 4; k++)
         {
-            if (!(k == 1 ? builtinSeen : k == 2 ? registersSeen : listSeen))
+            if (!(k == 1 ? builtinSeen : k == 2 ? registersSeen : k == 3 ? listSeen : builtinListSeen))
             {
                 il.Emit(OpCodes.Ldloc, kind);
                 il.Emit(OpCodes.Ldc_I4, k);
                 il.Emit(OpCodes.Beq, interpret);
             }
+        }
+
+        // A built-in of more arguments than the fast lane takes: the tree's list lane, which evaluates them.
+        var builtinList = il.DefineLabel();
+        if (builtinListSeen)
+        {
+            il.Emit(OpCodes.Ldloc, kind);
+            il.Emit(OpCodes.Ldc_I4_4);
+            il.Emit(OpCodes.Beq, builtinList);
         }
 
         // Each argument a value or, where that is null, a Number: the register lane takes Numbers unboxed.
@@ -1775,6 +1787,20 @@ internal sealed class KernelEmitter
         {
             // Unreachable: every kind not compiled went to the interpreter.
             il.Emit(OpCodes.Br, interpret);
+        }
+
+        if (builtinListSeen)
+        {
+            il.MarkLabel(builtinList);
+            EmitBeforeForeign();
+            EmitConstant(call);
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Ldloc, callee);
+            il.Emit(OpCodes.Castclass, typeof(Native.Function.Function));
+            il.Emit(OpCodes.Ldloc, thisValue);
+            il.Emit(OpCodes.Call, Method(typeof(KernelCall), nameof(KernelCall.CallWithListFromCode)));
+            il.Emit(OpCodes.Stloc, value);
+            il.Emit(OpCodes.Br, done);
         }
 
         il.MarkLabel(interpret);
