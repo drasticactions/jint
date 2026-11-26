@@ -543,6 +543,7 @@ public class FunctionKernelTests
         function nestedFinally(n) { try { try { return n; } finally { log.push("in" + n); } } finally { log.push("out" + n); } }
         function rethrowThroughFinally(n) { try { try { throw "a" + n; } catch (e) { throw "b" + e; } finally { log.push("f" + n); } } catch (e2) { return e2; } }
         function switchInTry(x) { try { switch (x) { case 1: return "one"; default: break; } return "other"; } finally { log.push("s" + x); } }
+        function whileInFor(n) { var s = 0; outer: for (var i = 0; i < n; i++) { var j = i; while (j > 0) { j--; if (j === 2) { continue; } if (j === 5) { break; } if (j === 7) { continue outer; } s += j; } do { s++; } while (s % 3); } return s; }
         function continueInSwitch(n) { var s = ""; outer: for (var i = 0; i < n; i++) { switch (i % 3) { case 0: continue outer; case 1: s += "a"; break; default: s += "b"; } s += i; } return s; }
         function test() {
           log = [];
@@ -555,7 +556,7 @@ public class FunctionKernelTests
               try { out.push(returnOut(kinds[j])); } catch (e) { out.push(e.constructor.name + e.message); }
             }
             try { constWrite(); } catch (e) { out.push(e.constructor.name); }
-            out.push(forInChanging(i), finallyJumps(i), nestedCatch(i), bodyLets(i), doContinue(i * 2), defaultFirst(i % 4), continueInSwitch(i), tryLoops(i * 2), tryInWhile(i), returnFromCatch(i), nestedFinally(i), rethrowThroughFinally(i), switchInTry(i % 3));
+            out.push(forInChanging(i), finallyJumps(i), nestedCatch(i), bodyLets(i), doContinue(i * 2), defaultFirst(i % 4), continueInSwitch(i), tryLoops(i * 2), tryInWhile(i), returnFromCatch(i), nestedFinally(i), rethrowThroughFinally(i), switchInTry(i % 3), whileInFor(i * 2));
           }
           return out.join(",") + log.join("|");
         }

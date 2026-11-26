@@ -161,7 +161,7 @@ internal sealed class KernelEmitter
 
     private sealed class Loop
     {
-        internal KernelForStatement Node = null!;
+        internal KernelStatement Node = null!;
         internal Target Update;
         internal Target End;
         internal Target Abrupt;
@@ -497,20 +497,71 @@ internal sealed class KernelEmitter
                 EmitBlock(block);
                 return;
 
-            case KernelForStatement { _hasEntry: true } loop:
+            case KernelForStatement { _hasEntry: true } loop when ReferenceEquals(loop._kernel, Kernel):
                 EmitLoop(loop, isRoot: false);
                 return;
 
-            case KernelLabeledStatement { _body: KernelForStatement { _hasEntry: true } loop }:
+            case KernelLabeledStatement { _body: KernelForStatement { _hasEntry: true } loop } when ReferenceEquals(loop._kernel, Kernel):
                 // A break naming the label is the loop's own (see KernelForStatement.AbruptOutcome).
                 EmitCheck(statement._statement);
                 EmitLoop(loop, isRoot: false);
+                return;
+
+            case KernelWhileStatement loop:
+                EmitWhile(loop);
                 return;
 
             default:
                 EmitTreeStatement(statement, ignoreCode);
                 return;
         }
+    }
+
+    /// <summary>The kernel the code is compiled for.</summary>
+    private LoopKernel? Kernel => (_root as KernelForStatement)?._kernel;
+
+    /// <summary>A while or do-while loop, its checks and completions as KernelWhileStatement's.</summary>
+    private void EmitWhile(KernelWhileStatement node)
+    {
+        var il = _il;
+        EmitCheck(node._statement);
+        var head = il.DefineLabel();
+        var loop = new Loop
+        {
+            Node = node,
+            Update = NewTarget(),
+            End = NewTarget(),
+            Abrupt = NewTarget(),
+        };
+
+        il.MarkLabel(head);
+        _loops.Add(loop);
+        if (node._doWhile)
+        {
+            EmitStatement(node._body);
+            il.MarkLabel(loop.Update.Label);
+            EmitBranch(node._test, null, head, when: true);
+        }
+        else
+        {
+            il.MarkLabel(loop.Update.Label);
+            EmitBranch(node._test, null, loop.End.Label, when: false);
+            EmitStatement(node._body);
+            il.Emit(OpCodes.Br, head);
+        }
+
+        _loops.RemoveAt(_loops.Count - 1);
+        if (loop.AbruptUsed)
+        {
+            il.MarkLabel(loop.Abrupt.Label);
+            EmitConstant(node);
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Call, Method(typeof(KernelTargets), nameof(KernelTargets.Outcome)));
+            il.Emit(OpCodes.Switch, new[] { loop.Update.Label, loop.End.Label });
+            EmitAbrupt();
+        }
+
+        il.MarkLabel(loop.End.Label);
     }
 
     private static bool ContainsLoop(KernelStatement statement) => statement switch
