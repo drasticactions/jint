@@ -538,6 +538,11 @@ public class FunctionKernelTests
         function doContinue(n) { var s = 0, i = 0; do { i++; if (i % 2) { continue; } s += i; } while (i < n); return s; }
         function defaultFirst(x) { var r = ""; switch (x) { default: r += "d"; case 1: r += "1"; break; case 2: r += "2"; } return r; }
         function tryLoops(n) { var s = ""; outer: for (var i = 0; i < n; i++) { var it = [i, i + 1, i + 2][Symbol.iterator](), r = it.next(); try { for (; !r.done; r = it.next()) { if (r.value === 3) { continue outer; } if (r.value > 5) { break outer; } s += r.value; } } finally { s += "|"; } } return s; }
+        function tryInWhile(n) { var s = 0, i = 0; while (i < n) { i++; try { if (i % 2) { throw i; } s += i; } catch (e) { s -= e; } finally { s *= 2; } } return s; }
+        function returnFromCatch(n) { try { throw n; } catch (e) { return e * 2; } finally { log.push("rc" + n); } }
+        function nestedFinally(n) { try { try { return n; } finally { log.push("in" + n); } } finally { log.push("out" + n); } }
+        function rethrowThroughFinally(n) { try { try { throw "a" + n; } catch (e) { throw "b" + e; } finally { log.push("f" + n); } } catch (e2) { return e2; } }
+        function switchInTry(x) { try { switch (x) { case 1: return "one"; default: break; } return "other"; } finally { log.push("s" + x); } }
         function continueInSwitch(n) { var s = ""; outer: for (var i = 0; i < n; i++) { switch (i % 3) { case 0: continue outer; case 1: s += "a"; break; default: s += "b"; } s += i; } return s; }
         function test() {
           log = [];
@@ -550,7 +555,7 @@ public class FunctionKernelTests
               try { out.push(returnOut(kinds[j])); } catch (e) { out.push(e.constructor.name + e.message); }
             }
             try { constWrite(); } catch (e) { out.push(e.constructor.name); }
-            out.push(forInChanging(i), finallyJumps(i), nestedCatch(i), bodyLets(i), doContinue(i * 2), defaultFirst(i % 4), continueInSwitch(i), tryLoops(i * 2));
+            out.push(forInChanging(i), finallyJumps(i), nestedCatch(i), bodyLets(i), doContinue(i * 2), defaultFirst(i % 4), continueInSwitch(i), tryLoops(i * 2), tryInWhile(i), returnFromCatch(i), nestedFinally(i), rethrowThroughFinally(i), switchInTry(i % 3));
           }
           return out.join(",") + log.join("|");
         }
@@ -766,6 +771,32 @@ public class FunctionKernelTests
             var held = engine.Evaluate("({ n: 5 })");
             engine.SetValue("held", held);
             engine.Execute("var f = make(held); held = undefined; for (var i = 0; i < 10; i++) run(f); f = undefined;");
+            return new WeakReference(held);
+        }
+    }
+
+    [TestCase(Mode.Tree)]
+    [TestCase(Mode.Code)]
+    public void AKernelKeepsNoValueItsScopesHeld(Mode mode)
+    {
+        var engine = new Engine();
+        Configure(engine, mode);
+        engine.Execute("function run(o) { var s = 0; { let held = o; s += held.n; } for (const x of [o]) { s += x.n; } try { throw o; } catch (e) { s += e.n; } for (let i = 0; i < 1; i++) { const y = o; s += y.n; } return s; }");
+        var reference = CallAndForget(engine);
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+        reference.IsAlive.Should().BeFalse("a scope's environment kept for the next entry holds nothing of the last one");
+        engine._functionKernelRuns.Should().BeGreaterThan(0);
+        GC.KeepAlive(engine);
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static WeakReference CallAndForget(Engine engine)
+        {
+            var held = engine.Evaluate("({ n: 5 })");
+            engine.SetValue("held", held);
+            engine.Execute("var total = 0; for (var i = 0; i < 10; i++) total += run(held); held = undefined;");
+            engine.GetValue("total").AsNumber().Should().Be(200);
             return new WeakReference(held);
         }
     }

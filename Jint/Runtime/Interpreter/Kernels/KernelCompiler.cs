@@ -686,7 +686,44 @@ internal sealed class KernelCompiler
         }
 
         var finalizer = statement.Finalizer is null ? null : CompileStatement(statement.Finalizer, blockLevel: false);
-        return new KernelTryStatement(statement, block, scope, handler, finalizer);
+        var jumpsOut = JumpsOut(statement.Block) || (statement.Handler is { } catchClause && JumpsOut(catchClause.Body));
+        return new KernelTryStatement(statement, block, scope, handler, finalizer, jumpsOut);
+    }
+
+    /// <summary>Whether a break or continue in <paramref name="root"/> names a statement around it.</summary>
+    private static bool JumpsOut(Node root)
+    {
+        var pending = new Stack<(Node Node, int Loops, int Breakables, List<string>? Labels)>();
+        pending.Push((root, 0, 0, null));
+        while (pending.Count > 0)
+        {
+            var (node, loops, breakables, labels) = pending.Pop();
+            switch (node)
+            {
+                case IFunction or ClassDeclaration or ClassExpression:
+                    continue;
+                case BreakStatement jump when jump.Label is null ? breakables == 0 : !Declares(labels, jump.Label.Name):
+                case ContinueStatement next when next.Label is null ? loops == 0 : !Declares(labels, next.Label.Name):
+                    return true;
+            }
+
+            var loop = node is ForStatement or WhileStatement or DoWhileStatement or ForInStatement or ForOfStatement ? 1 : 0;
+            var breakable = loop == 1 || node is SwitchStatement ? 1 : 0;
+            if (node is LabeledStatement labeled)
+            {
+                labels = labels is null ? [] : [.. labels];
+                labels.Add(labeled.Label.Name);
+            }
+
+            foreach (var child in node.ChildNodes)
+            {
+                pending.Push((child, loops + loop, breakables + breakable, labels));
+            }
+        }
+
+        return false;
+
+        static bool Declares(List<string>? labels, string label) => labels is not null && labels.Exists(name => string.Equals(name, label, StringComparison.Ordinal));
     }
 
     /// <summary>A labelled statement, its label added to the label set of the loop it labels.</summary>

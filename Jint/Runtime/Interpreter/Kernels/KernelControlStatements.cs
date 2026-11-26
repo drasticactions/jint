@@ -542,13 +542,17 @@ internal sealed class KernelTryStatement : KernelStatement
     internal readonly KernelStatement? _handler;
     internal readonly KernelStatement? _finalizer;
 
-    public KernelTryStatement(TryStatement statement, KernelStatement block, KernelScope? scope, KernelStatement? handler, KernelStatement? finalizer) : base(statement)
+    // Whether a break or continue in the block or the catch clause leaves the statement: body code then runs it as a node.
+    internal readonly bool _jumpsOut;
+
+    public KernelTryStatement(TryStatement statement, KernelStatement block, KernelScope? scope, KernelStatement? handler, KernelStatement? finalizer, bool jumpsOut) : base(statement)
     {
         _block = block;
         _scope = scope;
         _parameter = statement.Handler?.Param;
         _handler = handler;
         _finalizer = finalizer;
+        _jumpsOut = jumpsOut;
     }
 
     internal override int Execute(KernelFrame frame)
@@ -556,9 +560,25 @@ internal sealed class KernelTryStatement : KernelStatement
         _runs++;
         RunChecks(frame);
         var code = _block.Execute(frame);
-        if (code == Abrupt && _handler is not null && frame.Abrupt.Type == CompletionType.Throw)
+        if (code == Abrupt && _handler is not null)
         {
-            code = Catch(frame, frame.Abrupt.Value);
+            switch (EnterCatch(frame, out var outer, out var environment))
+            {
+                case Normal:
+                    try
+                    {
+                        code = _handler.Execute(frame);
+                    }
+                    finally
+                    {
+                        LeaveCatch(frame, outer, environment);
+                    }
+
+                    break;
+                case Abrupt:
+                    code = Abrupt;
+                    break;
+            }
         }
 
         if (_finalizer is null)
@@ -580,19 +600,30 @@ internal sealed class KernelTryStatement : KernelStatement
         return code;
     }
 
-    /// <summary>https://tc39.es/ecma262/#sec-runtime-semantics-catchclauseevaluation</summary>
-    private int Catch(KernelFrame frame, JsValue thrown)
+    /// <summary>
+    /// The catch clause entered for a throw completion of the block (https://tc39.es/ecma262/#sec-runtime-semantics-catchclauseevaluation):
+    /// Normal to run it, Abrupt when binding the parameter threw, Break when the completion is not a throw.
+    /// </summary>
+    internal int EnterCatch(KernelFrame frame, out Environment? outer, out DeclarativeEnvironment? environment)
     {
+        outer = null;
+        environment = null;
+        if (frame.Abrupt.Type != CompletionType.Throw)
+        {
+            return Break;
+        }
+
+        var thrown = frame.Abrupt.Value;
         frame.Abrupt = default;
         var scope = _scope;
         if (scope is null)
         {
-            return _handler!.Execute(frame);
+            return Normal;
         }
 
         var engine = frame.Engine;
-        var outer = engine.ExecutionContext.LexicalEnvironment;
-        var environment = scope.Create(engine, outer);
+        outer = engine.ExecutionContext.LexicalEnvironment;
+        environment = scope.Create(engine, outer);
         engine.UpdateLexicalEnvironment(environment);
         if (scope.HasSlots)
         {
@@ -613,13 +644,15 @@ internal sealed class KernelTryStatement : KernelStatement
         }
 
         scope.Bind(frame, environment);
-        try
+        return Normal;
+    }
+
+    /// <summary>The catch clause's environment left, where it has one.</summary>
+    internal void LeaveCatch(KernelFrame frame, Environment? outer, DeclarativeEnvironment? environment)
+    {
+        if (environment is not null)
         {
-            return _handler!.Execute(frame);
-        }
-        finally
-        {
-            scope.Leave(frame, environment, outer);
+            _scope!.Leave(frame, environment, outer!);
         }
     }
 }

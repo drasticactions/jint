@@ -45,6 +45,13 @@ internal sealed class KernelBodyEmitter
     // The loops and switches around the code being emitted, innermost last: a break's label, and a loop's continue.
     private readonly List<(KernelStatement Node, Label Break, Label? Continue)> _targets = [];
 
+    // The try blocks and catch clauses around the code being emitted: their completion, their end, the targets outside.
+    private readonly List<(LocalBuilder Pending, Label After, int Targets)> _regions = [];
+    private const int PendingReturn = 5;
+
+    // The constant of the handler's sites.
+    private int _sitesIndex;
+
     private KernelBodyEmitter(Key[]? layout, int[] localSlots)
     {
         _layout = layout;
@@ -78,7 +85,7 @@ internal sealed class KernelBodyEmitter
         var il = _il;
 
         // The handler's sites, filled in once the body is emitted.
-        var sitesIndex = _constants.Count;
+        var sitesIndex = _sitesIndex = _constants.Count;
         _constants.Add(null!);
 
         // Called without a frame only to be compiled.
@@ -225,14 +232,14 @@ internal sealed class KernelBodyEmitter
                     EmitValue(returnStatement._argument, _resultValue, _resultNumber);
                 }
 
-                il.Emit(OpCodes.Leave, _exit);
+                EmitReturnExit();
                 break;
 
             case KernelLiteralReturnStatement literalReturn:
                 // As JintStatementList returns a literal: without the statement's checks.
                 EmitConstant(literalReturn._value, typeof(JsValue));
                 il.Emit(OpCodes.Stloc, _resultValue);
-                il.Emit(OpCodes.Leave, _exit);
+                EmitReturnExit();
                 break;
 
             case KernelEmptyStatement:
@@ -277,6 +284,10 @@ internal sealed class KernelBodyEmitter
                 EmitSwitch(switchStatement);
                 break;
 
+            case KernelTryStatement { _jumpsOut: false } tryStatement:
+                EmitTry(tryStatement);
+                break;
+
             case KernelLexicalDeclaration declaration when Array.TrueForAll(declaration._targets, target => target is not null && LocalSlot(target) >= 0):
                 EmitChecks(statement._statement);
                 for (var i = 0; i < declaration._targets.Length; i++)
@@ -311,10 +322,10 @@ internal sealed class KernelBodyEmitter
                     EmitConstant(statement, typeof(KernelStatement));
                     il.Emit(OpCodes.Ldarg_1);
                     il.Emit(OpCodes.Callvirt, Method(typeof(KernelStatement), nameof(KernelStatement.Execute)));
-                    if (_targets.Count == 0)
+                    if (_targets.Count == InnerTargets)
                     {
                         il.Emit(OpCodes.Brfalse, next);
-                        il.Emit(OpCodes.Leave, _abrupt);
+                        EmitAbruptExit();
                     }
                     else
                     {
@@ -330,7 +341,7 @@ internal sealed class KernelBodyEmitter
     /// <summary>The innermost switch or loop an unlabelled break leaves, or loop a continue continues, or null.</summary>
     private (KernelStatement Node, Label Break, Label? Continue)? Target(bool isBreak)
     {
-        for (var i = _targets.Count - 1; i >= 0; i--)
+        for (var i = _targets.Count - 1; i >= InnerTargets; i--)
         {
             if (isBreak || _targets[i].Continue is not null)
             {
@@ -368,14 +379,19 @@ internal sealed class KernelBodyEmitter
         }
         else
         {
-            il.Emit(OpCodes.Leave, _abrupt);
+            EmitAbruptExit();
         }
 
         il.MarkLabel(notContinue);
         Return(code);
+        EmitAbruptTargets();
+    }
 
-        // A labelled break or continue, or a return or throw: each target from the innermost out asked in turn.
-        for (var i = _targets.Count - 1; i >= 0; i--)
+    /// <summary>A labelled break or continue, or a return or throw: each target from the innermost out asked in turn.</summary>
+    private void EmitAbruptTargets()
+    {
+        var il = _il;
+        for (var i = _targets.Count - 1; i >= InnerTargets; i--)
         {
             var target = _targets[i];
             var leave = il.DefineLabel();
@@ -386,7 +402,142 @@ internal sealed class KernelBodyEmitter
             il.MarkLabel(leave);
         }
 
-        il.Emit(OpCodes.Leave, _abrupt);
+        EmitAbruptExit();
+    }
+
+    /// <summary>How many targets are outside the innermost try region, which jumps inside it cannot reach.</summary>
+    private int InnerTargets => _regions.Count == 0 ? 0 : _regions[_regions.Count - 1].Targets;
+
+    /// <summary>The body completed with the value in the result locals: through the innermost try region, if any.</summary>
+    private void EmitReturnExit() => EmitExit(PendingReturn, _exit);
+
+    /// <summary>The body completed with the completion in the frame: through the innermost try region, if any.</summary>
+    private void EmitAbruptExit() => EmitExit(KernelStatement.Abrupt, _abrupt);
+
+    private void EmitExit(int pending, Label exit)
+    {
+        var il = _il;
+        if (_regions.Count == 0)
+        {
+            il.Emit(OpCodes.Leave, exit);
+            return;
+        }
+
+        var region = _regions[_regions.Count - 1];
+        il.Emit(OpCodes.Ldc_I4, pending);
+        il.Emit(OpCodes.Stloc, region.Pending);
+        il.Emit(OpCodes.Leave, region.After);
+    }
+
+    /// <summary>
+    /// A try statement whose jumps stay inside it: the block and the catch clause each in a handler of their own that
+    /// makes an exception their throw completion, then the finally block, then the completion they kept.
+    /// </summary>
+    private void EmitTry(KernelTryStatement statement)
+    {
+        var il = _il;
+        EmitChecks(statement._statement);
+        var pending = il.DeclareLocal(typeof(int));
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Stloc, pending);
+        var afterBlock = il.DefineLabel();
+        EmitProtected(statement._block, pending, afterBlock);
+        if (statement._handler is { } handler)
+        {
+            var skip = il.DefineLabel();
+            var outer = il.DeclareLocal(typeof(Jint.Runtime.Environments.Environment));
+            var environment = il.DeclareLocal(typeof(DeclarativeEnvironment));
+            il.Emit(OpCodes.Ldloc, pending);
+            il.Emit(OpCodes.Ldc_I4, KernelStatement.Abrupt);
+            il.Emit(OpCodes.Bne_Un, skip);
+            EmitConstant(statement, typeof(KernelTryStatement));
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Ldloca, outer);
+            il.Emit(OpCodes.Ldloca, environment);
+            il.Emit(OpCodes.Call, Method(typeof(KernelTryStatement), nameof(KernelTryStatement.EnterCatch)));
+            il.Emit(OpCodes.Brtrue, skip);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Stloc, pending);
+            var afterHandler = il.DefineLabel();
+            EmitProtected(handler, pending, afterHandler);
+            EmitConstant(statement, typeof(KernelTryStatement));
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Ldloc, outer);
+            il.Emit(OpCodes.Ldloc, environment);
+            il.Emit(OpCodes.Call, Method(typeof(KernelTryStatement), nameof(KernelTryStatement.LeaveCatch)));
+            MarkTarget(skip);
+        }
+
+        if (statement._finalizer is { } finalizer)
+        {
+            // The finally block runs with the frame's completion cleared; a normal completion of it puts it back.
+            var completion = il.DeclareLocal(typeof(Completion));
+            var abrupt = Field(typeof(KernelFrame), nameof(KernelFrame.Abrupt));
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Ldfld, abrupt);
+            il.Emit(OpCodes.Stloc, completion);
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Ldflda, abrupt);
+            il.Emit(OpCodes.Initobj, typeof(Completion));
+            EmitStatement(finalizer);
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Ldloc, completion);
+            il.Emit(OpCodes.Stfld, abrupt);
+        }
+
+        var done = il.DefineLabel();
+        var notReturn = il.DefineLabel();
+        il.Emit(OpCodes.Ldloc, pending);
+        il.Emit(OpCodes.Brfalse, done);
+        il.Emit(OpCodes.Ldloc, pending);
+        il.Emit(OpCodes.Ldc_I4, PendingReturn);
+        il.Emit(OpCodes.Bne_Un, notReturn);
+        EmitReturnExit();
+        il.MarkLabel(notReturn);
+        EmitAbruptTargets();
+        MarkTarget(done);
+    }
+
+    /// <summary>
+    /// <paramref name="statement"/> in a handler of its own, which leaves to <paramref name="after"/>: an exception
+    /// the blocks inside it make their throw completion is kept in the frame as the statement's.
+    /// </summary>
+    private void EmitProtected(KernelStatement statement, LocalBuilder pending, Label after)
+    {
+        var il = _il;
+        var site = _currentSite;
+        il.BeginExceptionBlock();
+        _regions.Add((pending, after, _targets.Count));
+        EmitStatement(statement);
+        _regions.RemoveAt(_regions.Count - 1);
+        il.Emit(OpCodes.Leave, after);
+        il.BeginExceptFilterBlock();
+        var thrown = il.DeclareLocal(typeof(object));
+        il.Emit(OpCodes.Stloc, thrown);
+        EmitConstantIndex(_sitesIndex, typeof(KernelCodeSites));
+        il.Emit(OpCodes.Ldloc, thrown);
+        il.Emit(OpCodes.Ldloc, _site);
+        il.Emit(OpCodes.Ldc_I4, site);
+        il.Emit(OpCodes.Call, Method(typeof(KernelCodeSites), nameof(KernelCodeSites.CatchesWithin)));
+        il.BeginCatchBlock(null!);
+        var exception = il.DeclareLocal(typeof(Exception));
+        il.Emit(OpCodes.Castclass, typeof(Exception));
+        il.Emit(OpCodes.Stloc, exception);
+        EmitConstantIndex(_sitesIndex, typeof(KernelCodeSites));
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Ldloc, exception);
+        il.Emit(OpCodes.Ldloc, _site);
+        il.Emit(OpCodes.Ldc_I4, site);
+        il.Emit(OpCodes.Call, Method(typeof(KernelCodeSites), nameof(KernelCodeSites.CatchWithin)));
+        var rethrow = il.DefineLabel();
+        il.Emit(OpCodes.Brfalse, rethrow);
+        il.Emit(OpCodes.Ldc_I4, KernelStatement.Abrupt);
+        il.Emit(OpCodes.Stloc, pending);
+        il.Emit(OpCodes.Leave, after);
+        il.MarkLabel(rethrow);
+        il.Emit(OpCodes.Rethrow);
+        il.EndExceptionBlock();
+        MarkTarget(after);
     }
 
     /// <summary>A while or do-while loop, its checks and completions as KernelWhileStatement's.</summary>

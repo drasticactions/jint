@@ -1006,6 +1006,24 @@ internal sealed class KernelCodeSites
         }
     }
 
+    /// <summary>The filter of a try statement's handler: whether a block between <paramref name="site"/> and the statement's site catches the exception.</summary>
+    internal bool CatchesWithin(object exception, int site, int stop)
+        => site >= 0 && site != stop && exception is Exception e && Interpreter.JintStatementList.ShouldCatch(e);
+
+    /// <summary><see cref="Catch"/> for the blocks between <paramref name="site"/> and the try statement's site <paramref name="stop"/>.</summary>
+    internal bool CatchWithin(KernelFrame frame, Exception exception, int site, int stop)
+    {
+        for (; site >= 0 && site != stop; site = _parents[site])
+        {
+            if (TryCatchAt(frame, exception, site))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>The filter: whether the handler of a block around <paramref name="site"/> catches the exception.</summary>
     internal bool Catches(object exception, int site)
         => site >= 0 && exception is Exception e && Interpreter.JintStatementList.ShouldCatch(e);
@@ -1017,27 +1035,37 @@ internal sealed class KernelCodeSites
     /// </summary>
     internal bool Catch(KernelFrame frame, Exception exception, int site)
     {
-        var context = frame.Context;
-        var engine = context.Engine;
         for (; site >= 0; site = _parents[site])
         {
-            // A block whose handler rethrew is followed by the filter of the block around it.
-            if (!Interpreter.JintStatementList.ShouldCatch(exception))
+            if (TryCatchAt(frame, exception, site))
             {
-                return false;
-            }
-
-            var statement = _blocks[site]._statements[_indices[site]]._statement;
-            if (exception is JintException)
-            {
-                frame.Abrupt = Interpreter.JintStatementList.HandleStatementException(context, exception, statement);
                 return true;
             }
-
-            var location = engine.HasLastSyntaxElement ? engine.LastSyntaxLocation : statement.Location;
-            ExceptionDataHelper.TryAttachJavaScriptLocation(exception, engine, location);
         }
 
+        return false;
+    }
+
+    /// <summary>The handler of the block of <paramref name="site"/>: true once the exception is its throw completion.</summary>
+    private bool TryCatchAt(KernelFrame frame, Exception exception, int site)
+    {
+        // A block whose handler rethrew is followed by the filter of the block around it.
+        if (!Interpreter.JintStatementList.ShouldCatch(exception))
+        {
+            return false;
+        }
+
+        var context = frame.Context;
+        var engine = context.Engine;
+        var statement = _blocks[site]._statements[_indices[site]]._statement;
+        if (exception is JintException)
+        {
+            frame.Abrupt = Interpreter.JintStatementList.HandleStatementException(context, exception, statement);
+            return true;
+        }
+
+        var location = engine.HasLastSyntaxElement ? engine.LastSyntaxLocation : statement.Location;
+        ExceptionDataHelper.TryAttachJavaScriptLocation(exception, engine, location);
         return false;
     }
 }

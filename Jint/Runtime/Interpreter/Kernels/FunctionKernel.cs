@@ -207,7 +207,7 @@ internal sealed class FunctionKernel : KernelProgram
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     internal bool RunsInFrames(JintFunctionDefinition.State state) => !state.EnvironmentMayEscape && !_createsClosures;
 
-    /// <summary>Marks the return statements that complete the body, outside any try or for-in/of, to leave their value in the frame.</summary>
+    /// <summary>Marks the return statements that complete the body, outside any for-in or for-of, to leave their value in the frame.</summary>
     private static void MarkDirectReturns(KernelStatement statement)
     {
         switch (statement)
@@ -248,6 +248,19 @@ internal sealed class FunctionKernel : KernelProgram
                 break;
             case KernelScopeStatement scope:
                 MarkDirectReturns(scope._block);
+                break;
+            case KernelTryStatement tryStatement:
+                MarkDirectReturns(tryStatement._block);
+                if (tryStatement._handler is { } handler)
+                {
+                    MarkDirectReturns(handler);
+                }
+
+                if (tryStatement._finalizer is { } finalizer)
+                {
+                    MarkDirectReturns(finalizer);
+                }
+
                 break;
         }
     }
