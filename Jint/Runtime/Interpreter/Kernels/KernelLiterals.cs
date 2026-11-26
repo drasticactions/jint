@@ -433,12 +433,22 @@ internal sealed class KernelSpreadList
     private readonly SpreadElement?[] _spreads;
     private readonly JintSpreadExpression?[] _handlers;
 
+    // At most three values, of which only the last is a spread, and no hole.
+    private readonly bool _onlyTrailingSpread;
+
     /// <summary>The list of <paramref name="items"/>, read after <paramref name="start"/>, the nodes they compile.</summary>
     public KernelSpreadList(Node start, IReadOnlyList<Expression?> nodes, SpreadElement?[] spreads, KernelExpression?[] items)
     {
         _items = items;
         _spreads = spreads;
         _handlers = new JintSpreadExpression?[items.Length];
+        var last = items.Length - 1;
+        _onlyTrailingSpread = last <= 2 && spreads[last] is not null && !Array.Exists(items, item => item is null);
+        for (var i = 0; i < last; i++)
+        {
+            _onlyTrailingSpread &= spreads[i] is null;
+        }
+
         _locations = new Node[items.Length];
         var location = start;
         for (var i = 0; i < items.Length; i++)
@@ -472,17 +482,9 @@ internal sealed class KernelSpreadList
         rented = false;
         var items = _items;
         var last = items.Length - 1;
-        if (last > 2 || _spreads[last] is null || Array.Exists(items, item => item is null))
+        if (!_onlyTrailingSpread)
         {
             return Build(frame).ToArray();
-        }
-
-        for (var i = 0; i < last; i++)
-        {
-            if (_spreads[i] is not null)
-            {
-                return Build(frame).ToArray();
-            }
         }
 
         var engine = frame.Engine;

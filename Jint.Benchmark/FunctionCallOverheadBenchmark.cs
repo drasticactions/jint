@@ -15,7 +15,8 @@ public class FunctionCallOverheadBenchmark
 
     [Params("singleReturn", "branchy", "propertyStore", "nestedCalls", "recursive", "closureControl", "closureCounter", "moduleMethod", "protoThis", "newSmall",
         "tryFinally", "forOfArray", "handIterator", "stringSwitch", "closureSometimes", "arrayPush", "dispatchTable", "typeofChecks",
-        "argumentsRead", "restParameter", "applyArguments", "defaultParameter", "destructuredParameter", "spreadCall")]
+        "argumentsRead", "restParameter", "applyArguments", "defaultParameter", "destructuredParameter", "spreadCall",
+        "objectLiteral", "arraySpread", "templateLiteral", "optionalChains", "nullish", "deleteProperty", "argumentsLength", "restForward")]
     public string Shape { get; set; } = "";
 
     [GlobalSetup]
@@ -46,6 +47,14 @@ public class FunctionCallOverheadBenchmark
             "defaultParameter" => "function f(a, b, c = a + 1) { var r = b + c; return r; }",
             "destructuredParameter" => "var pt = { x: 1, y: 2 }; function g({ x, y }, b) { var r = x + y + b; return r; } function f(a, b) { var r = g(pt, a); return r; }",
             "spreadCall" => "var extra = [1, 2]; function g(a, b, c) { var r = a + b + c; return r; } function f(a, b) { var r = g(a, ...extra); return r; }",
+            "objectLiteral" => "function f(a, b) { var o = { x: a, y: b, z: 1 }; var r = o.x + o.y; return r; }",
+            "arraySpread" => "var base = [1, 2, 3]; function f(a, b) { var r = [a, ...base, b]; var n = r.length + r[0]; return n; }",
+            "templateLiteral" => "function f(a, b) { var t = `a${a}b${b}c`; var n = t.length; return n; }",
+            "optionalChains" => "var cfg = { a: { b: { c: 3 } }, m: function (x) { return x + 1; } }; function f(a, b) { var r = cfg?.a?.b?.c + (cfg.z?.y ?? 2); r += cfg.m?.(a) ?? 0; return r + b; }",
+            "nullish" => "var opts = { n: null, v: 5 }; function f(a, b) { var x = opts.n ?? a; var y = opts.v ?? b; return x + y; }",
+            "deleteProperty" => "function f(a, b) { var o = { x: a, y: b }; delete o.x; var r = o.y + a; return r; }",
+            "argumentsLength" => "function f(a, b) { var r = arguments.length + a; return r; }",
+            "restForward" => "function g(a, b) { var r = a + b; return r; } function h(...xs) { var r = g(...xs); return r; } function f(a, b) { var r = h(a, b); return r; }",
             _ => "function f(a, b) { var g = function () { return a; }; var c = g() + b; return c; }",
         };
 

@@ -276,6 +276,21 @@ public partial class ScriptNestingTests
     }, maxStackSize: DeepCallStackSize);
 
     [Test]
+    public void ADeepConditionalChainFirstOnAKernelAtTheBottomOfTheStackRuns() => DedicatedThread.Run(() =>
+    {
+        var engine = new Engine();
+        engine.Execute($$"""
+            var v = 999; function is(i) { return v === i; }
+            function f() { return ({{ConditionalChain(1000)}}); }
+            for (var i = 0; i < 15; i++) { f(); }
+            function dive(d) { try { return dive(d + 1); } catch (e) { return f(); } }
+            var r = dive(0);
+            """);
+
+        engine.GetValue("r").AsNumber().Should().Be(999);
+    }, maxStackSize: DeepCallStackSize);
+
+    [Test]
     public void AGeneratorResumesAtTheEndOfALongConditionalChain() => DedicatedThread.Run(() =>
     {
         var engine = new Engine();

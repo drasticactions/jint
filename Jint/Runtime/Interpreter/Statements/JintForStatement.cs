@@ -482,7 +482,16 @@ internal sealed class JintForStatement : JintIterationStatement<ForStatement>
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     private LoopKernel? CreateKernel(Engine engine)
     {
-        _kernel = engine._loopKernelsDisabled ? null : LoopKernel.TryCreate(this, _statement);
+        try
+        {
+            _kernel = engine._loopKernelsDisabled ? null : LoopKernel.TryCreate(this, _statement);
+        }
+        catch (Exception e) when (e is InsufficientExecutionStackException || (e is ScriptPreparationException preparation && SyntaxNesting.IsTooDeep(preparation)))
+        {
+            // Too little stack to compile the loop now: the interpreter runs it, and a later entry tries again.
+            return null;
+        }
+
         _noKernel = _kernel is null;
         return _kernel;
     }

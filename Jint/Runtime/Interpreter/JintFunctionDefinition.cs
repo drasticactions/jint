@@ -287,7 +287,17 @@ internal sealed class JintFunctionDefinition
             return null;
         }
 
-        _kernel = Kernels.FunctionKernel.TryCreate(engine, this, state);
+        try
+        {
+            _kernel = Kernels.FunctionKernel.TryCreate(engine, this, state);
+        }
+        catch (Exception e) when (e is InsufficientExecutionStackException || (e is ScriptPreparationException preparation && SyntaxNesting.IsTooDeep(preparation)))
+        {
+            // Compiling recurses through the body and builds its handlers: a call low on stack leaves it to a later call.
+            _kernelCountdown = 1;
+            return null;
+        }
+
         if (_kernel is not null)
         {
             engine._functionKernelBudget--;

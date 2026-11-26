@@ -207,6 +207,7 @@ internal sealed class KernelCompiler
 
     private KernelStatement CompileStatement(Statement statement, bool blockLevel)
     {
+        System.Runtime.CompilerServices.RuntimeHelpers.EnsureSufficientExecutionStack();
         KernelStatement? compiled = null;
         if (_depth < MaxDepth)
         {
@@ -815,6 +816,9 @@ internal sealed class KernelCompiler
             return null;
         }
 
+        // Too little stack ends the compile; the caller tries again later.
+        System.Runtime.CompilerServices.RuntimeHelpers.EnsureSufficientExecutionStack();
+
         _depth++;
         try
         {
@@ -1311,6 +1315,8 @@ internal sealed class KernelCompiler
         {
             return null;
         }
+
+        System.Runtime.CompilerServices.RuntimeHelpers.EnsureSufficientExecutionStack();
 
         _depth++;
         try
