@@ -173,6 +173,9 @@ internal sealed class KernelCompiler
     // Whether empty object literals left to the interpreter start hot, as in a body the interpreter has run often.
     private bool _sitesStartHot;
 
+    /// <summary>The rest parameter whose spreads read the call's arguments while its array is put off (FunctionKernel), or null.</summary>
+    internal string? RestName { get; set; }
+
     // Whether a call in tail position may be made as a tail call: not in a sloppy function, which makes none.
     private bool _tailCalls = true;
 
@@ -1155,6 +1158,12 @@ internal sealed class KernelCompiler
         for (var i = 0; i < arguments.Length; i++)
         {
             var argument = call.Arguments[i];
+            if (argument is SpreadElement { Argument: Identifier rest } && RestName is { } restName && string.Equals(rest.Name, restName, StringComparison.Ordinal))
+            {
+                arguments[i] = new KernelRestSpread(rest, CompileValue(rest));
+                continue;
+            }
+
             arguments[i] = CompileValue(argument is SpreadElement spread ? spread.Argument : argument);
         }
 

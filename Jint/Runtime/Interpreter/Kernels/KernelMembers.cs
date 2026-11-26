@@ -3,6 +3,7 @@ using Jint.Native;
 using Jint.Native.Array;
 using Jint.Native.Function;
 using Jint.Native.Object;
+using Jint.Native.Symbol;
 using Jint.Native.TypedArray;
 using Jint.Runtime.Descriptors;
 using Jint.Runtime.Interpreter.Expressions;
@@ -118,6 +119,11 @@ internal sealed class KernelArgumentsRead : KernelExpression
     internal override JsValue? Evaluate(KernelFrame frame, out double number)
     {
         number = 0;
+        if (frame.ArgumentsPending)
+        {
+            return ReadPending(frame, out number);
+        }
+
         if (_arguments.PeekSlot(frame) is not JsArguments arguments)
         {
             return Bail;
@@ -149,6 +155,46 @@ internal sealed class KernelArgumentsRead : KernelExpression
 
         return arguments.VirtualElement(index) ?? Bail;
     }
+
+    /// <summary>The read of an arguments object the call put off: from the call's arguments or, where mapped, its parameters; anything else makes the object and answers Bail.</summary>
+    private JsValue? ReadPending(KernelFrame frame, out double number)
+    {
+        number = 0;
+        var count = frame.PendingArguments.Count;
+        if (_index is null)
+        {
+            number = count;
+            return null;
+        }
+
+        var key = _index.Evaluate(frame, out var keyNumber);
+        if (!IsNumber(key, ref keyNumber) || keyNumber < 0 || keyNumber >= count || (int) keyNumber != keyNumber)
+        {
+            frame.MaterializeArguments();
+            return Bail;
+        }
+
+        var index = (int) keyNumber;
+        if (frame.ArgumentsMapped && index < frame.ArgumentsState!.ParameterNames.Length)
+        {
+            ref var binding = ref frame.CallEnvironment!._slots![index];
+            if (binding.IsUnboxedNumber)
+            {
+                number = binding.UnboxedNumber;
+                return null;
+            }
+
+            if (binding.IsPlainValue && binding.PeekValue is { } value)
+            {
+                return value;
+            }
+
+            frame.MaterializeArguments();
+            return Bail;
+        }
+
+        return frame.PendingArguments.ValueAt(index, out number);
+    }
 }
 
 /// <summary>A pure read of an arguments object, which is materialized first as the interpreter's read of it does.</summary>
@@ -164,6 +210,11 @@ internal sealed class KernelArgumentsValue : KernelExpression
     internal override JsValue? Evaluate(KernelFrame frame, out double number)
     {
         number = 0;
+        if (frame.ArgumentsPending)
+        {
+            frame.MaterializeArguments();
+        }
+
         if (_arguments.PeekSlot(frame) is not JsArguments arguments)
         {
             return _arguments.Evaluate(frame, out number);
@@ -735,6 +786,9 @@ internal sealed class KernelCall : KernelExpression
     internal JintFunctionDefinition? _registerDefinition;
     internal JintFunctionDefinition.State? _registerState;
 
+    // The state of the definition last probed where its kernel's calls put off the arguments object.
+    private JintFunctionDefinition.State? _deferredArgumentsState;
+
     // The body of the definition last probed, when the tree computes it in place (see KernelInlineBody), with the
     // site that accepts its callees; and which Math function the fast callee is, when it is one computed in place.
     private KernelInlineBody? _inlineBody;
@@ -1035,7 +1089,9 @@ internal sealed class KernelCall : KernelExpression
                 if (!ReferenceEquals(definition, _registerDefinition))
                 {
                     _registerDefinition = definition;
-                    _registerState = script.TryInitializeDefinition() is { SupportsRegisterCall: true } probed ? probed : null;
+                    var probedState = script.TryInitializeDefinition();
+                    _registerState = probedState is { SupportsRegisterCall: true } ? probedState : null;
+                    _deferredArgumentsState = probedState is { ArgumentsInFrame: true } ? probedState : null;
                     ProbeInlineBody();
                 }
 
@@ -1079,7 +1135,9 @@ internal sealed class KernelCall : KernelExpression
         }
 
         _registerDefinition = function._functionDefinition;
-        _registerState = function.TryInitializeDefinition() is { SupportsRegisterCall: true } probed ? probed : null;
+        var probedState = function.TryInitializeDefinition();
+        _registerState = probedState is { SupportsRegisterCall: true } ? probedState : null;
+        _deferredArgumentsState = probedState is { ArgumentsInFrame: true } ? probedState : null;
         ProbeInlineBody();
         return _registerState;
     }
@@ -1252,6 +1310,24 @@ internal sealed class KernelCall : KernelExpression
     internal JsValue CallWithArguments(KernelFrame frame, ScriptFunction function, JsValue thisValue, JsValue[] values)
     {
         var engine = frame.Engine;
+        if (DeferringKernel(frame, function) is { } kernel)
+        {
+            var count = values.Length;
+            var arguments = new NumberArguments(
+                count > 0 ? values[0] : null, 0,
+                count > 1 ? values[1] : null, 0,
+                count > 2 ? values[2] : null, 0,
+                count > 3 ? values[3] : null, 0,
+                count);
+            var value = CallDeferringArguments(frame, function, thisValue, _deferredArgumentsState!, kernel, in arguments, out var number);
+            if (count > 0)
+            {
+                engine._jsValueArrayPool.ReturnArray(values);
+            }
+
+            return Box(value, number);
+        }
+
         var oldSyntaxElement = engine.MarkLastSyntaxElement();
         frame.Context.PrepareFor(_expression);
 
@@ -1294,7 +1370,9 @@ internal sealed class KernelCall : KernelExpression
             {
                 // What JintCallExpression.ProbeRegisterCallee records.
                 _registerDefinition = definition;
-                _registerState = function.TryInitializeDefinition() is { SupportsRegisterCall: true } probed ? probed : null;
+                var probedState = function.TryInitializeDefinition();
+                _registerState = probedState is { SupportsRegisterCall: true } ? probedState : null;
+                _deferredArgumentsState = probedState is { ArgumentsInFrame: true } ? probedState : null;
                 ProbeInlineBody();
             }
 
@@ -1318,11 +1396,56 @@ internal sealed class KernelCall : KernelExpression
         return CallWithArgumentList(frame, function, thisValue);
     }
 
+    /// <summary>The kernel of <paramref name="function"/> when this site calls it putting off its arguments object, in a frame of the kernel; or null.</summary>
+    private FunctionKernel? DeferringKernel(KernelFrame frame, ScriptFunction function)
+    {
+        var engine = frame.Engine;
+        return _deferredArgumentsState is { } state
+               && ReferenceEquals(function._functionDefinition, _registerDefinition)
+               && function._functionDefinition!._kernel is { } kernel
+               && engine.CanPushCallFrame
+               && kernel.RunsInFrames(state)
+               && !frame.Context.CompletionValuesObservable
+               && engine._stackGuard.HasVerifiedHeadroom()
+            ? kernel
+            : null;
+    }
+
+    /// <summary>The call of a function whose kernel puts off its arguments object, its arguments evaluated in order.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private JsValue? CallDeferringArguments(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, FunctionKernel kernel, out double number)
+    {
+        var arguments = _arguments;
+        var count = arguments.Length;
+        double n0 = 0, n1 = 0, n2 = 0, n3 = 0;
+        var v0 = count >= 1 ? arguments[0].Evaluate(frame, out n0) : null;
+        var v1 = count >= 2 ? arguments[1].Evaluate(frame, out n1) : null;
+        var v2 = count >= 3 ? arguments[2].Evaluate(frame, out n2) : null;
+        var v3 = count >= 4 ? arguments[3].Evaluate(frame, out n3) : null;
+        return CallDeferringArguments(frame, function, thisValue, state, kernel, new NumberArguments(v0, n0, v1, n1, v2, n2, v3, n3, count), out number);
+    }
+
+    /// <summary>The call of a function whose kernel puts off its arguments object, in a frame of the kernel.</summary>
+    private JsValue? CallDeferringArguments(KernelFrame frame, ScriptFunction function, JsValue thisValue, JintFunctionDefinition.State state, FunctionKernel kernel, in NumberArguments arguments, out double number)
+    {
+        var engine = frame.Engine;
+        var oldPositions = engine.MarkLastSyntaxPositions();
+        var oldSource = engine._lastSyntaxLocation.SourceFile;
+        var result = function.CallKernelInFrameDeferringArguments(CallHandler, thisValue, in arguments, state, kernel, out number);
+        engine.RestoreLastSyntaxElement(oldPositions, oldSource);
+        return result;
+    }
+
     /// <summary>The call of an interpreted function with its arguments in a pooled list.</summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
     internal JsValue CallWithArgumentList(KernelFrame frame, ScriptFunction function, JsValue thisValue)
     {
         var engine = frame.Engine;
+        if (DeferringKernel(frame, function) is { } kernel)
+        {
+            return Box(CallDeferringArguments(frame, function, thisValue, _deferredArgumentsState!, kernel, out var number), number);
+        }
+
         var arguments = _arguments;
         var values = arguments.Length == 0 ? [] : engine._jsValueArrayPool.RentArray(arguments.Length);
         for (var i = 0; i < arguments.Length; i++)
@@ -1770,6 +1893,27 @@ internal sealed class KernelSpreadCall : KernelExpression
         var a0 = leading > 0 ? Box(arguments[0].Evaluate(frame, out var n0), n0) : null;
         var a1 = leading > 1 ? Box(arguments[1].Evaluate(frame, out var n1), n1) : null;
         var a2 = leading > 2 ? Box(arguments[2].Evaluate(frame, out var n2), n2) : null;
+        if (frame.RestPending && arguments[leading] is KernelRestSpread && KernelRestSpread.SpreadsAsItsArguments(frame))
+        {
+            // A rest array not made yet: the call's arguments past the rest parameter, as reading the array by index gives them.
+            var restSlot = frame.ArgumentsState!.RestParameterSlot;
+            var count = Math.Max(frame.PendingArguments.Count - restSlot, 0);
+            if (engine._hasMaxArraySize)
+            {
+                ArrayInstance.ValidateListLength(engine, (ulong) leading + (ulong) count);
+            }
+
+            var spreadValues = engine._jsValueArrayPool.RentArray(leading + count);
+            Lead(spreadValues, leading, a0, a1, a2);
+            for (var j = 0; j < count; j++)
+            {
+                spreadValues[leading + j] = frame.PendingArguments.At(restSlot + j);
+            }
+
+            rented = true;
+            return spreadValues;
+        }
+
         var argument = Box(arguments[leading].Evaluate(frame, out var n), n);
 
         var oldSyntaxElement = engine.MarkLastSyntaxElement();
@@ -2175,5 +2319,38 @@ internal sealed class KernelComparison : KernelExpression
             default:
                 return !(left.Type == right.Type ? left.Equals(right) : left.IsLooselyEqual(right));
         }
+    }
+}
+
+/// <summary>The spread argument naming a rest parameter whose array a call may have put off: made first where it was.</summary>
+internal sealed class KernelRestSpread : KernelExpression
+{
+    private readonly KernelExpression _read;
+
+    public KernelRestSpread(Expression expression, KernelExpression read) : base(expression)
+    {
+        _read = read;
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        if (frame.RestPending)
+        {
+            frame.MaterializeRest();
+        }
+
+        return _read.Evaluate(frame, out number);
+    }
+
+    /// <summary>Whether spreading a rest array made now would read it by index: its realm's Array.prototype iterates as built.</summary>
+    internal static bool SpreadsAsItsArguments(KernelFrame frame)
+    {
+        var engine = frame.Engine;
+        var prototype = engine.RunningRealm.Intrinsics.Array.PrototypeObject;
+        var descriptor = prototype.GetOwnProperty(GlobalSymbolRegistry.Iterator);
+        return (descriptor._flags & PropertyFlag.CustomJsValue) == PropertyFlag.None
+               && descriptor.IsDataDescriptor()
+               && ReferenceEquals(descriptor._value, prototype._originalIteratorFunction)
+               && (!engine._arrayIteratorNextMayBeReplaced || prototype.ArrayIteratorsStepNatively());
     }
 }

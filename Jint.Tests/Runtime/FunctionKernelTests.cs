@@ -1006,6 +1006,47 @@ public class FunctionKernelTests
           return out.join(",");
         }
         """,
+        // arguments objects made only once needed: mapped and unmapped reads after parameter writes, escapes, stacks
+        """
+        function count() { return arguments.length; }
+        function idx(a, b) { a = a + 10; return [arguments[0], arguments[1], arguments[2], arguments.length].join(":"); }
+        function idxStrict(a, b) { "use strict"; a = a + 10; var r = [arguments[0], arguments[1], arguments[2]].join(":"); return r; }
+        function restAndArgs(a, ...r) { a = 5; return arguments[0] + ":" + r.length + ":" + arguments.length; }
+        function escapes(a) { var x = arguments; a = 7; return x[0] + ":" + x.length; }
+        function late(a) { var t = arguments[0]; a = "z"; var s = new Error("e").stack; return t + arguments[0] + s; }
+        function strKey(a) { return arguments["0"] + arguments["length"]; }
+        function outOfRange(a) { Object.prototype[3] = "proto3"; var r = arguments[3]; delete Object.prototype[3]; return r + arguments.length; }
+        function calleeKind() { return typeof arguments.callee + typeof arguments; }
+        function inner() { return arguments[2] + count(1, 2); }
+        function nested(a, b) { return inner(a, b, a + b) + arguments.length; }
+        function throwing(a) { if (a > 3) { throw new Error("t" + arguments[0]); } return arguments.length; }
+        function writes(a) { arguments[0] = "w"; return a + arguments[0]; }
+        function numbers(a, b) { var s = 0; for (var i = 0; i < arguments.length; i++) { s += arguments[i] * 2; } a++; return s + arguments[0]; }
+        function sum3(a, b, c) { return a + ":" + b + ":" + c + ":" + arguments.length; }
+        function fwd(...xs) { return sum3(...xs); }
+        function fwdLead(x, ...xs) { return sum3(x, ...xs) + fwd(...xs); }
+        function fwdClosure(...xs) { var g = () => xs.length; return sum3(...xs) + g(); }
+        function thrower(a) { throw new Error("x" + a); }
+        function fwdThrow(...xs) { try { return thrower(...xs); } catch (e) { return e.message + e.stack; } }
+        function fwdArgs(...xs) { return sum3(...xs) + arguments.length + arguments[0]; }
+        var wrap = (fn) => (...args) => { try { return fn(...args); } catch (e) { return "err"; } };
+        var wrapped = wrap(sum3);
+        function test() {
+          var out = [];
+          for (var i = 0; i < 9; i++) {
+            out.push(count(), count(i, i), idx(i), idx(i, "b", "c"), idxStrict(i, 2, 3), restAndArgs(i, 1, 2), escapes(i, 1), late(i), strKey(i), outOfRange(i, 1, 2, 3), outOfRange(i), calleeKind(), nested(i, 1), writes(i), numbers(i, 0.5, 3));
+            try { out.push(throwing(i, 1)); } catch (e) { out.push(e.message, e.stack); }
+            out.push(fwd(), fwd(i), fwd(i, 2, 3, 4), fwdLead(i, 1), fwdClosure(i, 2), fwdThrow(i), fwdArgs(i, 5), wrapped(i, 7));
+            if (i === 5) {
+              var saved = Array.prototype[Symbol.iterator];
+              Array.prototype[Symbol.iterator] = function* () { yield "it"; };
+              out.push(fwd(i, 2), fwdLead(i, 3), wrapped(i, 7));
+              Array.prototype[Symbol.iterator] = saved;
+            }
+          }
+          return out.join(",");
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()

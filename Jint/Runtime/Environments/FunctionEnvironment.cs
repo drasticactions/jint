@@ -249,6 +249,19 @@ internal sealed class FunctionEnvironment : DeclarativeEnvironment
         slots[restSlot] = new Binding(rest, canBeDeleted: false, mutable: true, strict: false);
     }
 
+    /// <summary><see cref="InitializeParametersWithRest{TArgs}"/> with the rest slot left undefined for its array to be made later.</summary>
+    internal void InitializeParametersDeferringRest<TArgs>(int restSlot, in TArgs arguments)
+        where TArgs : struct, IArgumentSource
+    {
+        var slots = _slots!;
+        for (var i = 0; i < restSlot; i++)
+        {
+            slots[i] = new Binding(arguments.At(i), canBeDeleted: false, mutable: true, strict: false);
+        }
+
+        slots[restSlot] = new Binding(Undefined, canBeDeleted: false, mutable: true, strict: false);
+    }
+
     internal void AddFunctionParameters(EvaluationContext context, IFunction functionDeclaration, JsCallArguments arguments)
     {
         var empty = _dictionary is null || _dictionary.Count == 0;

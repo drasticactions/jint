@@ -5194,6 +5194,19 @@ public sealed partial class Engine : IDisposable
         }
     }
 
+    /// <summary><see cref="FunctionDeclarationInstantiationInto{TArgs}"/> of a function with a rest parameter whose array is made later.</summary>
+    internal static void FunctionDeclarationInstantiationDeferringRest(FunctionEnvironment fastEnv, JintFunctionDefinition.State configuration, in NumberArguments argumentsList)
+    {
+        fastEnv.InitializeParametersDeferringRest(configuration.RestParameterSlot, in argumentsList);
+        var slots = fastEnv._slots!;
+        var template = configuration.NonParameterSlotTemplate!;
+        var paramCount = configuration.ParameterSlotCount;
+        for (var i = 0; i < template.Length; i++)
+        {
+            slots[paramCount + i] = template[i];
+        }
+    }
+
     /// <summary>
     /// https://tc39.es/ecma262/#sec-functiondeclarationinstantiation
     /// </summary>
@@ -5472,7 +5485,7 @@ public sealed partial class Engine : IDisposable
         return ao;
     }
 
-    private JsArguments CreateMappedArgumentsObject(
+    internal JsArguments CreateMappedArgumentsObject(
         Function func,
         Key[] formals,
         JsCallArguments argumentsList,
@@ -5481,7 +5494,7 @@ public sealed partial class Engine : IDisposable
         return _argumentsInstancePool.Rent(func, formals, argumentsList, envRec);
     }
 
-    private JsArguments CreateUnmappedArgumentsObject(JsCallArguments argumentsList)
+    internal JsArguments CreateUnmappedArgumentsObject(JsCallArguments argumentsList)
     {
         return _argumentsInstancePool.Rent(argumentsList);
     }

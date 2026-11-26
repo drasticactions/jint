@@ -29,6 +29,29 @@ internal sealed class FunctionKernel : KernelProgram
 
     private readonly KernelBlockStatement _body;
     private readonly int _loops;
+
+    // Whether calls in frames put off the rest array, and how many calls of the current window made it all the same.
+    internal bool _defersRest;
+    private int _deferredRests;
+    private int _madeRests;
+    private const int DeferralWindow = 64;
+
+    /// <summary>Ends a call that put off its rest array; deferring stops where most calls make the array anyway.</summary>
+    internal void EndDeferredRest(KernelFrame frame)
+    {
+        if (frame.RestMade)
+        {
+            _madeRests++;
+        }
+
+        frame.EndPending();
+        if (++_deferredRests == DeferralWindow)
+        {
+            _defersRest = _madeRests * 2 <= DeferralWindow;
+            _deferredRests = 0;
+            _madeRests = 0;
+        }
+    }
     private readonly Key[]? _layout;
     private readonly int[] _localSlots;
     private readonly int _size;
@@ -71,6 +94,8 @@ internal sealed class FunctionKernel : KernelProgram
         }
 
         var compiler = new KernelCompiler();
+        var restName = SpreadOnlyRest(definition.Function, body, state);
+        compiler.RestName = restName;
         var root = compiler.CompileFunctionBody(body, definition.Strict || engine._isStrict);
         if (!compiler.CompiledAnything || compiler.Size > MaxSize || LeavesAStatementToTheInterpreter(root))
         {
@@ -92,7 +117,57 @@ internal sealed class FunctionKernel : KernelProgram
             localSlots[i] = layout is null || (scoped is not null && scoped[i]) ? -1 : KernelFrame.IndexOf(layout, names[i].Key);
         }
 
-        return new FunctionKernel(root, loops.Count, layout, localSlots, names, scoped, compiler.Size, createsClosures);
+        return new FunctionKernel(root, loops.Count, layout, localSlots, names, scoped, compiler.Size, createsClosures) { _defersRest = restName is not null };
+    }
+
+    /// <summary>
+    /// The name of a fixed-slot rest parameter the body reads only as the spread of a call's last argument, outside the
+    /// functions it makes: its calls in frames make the array only once something else needs it; null otherwise.
+    /// </summary>
+    private static string? SpreadOnlyRest(IFunction function, FunctionBody body, JintFunctionDefinition.State state)
+    {
+        if (!state.UseFixedSlots || state.RestParameterSlot < 0 || function.Params[function.Params.Count - 1] is not RestElement { Argument: Identifier rest })
+        {
+            return null;
+        }
+
+        var name = rest.Name;
+        var spreads = 0;
+        var pending = new Stack<Node>();
+        pending.Push(body);
+        while (pending.Count > 0)
+        {
+            var parent = pending.Pop();
+            foreach (var node in parent.ChildNodes)
+            {
+                switch (node)
+                {
+                    case IFunction:
+                        continue;
+                    case CallExpression call when call.Arguments.Count > 0 && call.Arguments[call.Arguments.Count - 1] is SpreadElement { Argument: Identifier spread } && string.Equals(spread.Name, name, StringComparison.Ordinal):
+                        spreads++;
+                        pending.Push(call.Callee);
+                        for (var i = 0; i < call.Arguments.Count - 1; i++)
+                        {
+                            pending.Push(call.Arguments[i]);
+                        }
+
+                        continue;
+                    case MemberExpression { Computed: false } member:
+                        pending.Push(member.Object);
+                        continue;
+                    case ObjectProperty { Computed: false, Shorthand: false } property:
+                        pending.Push(property.Value);
+                        continue;
+                    case Identifier identifier when string.Equals(identifier.Name, name, StringComparison.Ordinal):
+                        return null;
+                }
+
+                pending.Push(node);
+            }
+        }
+
+        return spreads > 0 ? name : null;
     }
 
     /// <summary>The body's code, compiled now once the tree has run the body often enough for it to pay; null otherwise.</summary>
@@ -578,6 +653,7 @@ internal sealed class FunctionKernel : KernelProgram
 
         var slots = environment._slots;
         var parameters = state.ParameterNames.Length;
+        var defersRest = _defersRest;
         if (slots is not null && state.RestParameterSlot < 0 && parameters <= 4)
         {
             if (parameters > 0)
@@ -604,6 +680,12 @@ internal sealed class FunctionKernel : KernelProgram
                 slots[first + i] = template[i];
             }
         }
+        else if (defersRest)
+        {
+            var arguments = new NumberArguments(v0, n0, v1, n1, v2, n2, v3, n3, count);
+            Engine.FunctionDeclarationInstantiationDeferringRest(environment, state, in arguments);
+            frame.DeferRest(in arguments, function, state);
+        }
         else
         {
             Instantiate(environment, state, v0, n0, v1, n1, v2, n2, v3, n3, count);
@@ -612,7 +694,15 @@ internal sealed class FunctionKernel : KernelProgram
         var positions = engine.MarkLastSyntaxPositions();
         var source = engine._lastSyntaxLocation.SourceFile;
         BeginCall(frame);
-        engine.PushCallFrame(environment, site);
+        if (defersRest)
+        {
+            engine.PushCallFrame(environment, site, frame);
+        }
+        else
+        {
+            engine.PushCallFrame(environment, site);
+        }
+
         engine._functionKernelCodeRuns++;
         JsValue? value;
         double number;
@@ -623,6 +713,11 @@ internal sealed class FunctionKernel : KernelProgram
         finally
         {
             engine.PopCallFrame();
+            if (defersRest)
+            {
+                EndDeferredRest(frame);
+            }
+
             LeaveCallFrame(frame, state, function);
         }
 

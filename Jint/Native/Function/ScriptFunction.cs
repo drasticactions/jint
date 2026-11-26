@@ -916,9 +916,21 @@ public sealed class ScriptFunction : Function, IConstructor
             OrdinaryCallBindThis(funcEnv, thisObject);
         }
 
-        Engine.FunctionDeclarationInstantiationInto(funcEnv, state, in arguments);
-        kernel.BeginCall(frame);
-        engine.PushCallFrame(funcEnv, site);
+        var defersRest = kernel._defersRest;
+        if (defersRest)
+        {
+            Engine.FunctionDeclarationInstantiationDeferringRest(funcEnv, state, in arguments);
+            frame.DeferRest(in arguments, this, state);
+            kernel.BeginCall(frame);
+            engine.PushCallFrame(funcEnv, site, frame);
+        }
+        else
+        {
+            Engine.FunctionDeclarationInstantiationInto(funcEnv, state, in arguments);
+            kernel.BeginCall(frame);
+            engine.PushCallFrame(funcEnv, site);
+        }
+
         JsValue? result;
         try
         {
@@ -927,6 +939,42 @@ public sealed class ScriptFunction : Function, IConstructor
         finally
         {
             engine.PopCallFrame();
+            if (defersRest)
+            {
+                kernel.EndDeferredRest(frame);
+            }
+
+            kernel.LeaveCallFrame(frame, state, this);
+        }
+
+        return result;
+    }
+
+    /// <summary><see cref="CallKernelInFrame"/> of a function whose arguments object is made only once something needs it.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal JsValue? CallKernelInFrameDeferringArguments(JintExpression site, JsValue thisObject, in NumberArguments arguments, JintFunctionDefinition.State state, FunctionKernel kernel, out double number)
+    {
+        var engine = _engine;
+        var frame = kernel.EnterCallFrame(engine._evaluationContext, this, state);
+        var funcEnv = frame.CallEnvironment!;
+        if (!state.CanSkipThisBinding)
+        {
+            OrdinaryCallBindThis(funcEnv, thisObject);
+        }
+
+        Engine.FunctionDeclarationInstantiationInto(funcEnv, state, in arguments);
+        frame.DeferArguments(in arguments, this, state);
+        kernel.BeginCall(frame);
+        engine.PushCallFrame(funcEnv, site, frame);
+        JsValue? result;
+        try
+        {
+            result = kernel.RunBody(frame, out number);
+        }
+        finally
+        {
+            engine.PopCallFrame();
+            frame.EndPending();
             kernel.LeaveCallFrame(frame, state, this);
         }
 

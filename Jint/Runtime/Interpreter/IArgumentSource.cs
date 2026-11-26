@@ -150,6 +150,26 @@ internal readonly struct NumberArguments(JsValue? v0, double n0, JsValue? v1, do
         get => _count;
     }
 
+    /// <summary>The argument at <paramref name="index"/> below the count: null with its Number in <paramref name="number"/>, or the value.</summary>
+    internal JsValue? ValueAt(int index, out double number)
+    {
+        switch (index)
+        {
+            case 0:
+                number = _n0;
+                return _v0;
+            case 1:
+                number = _n1;
+                return _v1;
+            case 2:
+                number = _n2;
+                return _v2;
+            default:
+                number = _n3;
+                return _v3;
+        }
+    }
+
     public JsValue At(int index)
     {
         if ((uint) index >= (uint) _count)

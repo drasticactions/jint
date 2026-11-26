@@ -815,6 +815,9 @@ internal sealed class JintFunctionDefinition
         /// <summary>Whether a fixed-slot function's arguments object may be mapped to its parameter slots.</summary>
         public bool ArgumentsMayAliasParameters;
 
+        /// <summary>Whether a kernel's call may bind the parameters by position and make the arguments object only once something needs it.</summary>
+        public bool ArgumentsInFrame;
+
         public bool RequiresInputArgumentsOwnership;
         public List<Key>? VarNames;
         public FunctionToInitialize[]? FunctionsToInitialize;
@@ -1317,6 +1320,7 @@ internal sealed class JintFunctionDefinition
                 state.NonParameterSlotTemplate = nonParameterSlotTemplate;
                 state.UseFixedSlots = true;
                 state.CanUseFastFDI = !argumentsSlot && bindsByPosition;
+                state.ArgumentsInFrame = argumentsSlot && bindsByPosition && !state.ArgumentsMayOutliveCall;
             }
         }
 

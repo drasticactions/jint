@@ -69,6 +69,152 @@ internal sealed class KernelFrame
     internal JsValue? ReturnValue;
     internal double ReturnNumber;
 
+    // A call's arguments object or rest array put off until something needs it, with what making them takes.
+    internal bool ArgumentsPending;
+    internal bool RestPending;
+    internal bool RestMade;
+    internal bool ArgumentsMapped;
+    internal NumberArguments PendingArguments;
+    internal Native.Function.ScriptFunction? ArgumentsFunction;
+    internal JintFunctionDefinition.State? ArgumentsState;
+    internal JsArguments? ArgumentsObject;
+    internal JsValue[]? ArgumentValues;
+
+    /// <summary>Puts off the arguments object of the call this frame runs.</summary>
+    internal void DeferArguments(in NumberArguments arguments, Native.Function.ScriptFunction function, JintFunctionDefinition.State state)
+    {
+        PendingArguments = arguments;
+        ArgumentsFunction = function;
+        ArgumentsState = state;
+        ArgumentsMapped = !Engine._isStrict && !function._strict && state.IsSimpleParameterList;
+        ArgumentsPending = true;
+    }
+
+    /// <summary>Puts off the rest array of the call this frame runs.</summary>
+    internal void DeferRest(in NumberArguments arguments, Native.Function.ScriptFunction function, JintFunctionDefinition.State state)
+    {
+        // The rest's values boxed once, for the spreads and the array alike.
+        var restSlot = state.RestParameterSlot;
+        var count = arguments.Count;
+        PendingArguments = new NumberArguments(
+            Boxed(in arguments, 0, restSlot), arguments.ValueAt(0, out var n0) is null ? n0 : 0,
+            Boxed(in arguments, 1, restSlot), arguments.ValueAt(1, out var n1) is null ? n1 : 0,
+            Boxed(in arguments, 2, restSlot), arguments.ValueAt(2, out var n2) is null ? n2 : 0,
+            Boxed(in arguments, 3, restSlot), arguments.ValueAt(3, out var n3) is null ? n3 : 0,
+            count);
+        ArgumentsFunction = function;
+        ArgumentsState = state;
+        RestPending = true;
+    }
+
+    private static JsValue? Boxed(in NumberArguments arguments, int index, int restSlot)
+        => index >= arguments.Count ? null : index >= restSlot ? arguments.At(index) : arguments.ValueAt(index, out _);
+
+    /// <summary>Makes whatever the call put off.</summary>
+    internal void MaterializePending()
+    {
+        if (RestPending)
+        {
+            MaterializeRest();
+        }
+
+        if (ArgumentsPending)
+        {
+            MaterializeArguments();
+        }
+    }
+
+    /// <summary>The rest array the call put off, made now as FunctionEnvironment.InitializeParametersWithRest makes it.</summary>
+    internal void MaterializeRest()
+    {
+        RestPending = false;
+        RestMade = true;
+        var restSlot = ArgumentsState!.RestParameterSlot;
+        var count = PendingArguments.Count - restSlot;
+        JsArray rest;
+        if (count > 0)
+        {
+            var values = new JsValue[count];
+            for (var i = 0; i < values.Length; i++)
+            {
+                values[i] = PendingArguments.At(restSlot + i);
+            }
+
+            rest = new JsArray(Engine, values);
+        }
+        else
+        {
+            rest = new JsArray(Engine);
+        }
+
+        CallEnvironment!._slots![restSlot] = new Binding(rest, canBeDeleted: false, mutable: true, strict: false);
+    }
+
+    /// <summary>The arguments object the call put off, made now as FunctionDeclarationInstantiation makes it and bound in the call's environment.</summary>
+    internal JsArguments MaterializeArguments()
+    {
+        if (RestPending)
+        {
+            MaterializeRest();
+        }
+
+        ArgumentsPending = false;
+        var engine = Engine;
+        var function = ArgumentsFunction!;
+        var state = ArgumentsState!;
+        var environment = CallEnvironment!;
+        var count = PendingArguments.Count;
+
+        // Pooled as a caller's argument list is: the object copies it before anything can keep it past the call.
+        var values = engine._jsValueArrayPool.RentArray(count);
+        ArgumentValues = values;
+        for (var i = 0; i < count; i++)
+        {
+            values[i] = PendingArguments.At(i);
+        }
+
+        PendingArguments = default;
+        var strict = !ArgumentsMapped && (engine._isStrict || function._strict);
+        var arguments = ArgumentsMapped
+            ? engine.CreateMappedArgumentsObject(function, state.ParameterNames, values, environment)
+            : engine.CreateUnmappedArgumentsObject(values);
+        if (strict)
+        {
+            environment.CreateImmutableBindingAndInitialize(KnownKeys.Arguments, strict: false, arguments, DisposeHint.Normal);
+        }
+        else
+        {
+            environment.CreateMutableBindingAndInitialize(KnownKeys.Arguments, canBeDeleted: false, arguments, DisposeHint.Normal);
+        }
+
+        arguments._bindingEnvironment = environment;
+        ArgumentsObject = arguments;
+        return arguments;
+    }
+
+    /// <summary>Ends the arguments object of a call that put it off, if one was made, as the end of the call does.</summary>
+    internal void EndPending()
+    {
+        RestPending = false;
+        RestMade = false;
+        if (ArgumentsObject is { } arguments)
+        {
+            ArgumentsObject = null;
+            arguments.FunctionWasCalled(environmentOutlivesCall: ArgumentsState!.EnvironmentMayEscape);
+            if (ArgumentValues is { Length: > 0 } values)
+            {
+                Engine._jsValueArrayPool.ReturnArray(values);
+            }
+
+            ArgumentValues = null;
+        }
+
+        ArgumentsPending = false;
+        PendingArguments = default;
+        ArgumentsFunction = null;
+        ArgumentsState = null;
+    }
+
     public KernelFrame(Environment.BindingName[] names, bool[]? scoped = null)
     {
         Names = names;

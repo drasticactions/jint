@@ -86,6 +86,13 @@ public partial class Engine
         _framesNotPushed++;
     }
 
+    /// <summary><see cref="PushCallFrame(FunctionEnvironment, JintExpression)"/> of a call whose arguments object or rest array <paramref name="kernelFrame"/> makes once the frame is pushed.</summary>
+    internal void PushCallFrame(FunctionEnvironment environment, JintExpression site, Runtime.Interpreter.Kernels.KernelFrame kernelFrame)
+    {
+        PushCallFrame(environment, site);
+        _frames[_frameCount - 1].PendingOf = kernelFrame;
+    }
+
     /// <summary>Pops the innermost kernel call's frame, and its call stack frame and execution context where they were pushed.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void PopCallFrame()
@@ -129,6 +136,10 @@ public partial class Engine
             _callStack.Push(function, _frames[i].Site, in _executionContexts.Peek());
             var origin = function._functionOrigin;
             EnterFunctionExecutionContext(origin.ScriptOrModule, environment, function._privateEnvironment, origin.Realm, function, function._strict);
+            if (_frames[i].PendingOf is { } kernelFrame)
+            {
+                kernelFrame.MaterializePending();
+            }
         }
     }
 
@@ -137,5 +148,6 @@ public partial class Engine
     {
         internal FunctionEnvironment? Environment;
         internal JintExpression? Site;
+        internal Runtime.Interpreter.Kernels.KernelFrame? PendingOf;
     }
 }
