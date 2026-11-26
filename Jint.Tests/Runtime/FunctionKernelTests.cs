@@ -882,6 +882,130 @@ public class FunctionKernelTests
           return out.join(",") + log.join("");
         }
         """,
+        // object literals: shapes, duplicate and index keys, __proto__, computed keys, methods, accessors, spreads, naming
+        """
+        var log = [];
+        Object.defineProperty(Object.prototype, "trap", { set: function (v) { log.push("proto set " + v); }, get: function () { return "inherited"; }, configurable: true });
+        var key = { toString: function () { log.push("key"); return "k"; } };
+        var sym = Symbol("s");
+        var frozen = Object.freeze({ f1: 1, f2: 2 });
+        var proxy = new Proxy({ p1: 1, p2: 2 }, { ownKeys: function (t) { log.push("ownKeys"); return Reflect.ownKeys(t); }, get: function (t, k) { log.push("get " + String(k)); return t[k]; } });
+        var getterSource = { get g() { log.push("g"); return 5; }, plain: 1 };
+        function bad() { throw new Error("value"); }
+        var badKey = { toString: function () { throw new Error("key"); } };
+        function plain(a, b) { var o = { x: a, y: b, z: a + b }; return o.x + o.y + o.z + Object.keys(o).join(""); }
+        function dup(a) { var o = { x: a, y: 1, x: a * 2 }; var n = { 2: a, 1: "one", b: 3 }; return JSON.stringify(o) + JSON.stringify(n); }
+        function protos(a) { var p = { __proto__: { inherited: a } }; var q = { "__proto__": 5 }; var __proto__ = 7; var r = { __proto__ }; var t = { ["__proto__"]: 9 }; return [p.inherited, Object.getPrototypeOf(q) === Object.prototype, r.__proto__, Object.keys(t).join(), t.trap].join(":"); }
+        function computed(a) { log.push("c" + a); var o = { [key]: a, [sym]: 2, [a]: "n", ["m" + a]: function () { return 1; }, [a + 1]() { return 2; } }; return [o.k, o[sym], o[a], o["m" + a].name, o[a + 1].name, Object.keys(o).join()].join(":"); }
+        function methods(a) { var o = { v: a, m() { return this.v; }, get g() { return this.v * 2; }, set s(x) { this.v = x; }, f: function () { return 1; }, ar: () => 2, ["get"]: 3 }; o.s = a + 1; return [o.m(), o.g, o.f.name, o.ar.name, Object.getOwnPropertyDescriptor(o, "g").get.name, Object.getOwnPropertyDescriptor(o, "s").set.name, Object.keys(o).join()].join(":"); }
+        function spreads(a) { var o = { first: 0, ...frozen, ...getterSource, ...null, ...undefined, ..."ab", ...proxy, last: a, f1: a }; return JSON.stringify(o) + Object.isFrozen(o); }
+        function triggers(a) { var o = { trap: a }; return Object.getOwnPropertyDescriptor(o, "trap").value + o.trap; }
+        function empty(a) { var o = {}; o.a = a; o.b = a + 1; var e = {}; return o.a + o.b + Object.keys(e).length; }
+        function errors(a) {
+          var r = [];
+          try { var o = { x: a, y: bad() }; } catch (e) { r.push(e.message, e.stack); }
+          try { var p = { [badKey]: a }; } catch (e) { r.push(e.message, e.stack); }
+          try { var q = { ...{ get g() { throw new Error("spread getter"); } } }; } catch (e) { r.push(e.message, e.stack); }
+          return r.join("|");
+        }
+        function test() {
+          log = [];
+          var out = [];
+          for (var i = 0; i < 9; i++) {
+            out.push(plain(i, 2), dup(i), protos(i), computed(i), methods(i), spreads(i), triggers(i), empty(i), errors(i));
+          }
+          return out.join(",") + log.join("|");
+        }
+        """,
+        // array and template literals: holes, spreads of arrays, strings, sets, iterators and arguments; substitutions
+        """
+        var log = [];
+        function iterable(n) { var i = 0; return { [Symbol.iterator]() { return { next() { log.push("n" + i); return i < n ? { done: false, value: i++ } : { done: true }; } }; } }; }
+        var replaced = [7, 8];
+        replaced[Symbol.iterator] = function* () { log.push("own"); yield 1; };
+        var obj = { toString: function () { log.push("ts"); return "T"; }, valueOf: function () { log.push("vo"); return 1; } };
+        var long = "x".repeat(40);
+        function arrays(a) { var h = [a, , a + 2, ,]; var s = [...h, ...[a], ..."xy", ...new Set([a, a, 3]), ...iterable(a % 3), ...replaced, ...arguments]; var n = [[a], [...[a, a]], []]; return [h.length, 1 in h, s.join("/"), s.length, n.length, n[1].length].join(":"); }
+        function badSpread(a) { try { var x = [...a]; return x.length; } catch (e) { return e.message + e.stack; } }
+        function templates(a) { var t = `a${a}b${obj}c${null}${undefined}${true}${a / 3}`; var u = `${long}${a}${long}`; var w = `plain`; return t + u.length + w; }
+        function badTemplate(a) { try { return `${Symbol("x")}`; } catch (e) { return e.constructor.name + e.stack; } }
+        function accumulate(n) { var s = ""; for (var i = 0; i < n; i++) { s = `${s}${i}-`; } return s; }
+        function test() {
+          log = [];
+          var out = [];
+          for (var i = 0; i < 9; i++) { out.push(arrays(i, "z"), badSpread(i % 2 ? null : 5), templates(i), badTemplate(i), accumulate(i)); }
+          return out.join(",") + log.join("|");
+        }
+        """,
+        // optional chains, ??, in, **, delete, void and new with spread
+        """
+        "use strict";
+        var log = [];
+        var cfg = { a: { b: { c: 3, arr: [1, 2] } }, m: function (x) { return this === cfg ? x + 1 : -1; }, n: null, get g() { log.push("g"); return { h: 1 }; } };
+        function side(x) { log.push("side" + x); return x; }
+        function chains(o, i) {
+          var r = [o?.a?.b?.c, o?.a.b.arr[1], o?.n?.x, o?.missing?.x.y.z, o?.a?.["b"]?.c, o?.m?.(i), o?.g?.h, o?.["m"](i)];
+          try { r.push(o.m?.(i), o.missing?.(side(i))); } catch (e) { r.push(e.message, e.stack); }
+          try { r.push(o.a?.b.c.d.e); } catch (e) { r.push(e.message, e.stack); }
+          try { r.push(o?.a.b(1)); } catch (e) { r.push(e.message, e.stack); }
+          try { r.push(o.n.x); } catch (e) { r.push(e.message); }
+          var res = r.join(":");
+          return res;
+        }
+        function nullish(a, b) { var r = [a ?? b, a?.x ?? side(b), (a || null) ?? "d", 0 ?? 1, "" ?? 1, false ?? 1]; var res = r.join(":"); return res; }
+        function ins(o, k) { var r; try { r = (k in o) + ":" + ("x" in o) + ":" + (0 in [1]); } catch (e) { r = e.message + e.stack; } return r; }
+        var hasProxy = new Proxy({}, { has: function (t, k) { log.push("has " + k); return k === "p"; } });
+        function pow(a, b) { var x = a ** b; var y = a; y **= 2; x = [x, y, (-8) ** (1 / 3), 2 ** -1074, (-0) ** -1, 0 ** -1, NaN ** 0, 1 ** Infinity, (-2) ** 3, "3" ** 2, 2n ** 3n].join(":"); return x; }
+        function deletes(o, k) {
+          var r = [];
+          r.push(delete o.x, delete o[k], delete o.missing, "x" in o);
+          try { r.push(delete o.fixed); } catch (e) { r.push(e.message, e.stack); }
+          try { r.push(delete o.nothing.x); } catch (e) { r.push(e.message); }
+          var res = r.join(":");
+          return res;
+        }
+        function deleteOnly(o) { delete o.y; }
+        var deleteProxy = new Proxy({ x: 1 }, { deleteProperty: function (t, k) { log.push("del " + k); return delete t[k]; } });
+        function voids(a) { var r = void side(a); return r === void 0; }
+        function Pt(x, y) { this.x = x; this.y = y; this.n = arguments.length; }
+        function news(a) { var args = [a, 2]; var p = new Pt(...args); var q = new Pt(1, ...iterableOf(a)); var d = new Date(...[2020, a % 12, 1]); var r = [p.x + p.y + p.n, q.y + q.n, d.getMonth()]; try { new cfg.m(...args); } catch (e) { r.push(e.message, e.stack); } try { new Pt(a, ...a); } catch (e) { r.push(e.message, e.stack); } var res = r.join(":"); return res; }
+        function iterableOf(a) { var set = new Set([a, a + 1, a + 2]); return set; }
+        function test() {
+          log = [];
+          var out = [];
+          for (var i = 0; i < 9; i++) {
+            var fixed = {};
+            Object.defineProperty(fixed, "fixed", { value: 1 });
+            fixed.x = 1; fixed.y = 2; fixed["k" + i] = 3;
+            out.push(chains(i % 3 ? cfg : (i % 2 ? null : undefined), i), chains(cfg, i), nullish(i % 2 ? null : i, i), nullish(undefined, { x: i }), ins(i % 4 ? { k: 1, x: 2 } : 5, "k"), ins(hasProxy, "p"), pow(i, 2), deletes(fixed, "k" + i), deletes(deleteProxy, "x"), voids(i), news(i));
+            deleteOnly(fixed);
+            out.push(Object.keys(fixed).join());
+          }
+          var res = out.join(",") + log.join("|");
+          return res;
+        }
+        """,
+        // reads of members no link of the chain has, while links gain and lose them or change
+        """
+        function read(o) { var v = o.missing; return v === undefined ? "u" : v; }
+        function readIn(o) { var v = o?.deep?.missing ?? "d"; return v; }
+        function test() {
+          var out = [];
+          var proto = {}, o = Object.create(proto), plain = {}, nul = Object.create(null), chain = Object.create(Object.create({}));
+          for (var i = 0; i < 9; i++) {
+            out.push(read(o), read(plain), read(nul), read([]), read(function () { }), read("s"), read(5), read(chain), readIn({ deep: chain }), readIn(null));
+            if (i === 3) { proto.missing = "p"; }
+            if (i === 4) { Object.prototype.missing = "op"; }
+            if (i === 5) { delete Object.prototype.missing; delete proto.missing; }
+            if (i === 6) { Object.setPrototypeOf(o, { missing: "np" }); }
+            if (i === 7) { Object.setPrototypeOf(Object.getPrototypeOf(Object.getPrototypeOf(chain)), new Proxy({}, { get: function (t, k) { return "proxy " + String(k); } })); }
+            if (i === 8) { Array.prototype.missing = "ap"; String.prototype.missing = "sp"; }
+          }
+          delete Array.prototype.missing;
+          delete String.prototype.missing;
+          return out.join(",");
+        }
+        """,
     ];
 
     private static IEnumerable<TestCaseData> Cases()
@@ -1037,6 +1161,11 @@ public class FunctionKernelTests
     [TestCase("function f(a) { { class C { } } return a; }", false)]
     [TestCase("function f(a) { switch (a) { case 1: let b = 2; return b; } return a; }", false)]
     [TestCase("async function f(a) { for await (var x of [a]) { } return a; }", false)]
+    [TestCase("function f(a) { var o = { x: a, ...a, [a]: 1, m() { return 1; }, get g() { return 2; } }; return o; }", true)]
+    [TestCase("function f(a) { var t = [a, , ...[a]]; return `${a}${t}`; }", true)]
+    [TestCase("function f(a) { delete a.x; }", true)]
+    [TestCase("function f(a) { a?.b?.(); }", true)]
+    [TestCase("function f(a) { var b = a?.x ?? (1 in [a]) ** 2; void b; return new Array(...[a]); }", true)]
     public void OnlyTheSimplestBodiesAreCompiled(string declaration, bool compiled)
     {
         var engine = new Engine();

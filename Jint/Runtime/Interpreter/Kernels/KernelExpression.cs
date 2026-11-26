@@ -613,3 +613,30 @@ internal sealed class KernelSequence : KernelExpression
         }
     }
 }
+
+/// <summary>The last syntax element the interpreter's reads of operands leave, for errors a kernel node raises after them.</summary>
+internal static class KernelLocation
+{
+    /// <summary>The node the interpreter's read of <paramref name="operand"/> leaves as the last syntax element, or null where it restores the one before.</summary>
+    internal static Node? After(Expression? operand) => operand switch
+    {
+        Identifier or ThisExpression or MemberExpression => operand,
+        Literal literal => JintLiteralExpression.ConvertToJsValue(literal) is null ? operand : null,
+        NonUpdateUnaryExpression { Operator: Operator.UnaryNegation, Argument: Literal } => null,
+        NonUpdateUnaryExpression or LogicalExpression { Operator: Operator.NullishCoalescing } => operand,
+        ChainExpression { Expression: MemberExpression member } => member,
+        _ => null,
+    };
+
+    /// <summary>The last syntax element after reading <paramref name="operands"/> in order, starting from <paramref name="start"/>.</summary>
+    internal static Node Fold(Node start, IEnumerable<Expression?> operands)
+    {
+        var location = start;
+        foreach (var operand in operands)
+        {
+            location = After(operand) ?? location;
+        }
+
+        return location;
+    }
+}

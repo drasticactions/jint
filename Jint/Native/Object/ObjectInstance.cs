@@ -142,7 +142,7 @@ public partial class ObjectInstance : JsValue, IEquatable<ObjectInstance>
         _engine = engine;
         _class = objectClass;
         // if engine is ready, we can take default prototype for object
-        var realm = engine.Realm;
+        var realm = engine.RunningRealm;
         _prototype = realm.Intrinsics?.Object?.PrototypeObject;
         if (engine._mainRealm is not null && !ReferenceEquals(realm, engine._mainRealm))
         {

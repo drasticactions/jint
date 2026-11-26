@@ -287,6 +287,7 @@ internal sealed class KernelCompoundSlot : KernelEffect
         Operator.LeftShiftAssignment => Operator.LeftShift,
         Operator.RightShiftAssignment => Operator.RightShift,
         Operator.UnsignedRightShiftAssignment => Operator.UnsignedRightShift,
+        Operator.ExponentiationAssignment => Operator.Exponentiation,
         _ => null,
     };
 
@@ -303,6 +304,7 @@ internal sealed class KernelCompoundSlot : KernelEffect
         Operator.BitwiseXor => Operator.BitwiseXorAssignment,
         Operator.LeftShift => Operator.LeftShiftAssignment,
         Operator.RightShift => Operator.RightShiftAssignment,
+        Operator.Exponentiation => Operator.ExponentiationAssignment,
         _ => Operator.UnsignedRightShiftAssignment,
     };
 

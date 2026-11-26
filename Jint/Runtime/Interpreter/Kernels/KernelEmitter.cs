@@ -2198,6 +2198,12 @@ internal sealed class KernelEmitter
                 il.Emit(OpCodes.Conv_R8);
                 return;
 
+            case Operator.Exponentiation:
+                il.Emit(OpCodes.Ldloc, left);
+                il.Emit(OpCodes.Ldloc, right);
+                il.Emit(OpCodes.Call, Method(typeof(KernelBinary), nameof(KernelBinary.Power)));
+                return;
+
             case Operator.UnsignedRightShift:
                 il.Emit(OpCodes.Ldloc, left);
                 il.Emit(OpCodes.Call, ToUint32);

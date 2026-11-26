@@ -908,6 +908,60 @@ internal sealed class KernelCompiler
             case NonLogicalBinaryExpression { Operator: Operator.InstanceOf } instanceOf:
                 return new KernelInstanceOf(instanceOf, CompileValue(instanceOf.Left), CompileValue(instanceOf.Right));
 
+            case NonLogicalBinaryExpression { Operator: Operator.In, Left: not PrivateIdentifier } inExpression:
+                return new KernelIn(inExpression, CompileValue(inExpression.Left), CompileValue(inExpression.Right));
+
+            case LogicalExpression { Operator: Operator.NullishCoalescing } nullish when TryCompilePure(nullish) is null:
+                return new KernelNullish(nullish, CompileValue(nullish.Left), CompileValue(nullish.Right));
+
+            case NonUpdateUnaryExpression { Operator: Operator.Void } voidExpression when TryCompilePure(voidExpression) is null:
+                return new KernelVoid(voidExpression, CompileValue(voidExpression.Argument));
+
+            case NonUpdateUnaryExpression { Operator: Operator.Delete, Argument: MemberExpression { Optional: false, Object: not Super } deleted } deleteExpression:
+                {
+                    if (deleted.Computed)
+                    {
+                        var obj = CompileValue(deleted.Object);
+                        return new KernelDelete(deleteExpression, obj, CompileValue(deleted.Property), name: null);
+                    }
+
+                    return deleted.Property is Identifier deletedName
+                        ? new KernelDelete(deleteExpression, CompileValue(deleted.Object), key: null, deletedName.Name)
+                        : null;
+                }
+
+            case ObjectExpression objectExpression when KernelObjectLiteral.IsSupported(objectExpression):
+                return KernelObjectLiteral.Create(objectExpression, CompileValue, _sitesStartHot);
+
+            case ArrayExpression arrayExpression:
+                {
+                    var elements = new KernelExpression?[arrayExpression.Elements.Count];
+                    for (var i = 0; i < elements.Length; i++)
+                    {
+                        var element = arrayExpression.Elements[i];
+                        elements[i] = element is null ? null : CompileValue(element is SpreadElement spread ? spread.Argument : element);
+                    }
+
+                    return new KernelArrayLiteral(arrayExpression, elements);
+                }
+
+            case TemplateLiteral template:
+                {
+                    var substitutions = new KernelExpression[template.Expressions.Count];
+                    for (var i = 0; i < substitutions.Length; i++)
+                    {
+                        substitutions[i] = CompileValue(template.Expressions[i]);
+                    }
+
+                    return new KernelTemplate(template, substitutions);
+                }
+
+            case ChainExpression { Expression: CallExpression chainCall } chain:
+                {
+                    var call = TryCompileChainCall(chain, chainCall);
+                    return call is null ? null : new KernelChain(chain, call);
+                }
+
             case ConditionalExpression conditional when TryCompilePure(conditional) is null:
                 {
                     var test = TryCompileEffect(conditional.Test);
@@ -1109,14 +1163,6 @@ internal sealed class KernelCompiler
 
     private KernelNew? TryCompileNew(NewExpression expression)
     {
-        foreach (var argument in expression.Arguments)
-        {
-            if (argument is SpreadElement)
-            {
-                return null;
-            }
-        }
-
         var callee = TryCompilePure(expression.Callee);
         if (callee is null)
         {
@@ -1126,10 +1172,127 @@ internal sealed class KernelCompiler
         var arguments = new KernelExpression[expression.Arguments.Count];
         for (var i = 0; i < arguments.Length; i++)
         {
-            arguments[i] = CompileValue(expression.Arguments[i]);
+            var argument = expression.Arguments[i];
+            arguments[i] = CompileValue(argument is SpreadElement spread ? spread.Argument : argument);
         }
 
         return new KernelNew(expression, callee, arguments);
+    }
+
+    /// <summary>A link of an optional chain read purely: a member of a link or of a pure expression; null for a call inside the chain.</summary>
+    private KernelExpression? TryCompileChainLink(Expression expression)
+    {
+        if (expression is not MemberExpression { Object: not Super } member)
+        {
+            return expression is CallExpression ? null : TryCompilePure(expression);
+        }
+
+        if (_depth >= MaxDepth)
+        {
+            return null;
+        }
+
+        _depth++;
+        try
+        {
+            var obj = TryCompileChainLink(member.Object);
+            if (obj is null)
+            {
+                return null;
+            }
+
+            if (member.Computed)
+            {
+                var key = TryCompilePure(member.Property);
+                return key is null ? null : new KernelChainMember(member, obj, property: null, key);
+            }
+
+            return member.Property is Identifier name ? new KernelChainMember(member, obj, new KernelProperty(member, obj, name.Name), key: null) : null;
+        }
+        finally
+        {
+            _depth--;
+        }
+    }
+
+    /// <summary>The call that ends an optional chain, of a callee read purely, without spread; or null.</summary>
+    private KernelChainCall? TryCompileChainCall(ChainExpression chain, CallExpression call)
+    {
+        if (ReferenceEquals(call.UserData, TailCallMarker.Instance))
+        {
+            return null;
+        }
+
+        foreach (var argument in call.Arguments)
+        {
+            if (argument is SpreadElement)
+            {
+                return null;
+            }
+        }
+
+        KernelExpression? obj = null;
+        KernelProperty? property = null;
+        KernelExpression? key = null;
+        KernelExpression? callee = null;
+        KernelHeld? held = null;
+        KernelProperty? member = null;
+        KernelExpression? heldKey = null;
+        switch (call.Callee)
+        {
+            case MemberExpression { Object: not Super } memberCallee:
+                obj = TryCompileChainLink(memberCallee.Object);
+                if (obj is null)
+                {
+                    return null;
+                }
+
+                held = new KernelHeld(memberCallee.Object);
+                if (memberCallee.Computed)
+                {
+                    key = TryCompilePure(memberCallee.Property);
+                    heldKey = key is null ? null : TryCompilePure(memberCallee.Property);
+                    if (heldKey is null)
+                    {
+                        return null;
+                    }
+                }
+                else if (memberCallee.Property is Identifier name)
+                {
+                    property = new KernelProperty(memberCallee, obj, name.Name);
+                    member = new KernelProperty(memberCallee, held, name.Name);
+                }
+                else
+                {
+                    return null;
+                }
+
+                break;
+
+            case MemberExpression:
+                return null;
+
+            case Identifier { Name: "eval" }:
+                return null;
+
+            default:
+                callee = TryCompileChainLink(call.Callee);
+                if (callee is null || callee is KernelChainMember)
+                {
+                    return null;
+                }
+
+                break;
+        }
+
+        var arguments = new KernelExpression[call.Arguments.Count];
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            arguments[i] = CompileValue(call.Arguments[i]);
+        }
+
+        var inner = new KernelCall(call, member, callee, arguments, heldKey is null ? null : held, heldKey);
+        return new KernelChainCall(chain, call, obj, property, key, callee, held, inner);
     }
 
     /// <summary>A pure expression (see <see cref="KernelExpression"/>), or null.</summary>
@@ -1200,6 +1363,25 @@ internal sealed class KernelCompiler
                     var left = TryCompilePure(logical.Left);
                     var right = left is null ? null : TryCompilePure(logical.Right);
                     return right is null ? null : new KernelLogical(logical, logical.Operator == Operator.LogicalAnd, left!, right);
+                }
+
+            case LogicalExpression { Operator: Operator.NullishCoalescing } nullish:
+                {
+                    var left = TryCompilePure(nullish.Left);
+                    var right = left is null ? null : TryCompilePure(nullish.Right);
+                    return right is null ? null : new KernelNullish(nullish, left!, right);
+                }
+
+            case NonUpdateUnaryExpression { Operator: Operator.Void } voidExpression:
+                {
+                    var argument = TryCompilePure(voidExpression.Argument);
+                    return argument is null ? null : new KernelVoid(voidExpression, argument);
+                }
+
+            case ChainExpression { Expression: MemberExpression chained } chain:
+                {
+                    var link = TryCompileChainLink(chained);
+                    return link is null ? null : new KernelChain(chain, link);
                 }
 
             case NonUpdateUnaryExpression { Operator: Operator.TypeOf } typeOf:

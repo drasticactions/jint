@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Jint.Native;
+using Jint.Native.Object;
 using Jint.Runtime.Interpreter.Expressions;
 
 namespace Jint.Runtime.Interpreter.Kernels;
@@ -99,7 +100,7 @@ internal sealed class KernelBinary : KernelExpression
     {
         Operator.Addition or Operator.Subtraction or Operator.Multiplication or Operator.Division or Operator.Remainder
             or Operator.BitwiseAnd or Operator.BitwiseOr or Operator.BitwiseXor
-            or Operator.LeftShift or Operator.RightShift or Operator.UnsignedRightShift => true,
+            or Operator.LeftShift or Operator.RightShift or Operator.UnsignedRightShift or Operator.Exponentiation => true,
         _ => IsComparison(op),
     };
 
@@ -200,10 +201,81 @@ internal sealed class KernelBinary : KernelExpression
                 return TypeConverter.ToInt32(left) << (int) (TypeConverter.ToUint32(right) & 0x1F);
             case Operator.RightShift:
                 return TypeConverter.ToInt32(left) >> (int) (TypeConverter.ToUint32(right) & 0x1F);
+            case Operator.Exponentiation:
+                return Power(left, right);
             default:
                 return TypeConverter.ToUint32(left) >> (int) (TypeConverter.ToUint32(right) & 0x1F);
         }
     }
+
+    /// <summary>Number::exponentiate (https://tc39.es/ecma262/#sec-numeric-types-number-exponentiate), as JintBinaryExpression.Exponentiate computes it.</summary>
+    internal static double Power(double baseValue, double exponent)
+    {
+        if (double.IsNaN(exponent))
+        {
+            return double.NaN;
+        }
+
+        if (exponent == 0)
+        {
+            return 1;
+        }
+
+        if (double.IsNaN(baseValue))
+        {
+            return double.NaN;
+        }
+
+        if (double.IsPositiveInfinity(baseValue))
+        {
+            return exponent > 0 ? double.PositiveInfinity : 0;
+        }
+
+        if (double.IsNegativeInfinity(baseValue))
+        {
+            if (exponent > 0)
+            {
+                return IsOddIntegral(exponent) ? double.NegativeInfinity : double.PositiveInfinity;
+            }
+
+            return IsOddIntegral(exponent) ? -0.0 : 0;
+        }
+
+        if (baseValue == 0)
+        {
+            if (!double.IsNegative(baseValue))
+            {
+                return exponent > 0 ? 0 : double.PositiveInfinity;
+            }
+
+            if (exponent > 0)
+            {
+                return IsOddIntegral(exponent) ? -0.0 : 0;
+            }
+
+            return IsOddIntegral(exponent) ? double.NegativeInfinity : double.PositiveInfinity;
+        }
+
+        if (double.IsInfinity(exponent))
+        {
+            var absBase = Math.Abs(baseValue);
+            if (absBase == 1)
+            {
+                return double.NaN;
+            }
+
+            return (absBase > 1) == double.IsPositiveInfinity(exponent) ? double.PositiveInfinity : 0;
+        }
+
+        if (baseValue < 0 && !TypeConverter.IsIntegralNumber(exponent))
+        {
+            return double.NaN;
+        }
+
+        return Math.Pow(baseValue, exponent);
+    }
+
+    private static bool IsOddIntegral(double value) => TypeConverter.IsIntegralNumber(value) && value % 2 != 0;
 }
 
 /// <summary>
@@ -507,5 +579,127 @@ internal sealed class KernelConditional : KernelExpression
         }
 
         return test == 1 ? _consequent.Evaluate(frame, out number) : _alternate.Evaluate(frame, out number);
+    }
+}
+
+/// <summary><c>left ?? right</c> (https://tc39.es/ecma262/#sec-binary-logical-operators): the right operand only for a nullish left; pure when both are.</summary>
+internal sealed class KernelNullish : KernelExpression
+{
+    internal readonly KernelExpression _left;
+    internal readonly KernelExpression _right;
+
+    public KernelNullish(Expression expression, KernelExpression left, KernelExpression right) : base(expression)
+    {
+        _left = left;
+        _right = right;
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        var left = _left.Evaluate(frame, out number);
+        if (left is null || ReferenceEquals(left, Bail) || !left.IsNullOrUndefined())
+        {
+            return left;
+        }
+
+        return _right.Evaluate(frame, out number);
+    }
+}
+
+/// <summary><c>void argument</c>: undefined once the argument is evaluated; pure when the argument is.</summary>
+internal sealed class KernelVoid : KernelExpression
+{
+    internal readonly KernelExpression _argument;
+
+    public KernelVoid(Expression expression, KernelExpression argument) : base(expression)
+    {
+        _argument = argument;
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        number = 0;
+        var value = _argument.Evaluate(frame, out _);
+        return ReferenceEquals(value, Bail) ? Bail : JsValue.Undefined;
+    }
+
+    internal override void EvaluateDiscarded(KernelFrame frame) => _argument.EvaluateDiscarded(frame);
+}
+
+/// <summary><c>key in object</c> (https://tc39.es/ecma262/#sec-relational-operators): each operand once, in order.</summary>
+internal sealed class KernelIn : KernelExpression
+{
+    internal readonly KernelExpression _left;
+    internal readonly KernelExpression _right;
+    private readonly Node _location;
+
+    public KernelIn(NonLogicalBinaryExpression expression, KernelExpression left, KernelExpression right) : base(expression)
+    {
+        _left = left;
+        _right = right;
+        _location = KernelLocation.Fold(expression, [expression.Left, expression.Right]);
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        number = 0;
+        return Test(frame) == 1 ? JsBoolean.True : JsBoolean.False;
+    }
+
+    internal override int Test(KernelFrame frame)
+    {
+        var left = Box(_left.Evaluate(frame, out var leftNumber), leftNumber);
+        var right = Box(_right.Evaluate(frame, out var rightNumber), rightNumber);
+        frame.Context.PrepareFor(_location);
+        if (right is not ObjectInstance target)
+        {
+            Throw.TypeError(frame.Engine.Realm, $"Cannot use 'in' operator to search for '{Throw.SafeToDisplayString(left)}' in {right}");
+            return 0;
+        }
+
+        return target.HasProperty(left) ? 1 : 0;
+    }
+}
+
+/// <summary><c>delete object.name</c> and <c>delete object[key]</c>, as the interpreter deletes through a property reference.</summary>
+internal sealed class KernelDelete : KernelExpression
+{
+    internal readonly KernelExpression _object;
+    internal readonly KernelExpression? _key;
+    private readonly JsString? _name;
+
+    public KernelDelete(NonUpdateUnaryExpression expression, KernelExpression obj, KernelExpression? key, string? name) : base(expression)
+    {
+        _object = obj;
+        _key = key;
+        _name = name is null ? null : JsString.Create(name);
+    }
+
+    internal override JsValue? Evaluate(KernelFrame frame, out double number)
+    {
+        number = 0;
+        return Test(frame) == 1 ? JsBoolean.True : JsBoolean.False;
+    }
+
+    internal override int Test(KernelFrame frame)
+    {
+        var target = Box(_object.Evaluate(frame, out var targetNumber), targetNumber);
+        JsValue key = _name ?? Box(_key!.Evaluate(frame, out var keyNumber), keyNumber);
+        var engine = frame.Engine;
+        frame.Context.PrepareFor(_expression);
+        var obj = target as ObjectInstance ?? TypeConverter.ToObject(engine.Realm, target);
+        var property = _name ?? TypeConverter.ToPropertyKey(key);
+        if (obj.Delete(property))
+        {
+            return 1;
+        }
+
+        // As the interpreter's delete of a property reference: in strict code a property that stays is a TypeError.
+        if (engine.ExecutionContext.Strict)
+        {
+            Throw.TypeError(engine.Realm, $"Cannot delete property '{property}' of {obj.Type}");
+        }
+
+        return 0;
     }
 }

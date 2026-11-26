@@ -128,7 +128,7 @@ internal sealed class JintTemplateLiteralExpression : JintExpression
     /// has joined so far, without copying either string operand.
     /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static JsString Join(EvaluationContext context, JsString? deferred, ReadOnlySpan<char> text, JsString? right)
+    internal static JsString Join(EvaluationContext context, JsString? deferred, ReadOnlySpan<char> text, JsString? right)
     {
         if (text.Length > 0)
         {
@@ -149,7 +149,7 @@ internal sealed class JintTemplateLiteralExpression : JintExpression
     /// before the append that would take it there. The realm is resolved only inside the cold branch.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void CheckLength(EvaluationContext context, long length)
+    internal static void CheckLength(EvaluationContext context, long length)
     {
         if (length > JsString.MaxLength)
         {

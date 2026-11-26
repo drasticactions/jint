@@ -150,7 +150,7 @@ public class ArrayInstance : ObjectInstance, IEnumerable<JsValue>
     /// </summary>
     private void InitializePrototypeAndValidateCapacity(Engine engine, uint capacity, ArrayConstructor? constructor)
     {
-        _constructor = constructor ?? engine.Realm.Intrinsics.Array;
+        _constructor = constructor ?? engine.RunningRealm.Intrinsics.Array;
         _prototype = _constructor.PrototypeObject;
 
         // Validates against the larger of the physical backing capacity and the declared length:

@@ -61,6 +61,24 @@ internal sealed class KernelElement : KernelExpression
             }
         }
 
+        return ReadIndex(target, key, out number);
+    }
+
+    /// <summary>The element of an evaluated base at a key read purely, or <see cref="KernelExpression.Bail"/>.</summary>
+    internal static JsValue? Read(JsValue target, JsValue? key, double keyNumber, out double number)
+    {
+        if (!IsNumber(key, ref keyNumber))
+        {
+            number = 0;
+            return Bail;
+        }
+
+        return ReadIndex(target, keyNumber, out number);
+    }
+
+    private static JsValue? ReadIndex(JsValue target, double key, out double number)
+    {
+        number = 0;
         if (target is JsTypedArray typedArray)
         {
             var element = KernelCodeRuntime.ReadTypedElement(typedArray, key);
@@ -392,12 +410,18 @@ internal sealed class KernelProperty : KernelExpression
             return Bail;
         }
 
+        if (_absentLinks is { } absent && AbsentHolds(start, absent, _absentVersions!))
+        {
+            return JsValue.Undefined;
+        }
+
         var holder = _protoLinks is { } links ? PastLinks(start, links, _protoLinkVersions!) : start;
         if (holder is null || !ReferenceEquals(holder, _protoHolder) || holder._propertiesVersion != _protoHolderVersion)
         {
-            if (!CacheInherited(start))
+            var cached = CacheInherited(start);
+            if (cached <= 0)
             {
-                return Bail;
+                return cached == 0 ? JsValue.Undefined : Bail;
             }
 
             holder = _protoHolder!;
@@ -440,7 +464,7 @@ internal sealed class KernelProperty : KernelExpression
     /// Records the first object of the chain from <paramref name="start"/> that has the member, which must be an own
     /// data property, and the links before it, each of which must witness the member's absence by its version; or false.
     /// </summary>
-    private bool CacheInherited(ObjectInstance start)
+    private int CacheInherited(ObjectInstance start)
     {
         _protoHolder = null;
         _protoHolderShape = null;
@@ -454,7 +478,7 @@ internal sealed class KernelProperty : KernelExpression
             if ((holder._type & (InternalTypes.ExoticGet | InternalTypes.OwnValueHook)) != InternalTypes.Empty
                 || !ObjectInstance.VersionWitnessesOwnProperty(holder, _name))
             {
-                return false;
+                return -1;
             }
 
             var found = CacheOwn(holder);
@@ -463,9 +487,14 @@ internal sealed class KernelProperty : KernelExpression
                 break;
             }
 
-            if (found < 0 || ++passed > MaxProtoLinks || holder.GetPrototypeOf() is not { } next)
+            if (found < 0 || ++passed > MaxProtoLinks)
             {
-                return false;
+                return -1;
+            }
+
+            if (holder.GetPrototypeOf() is not { } next)
+            {
+                return CacheAbsent(start, passed) ? 0 : -1;
             }
 
             holder = next;
@@ -489,7 +518,52 @@ internal sealed class KernelProperty : KernelExpression
 
         _protoHolder = holder;
         _protoHolderVersion = holder._propertiesVersion;
+        return 1;
+    }
+
+    // A chain none of whose links has the member, with their versions, as CacheInherited last walked it.
+    private ObjectInstance[]? _absentLinks;
+    private uint[]? _absentVersions;
+
+    /// <summary>Records the <paramref name="count"/> links from <paramref name="start"/> as a chain without the member; false where a resolver may answer the read.</summary>
+    private bool CacheAbsent(ObjectInstance start, int count)
+    {
+        if (start.Engine._resolverWatchesValueBase)
+        {
+            return false;
+        }
+
+        var links = new ObjectInstance[count];
+        var versions = new uint[count];
+        var link = start;
+        for (var i = 0; i < count; i++)
+        {
+            links[i] = link;
+            versions[i] = link._propertiesVersion;
+            link = link.GetPrototypeOf()!;
+        }
+
+        _absentLinks = links;
+        _absentVersions = versions;
         return true;
+    }
+
+    /// <summary>Whether the chain from <paramref name="start"/> is the recorded one without the member, its versions unchanged.</summary>
+    private static bool AbsentHolds(ObjectInstance start, ObjectInstance[] links, uint[] versions)
+    {
+        ObjectInstance? reached = start;
+        for (var i = 0; i < links.Length; i++)
+        {
+            var link = links[i];
+            if (!ReferenceEquals(reached, link) || link._propertiesVersion != versions[i])
+            {
+                return false;
+            }
+
+            reached = link.GetPrototypeOf();
+        }
+
+        return reached is null;
     }
 
     /// <summary>1 with where <paramref name="holder"/> keeps the member recorded, 0 where it has none, -1 where it cannot be recorded.</summary>
@@ -1855,10 +1929,17 @@ internal sealed class KernelNew : KernelExpression
     internal readonly KernelExpression[] _arguments;
     private JintExpression? _handler;
 
+    // The argument list where it has a spread.
+    private readonly KernelSpreadList? _spread;
+
     public KernelNew(NewExpression expression, KernelExpression callee, KernelExpression[] arguments) : base(expression)
     {
         _callee = callee;
         _arguments = arguments;
+        if (KernelSpreadList.SpreadsOf(expression.Arguments) is { } spreads)
+        {
+            _spread = new KernelSpreadList(KernelLocation.After(expression.Callee) ?? expression, expression.Arguments, spreads, arguments);
+        }
     }
 
     private JintExpression Handler => _handler ??= JintExpression.Build(_expression);
@@ -1874,7 +1955,12 @@ internal sealed class KernelNew : KernelExpression
 
         var engine = frame.Engine;
         var arguments = _arguments;
-        if (function is ScriptFunction script && FramedState(frame, script, out var kernel) is { } state)
+        if (_spread is not null)
+        {
+            return ConstructWithSpread(frame, function);
+        }
+
+        if (function is ScriptFunction script && FramedState(frame, script, arguments.Length, out var kernel) is { } state)
         {
             return ConstructInFrame(frame, script, state, kernel!);
         }
@@ -1900,12 +1986,49 @@ internal sealed class KernelNew : KernelExpression
     [MethodImpl(MethodImplOptions.NoInlining)]
     private JsValue Interpret(KernelFrame frame) => Handler.GetValue(frame.Context);
 
+    /// <summary>The <c>new</c> with an argument list that has a spread, made as the interpreter makes it.</summary>
+    private JsValue ConstructWithSpread(KernelFrame frame, Function function)
+    {
+        var engine = frame.Engine;
+        var values = _spread!.BuildArray(frame, rent: true, out var rented);
+        var count = values.Length;
+        ObjectInstance? instance = null;
+        if (count <= 4 && function is ScriptFunction script && FramedState(frame, script, count, out var kernel) is { } state)
+        {
+            var arguments = new NumberArguments(
+                count > 0 ? values[0] : null, 0,
+                count > 1 ? values[1] : null, 0,
+                count > 2 ? values[2] : null, 0,
+                count > 3 ? values[3] : null, 0,
+                count);
+            var oldPositions = engine.MarkLastSyntaxPositions();
+            var oldSource = engine._lastSyntaxLocation.SourceFile;
+            instance = script.ConstructKernelInFrame(Handler, in arguments, state, kernel!);
+            engine.RestoreLastSyntaxElement(oldPositions, oldSource);
+        }
+
+        if (instance is null)
+        {
+            var oldSyntaxElement = engine.MarkLastSyntaxElement();
+            frame.Context.PrepareFor(_expression);
+            instance = engine.Construct(function, values, function, Handler);
+            engine.RestoreLastSyntaxElement(in oldSyntaxElement);
+        }
+
+        if (rented)
+        {
+            engine._jsValueArrayPool.ReturnArray(values);
+        }
+
+        return instance;
+    }
+
     /// <summary>The state of an ordinary function whose body runs on a kernel in its frames, which a <c>new</c> then calls straight into; or null.</summary>
-    private JintFunctionDefinition.State? FramedState(KernelFrame frame, ScriptFunction function, out FunctionKernel? kernel)
+    private static JintFunctionDefinition.State? FramedState(KernelFrame frame, ScriptFunction function, int count, out FunctionKernel? kernel)
     {
         var engine = frame.Engine;
         kernel = function._functionDefinition?._kernel;
-        return _arguments.Length <= 4
+        return count <= 4
                && function._constructorKind == ConstructorKind.Base
                && !function._isClassConstructor
                && kernel is not null
